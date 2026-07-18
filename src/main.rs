@@ -1,5 +1,6 @@
 mod app;
 mod finder;
+mod git;
 mod tree;
 mod ui;
 mod viewer;

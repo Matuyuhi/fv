@@ -23,9 +23,11 @@ enum NodeKind {
 }
 
 /// 展開状態を反映した表示用の1行。index_path で実ノードを引く。
+/// path は git 状態 (HashMap<PathBuf, _>) のキーと突き合わせるための絶対パス。
 pub struct Row {
     index_path: Vec<usize>,
     pub name: String,
+    pub path: PathBuf,
     pub depth: usize,
     pub is_dir: bool,
     pub expanded: bool,
@@ -119,6 +121,7 @@ fn flatten(nodes: &[Node], depth: usize, prefix: &mut Vec<usize>, rows: &mut Vec
             NodeKind::File => rows.push(Row {
                 index_path: prefix.clone(),
                 name: node.name.clone(),
+                path: node.path.clone(),
                 depth,
                 is_dir: false,
                 expanded: false,
@@ -127,6 +130,7 @@ fn flatten(nodes: &[Node], depth: usize, prefix: &mut Vec<usize>, rows: &mut Vec
                 rows.push(Row {
                     index_path: prefix.clone(),
                     name: node.name.clone(),
+                    path: node.path.clone(),
                     depth,
                     is_dir: true,
                     expanded: *expanded,

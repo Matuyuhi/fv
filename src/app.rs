@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::finder::Finder;
+use crate::git::{self, GitStatus};
 use crate::tree::Tree;
 use crate::viewer::Viewer;
 use crate::watch::FsWatcher;
@@ -37,6 +38,8 @@ pub struct App {
     pub mode: Mode,
     pub tree: Tree,
     pub viewer: Viewer,
+    // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
+    pub git: Option<GitStatus>,
     pub should_quit: bool,
     // g 待ち状態。Mode を増やすほどのものではないので App の小さなフラグで持つ
     pub pending_g: bool,
@@ -50,12 +53,14 @@ impl App {
         let tree = Tree::new(&root);
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
         let watcher = FsWatcher::new(&root);
+        let git = git::file_statuses(&root);
         Self {
             root,
             focus: Focus::Tree,
             mode: Mode::Normal,
             tree,
             viewer: Viewer::new(),
+            git,
             should_quit: false,
             pending_g: false,
             watcher,
@@ -83,6 +88,8 @@ impl App {
 
         if self.rescan_pending && self.last_rescan.elapsed() >= RESCAN_DEBOUNCE {
             self.tree.rescan(&self.root);
+            // rescan と同じ間引きに相乗りさせ、別タイマーは作らない
+            self.git = git::file_statuses(&self.root);
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
         }

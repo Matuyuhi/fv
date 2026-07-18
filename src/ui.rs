@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -6,6 +8,7 @@ use ratatui::Frame;
 
 use crate::app::{App, Focus, InputKind, Mode};
 use crate::finder::Finder;
+use crate::git::FileStatus;
 use crate::viewer::{Content, SearchState};
 
 // 通常マッチ/カレントマッチのハイライト色
@@ -44,6 +47,7 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| app.root.display().to_string());
+    let git = app.git.as_ref();
     let items: Vec<ListItem> = app
         .tree
         .visible
@@ -58,9 +62,18 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             } else {
                 "  "
             };
-            let label = format!("{}{}{}", "  ".repeat(row.depth), marker, row.name);
+            // ディレクトリは git.files に直接エントリを持たないため自然に None になる
+            let file_status = git.and_then(|g| g.files.get(&row.path).copied());
+            let prefix = file_status.map(status_prefix).unwrap_or("");
+            let label = format!("{}{}{}{}", "  ".repeat(row.depth), marker, prefix, row.name);
             let style = if row.is_dir {
-                Style::default().fg(Color::Blue)
+                let has_changes = git.is_some_and(|g| g.changed_dirs.contains(&row.path));
+                let color = if has_changes { Color::Yellow } else { Color::Blue };
+                Style::default().fg(color)
+            } else if let Some(status) = file_status {
+                Style::default()
+                    .fg(status_color(status))
+                    .add_modifier(Modifier::DIM)
             } else {
                 Style::default()
             };
@@ -77,6 +90,25 @@ fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     let selected = (!app.tree.visible.is_empty()).then_some(app.tree.selected);
     app.tree.list_state.select(selected);
     frame.render_stateful_widget(list, area, &mut app.tree.list_state);
+}
+
+// ツリーの行頭に置く1文字+空白のマーカー
+fn status_prefix(status: FileStatus) -> &'static str {
+    match status {
+        FileStatus::Modified => "M ",
+        FileStatus::Added => "A ",
+        FileStatus::Untracked => "? ",
+        FileStatus::Deleted => "D ",
+        FileStatus::Renamed => "R ",
+    }
+}
+
+fn status_color(status: FileStatus) -> Color {
+    match status {
+        FileStatus::Modified => Color::Yellow,
+        FileStatus::Added | FileStatus::Untracked | FileStatus::Renamed => Color::Green,
+        FileStatus::Deleted => Color::Red,
+    }
 }
 
 fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -99,7 +131,10 @@ fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
             let start = app.viewer.scroll.min(lines.len().saturating_sub(1));
             let end = (start + inner_height).min(lines.len());
             let visible: Vec<Line> = (start..end)
-                .map(|i| highlight_matches(&lines[i], i, &app.viewer.search))
+                .map(|i| {
+                    let line = mark_changed_line(&lines[i], i, &open.changed_lines);
+                    highlight_matches(&line, i, &app.viewer.search)
+                })
                 .collect();
             let paragraph = Paragraph::new(visible)
                 .block(block)
@@ -251,6 +286,30 @@ fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
     let selected = (!finder.matches.is_empty()).then_some(finder.selected);
     finder.list_state.select(selected);
     frame.render_stateful_widget(list, area, &mut finder.list_state);
+}
+
+// gutter span (span[0]) の末尾1文字 (常に半角空白) を変更行マーカーに置き換えた
+// 新しい Line を返す。キャッシュ済みの Line 自体は変更しない。span 数・各 span の
+// 文字数はどちらも変わらないため、highlight_matches の列計算 (span[0] を除外して
+// col=0 から数える) には影響しない
+fn mark_changed_line(line: &Line<'static>, line_idx: usize, changed: &Option<HashSet<usize>>) -> Line<'static> {
+    let is_changed = changed
+        .as_ref()
+        .is_some_and(|lines| lines.contains(&(line_idx + 1)));
+    if !is_changed {
+        return line.clone();
+    }
+    let Some(gutter) = line.spans.first() else {
+        return line.clone();
+    };
+    let mut text = gutter.content.to_string();
+    text.pop();
+    text.push('▎');
+
+    let mut spans = Vec::with_capacity(line.spans.len());
+    spans.push(Span::styled(text, Style::default().fg(Color::Cyan)));
+    spans.extend(line.spans.iter().skip(1).cloned());
+    Line::from(spans)
 }
 
 // マッチした char (positions は昇順) を強調色で塗った span 列を組み立てる

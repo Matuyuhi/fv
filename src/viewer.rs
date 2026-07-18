@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -9,6 +9,8 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
+
+use crate::git;
 
 /// これを超えるファイルはハイライトせずプレーン表示する
 const MAX_HIGHLIGHT_BYTES: usize = 10 * 1024 * 1024;
@@ -30,6 +32,8 @@ pub struct Open {
     pub title: String,
     pub path: PathBuf,
     pub content: Rc<Content>,
+    // 変更行番号 (1-origin)。git 情報が取れない場合は None のままガター表示を素通しする
+    pub changed_lines: Option<HashSet<usize>>,
 }
 
 /// 1件のマッチ位置。列は plain の char 単位インデックス (gutter は含まない)
@@ -57,6 +61,9 @@ pub struct Viewer {
     pub viewport_height: usize,
     // ファイルごとではなく viewer に1つだけ持つ検索状態
     pub search: Option<SearchState>,
+    // open() の度に更新される root。reload() は path しか受け取らないので、
+    // changed_lines の再取得に使う root をここに保持しておく
+    root: PathBuf,
 }
 
 impl Viewer {
@@ -74,6 +81,7 @@ impl Viewer {
             scroll: 0,
             viewport_height: 0,
             search: None,
+            root: PathBuf::new(),
         }
     }
 
@@ -91,6 +99,7 @@ impl Viewer {
                 return;
             }
         }
+        self.root = root.to_path_buf();
         let title = path.strip_prefix(root).unwrap_or(path).display().to_string();
         let content = match self.cache.get(path) {
             Some(cached) => Rc::clone(cached),
@@ -105,6 +114,7 @@ impl Viewer {
             title,
             path: path.to_path_buf(),
             content,
+            changed_lines: git::changed_lines(root, path),
         });
         self.recompute_search();
     }
@@ -119,8 +129,10 @@ impl Viewer {
         }
         let loaded = Rc::new(self.load(path));
         self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
+        let changed_lines = git::changed_lines(&self.root, path);
         if let Some(open) = &mut self.current {
             open.content = loaded;
+            open.changed_lines = changed_lines;
         }
         let last = self.line_count().saturating_sub(1);
         self.scroll = self.scroll.min(last);
