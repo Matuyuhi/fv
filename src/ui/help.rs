@@ -27,6 +27,8 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("Tab", "フォーカス切替 (Tree/Viewer)"),
             ("Ctrl+p", "ファインダーを開く"),
             ("?", "このヘルプを開く"),
+            ("a", "隠し項目の表示を切替"),
+            ("-a, --hidden", "起動時に隠し項目を表示"),
         ],
     );
     push_help_section(

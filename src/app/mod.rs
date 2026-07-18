@@ -37,10 +37,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root: PathBuf) -> Self {
-        let tree = Tree::new(&root);
+    pub fn new(root: PathBuf, show_hidden: bool) -> Self {
+        let tree = Tree::new(&root, show_hidden);
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
-        let watcher = FsWatcher::new(&root);
+        let watcher = FsWatcher::new(&root, show_hidden);
         let git = git::file_statuses(&root);
         Self {
             root,
@@ -88,5 +88,13 @@ impl App {
     fn rescan(&mut self) {
         self.tree.rescan(&self.root);
         self.git = git::file_statuses(&self.root);
+    }
+
+    pub fn toggle_hidden(&mut self) {
+        let show_hidden = self.tree.toggle_hidden(&self.root);
+        // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。
+        self.watcher = FsWatcher::new(&self.root, show_hidden);
+        self.last_rescan = Instant::now();
+        self.rescan_pending = false;
     }
 }

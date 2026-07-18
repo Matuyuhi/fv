@@ -58,8 +58,8 @@ fn normal_status_line(app: &App) -> Line<'static> {
     }
     // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {
-        Focus::Tree => "j/k: move  h/l: collapse/expand  Enter: open  Tab: focus  q: quit  ?: help",
-        Focus::Viewer => "j/k: scroll  w: wrap  /: search  Tab: focus  q: quit  ?: help",
+        Focus::Tree => "j/k: move  h/l: collapse/expand  a: hidden  Tab: focus  q: quit  ?: help",
+        Focus::Viewer => "j/k: scroll  w: wrap  /: search  a: hidden  Tab: focus  q: quit  ?: help",
     };
     Line::from(hint)
 }

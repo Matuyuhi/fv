@@ -12,12 +12,13 @@ pub struct FsWatcher {
     rx: Receiver<notify::Result<Event>>,
     root: PathBuf,
     ignore: Option<Gitignore>,
+    show_hidden: bool,
 }
 
 impl FsWatcher {
     /// 監視の開始に失敗しても None を返すだけで、呼び出し側は
     /// 監視なしでアプリを起動し続けられるようにする。
-    pub fn new(root: &Path) -> Option<Self> {
+    pub fn new(root: &Path, show_hidden: bool) -> Option<Self> {
         let (tx, rx) = channel();
         let mut watcher = notify::recommended_watcher(move |res| {
             let _ = tx.send(res);
@@ -30,6 +31,7 @@ impl FsWatcher {
             rx,
             root: root.to_path_buf(),
             ignore: build_gitignore(root),
+            show_hidden,
         })
     }
 
@@ -52,9 +54,10 @@ impl FsWatcher {
         let Ok(rel) = path.strip_prefix(&self.root) else {
             return false;
         };
-        if rel
-            .iter()
-            .any(|component| component.to_string_lossy().starts_with('.'))
+        if !self.show_hidden
+            && rel
+                .iter()
+                .any(|component| component.to_string_lossy().starts_with('.'))
         {
             return true;
         }
