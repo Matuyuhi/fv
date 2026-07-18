@@ -87,12 +87,17 @@ impl App {
         }
 
         if self.rescan_pending && self.last_rescan.elapsed() >= RESCAN_DEBOUNCE {
-            self.tree.rescan(&self.root);
-            // rescan と同じ間引きに相乗りさせ、別タイマーは作らない
-            self.git = git::file_statuses(&self.root);
+            self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
         }
+    }
+
+    /// ツリーと git status をまとめて再取得する。FS 監視の間引き後と、
+    /// 手動再走査 (r キー) の両方から呼ばれる共通処理。
+    fn rescan(&mut self) {
+        self.tree.rescan(&self.root);
+        self.git = git::file_statuses(&self.root);
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -243,6 +248,14 @@ impl App {
     }
 
     fn on_tree_key(&mut self, key: KeyEvent) {
+        // g 待ち状態は viewer と同じフラグを共用する (Tab を跨ぐと on_key 側で破棄される)
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                self.tree.select_top();
+                return;
+            }
+        }
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.tree.move_selection(1),
             KeyCode::Char('k') | KeyCode::Up => self.tree.move_selection(-1),
@@ -250,6 +263,22 @@ impl App {
                 if let Some(path) = self.tree.toggle_or_open() {
                     self.viewer.open(&path, &self.root);
                 }
+            }
+            KeyCode::Char('l') | KeyCode::Right => {
+                if let Some(path) = self.tree.expand_or_enter() {
+                    self.viewer.open(&path, &self.root);
+                }
+            }
+            KeyCode::Char('h') | KeyCode::Left => self.tree.collapse_or_parent(),
+            KeyCode::Char('H') => self.tree.select_parent_and_collapse(),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => self.tree.select_bottom(),
+            // 手動再走査。FS 監視のデバウンスは効かないので直後の自動再走査は起こさないよう
+            // タイマーもここで揃えておく
+            KeyCode::Char('r') => {
+                self.rescan();
+                self.last_rescan = Instant::now();
+                self.rescan_pending = false;
             }
             _ => {}
         }

@@ -69,6 +69,83 @@ impl Tree {
         }
     }
 
+    /// 選択がディレクトリで未展開なら展開のみ行い選択は動かさない (l を連打して
+    /// 一段ずつ潜れるようにするため)。展開済みなら最初の子へ移動。ファイルなら
+    /// toggle_or_open と同じくパスを返して呼び出し側で開かせる。
+    pub fn expand_or_enter(&mut self) -> Option<PathBuf> {
+        let row = self.visible.get(self.selected)?;
+        let is_dir = row.is_dir;
+        let expanded = row.expanded;
+        let depth = row.depth;
+        if !is_dir {
+            return self.toggle_or_open();
+        }
+        if expanded {
+            if let Some(next) = self.visible.get(self.selected + 1) {
+                if next.depth == depth + 1 {
+                    self.selected += 1;
+                }
+            }
+            None
+        } else {
+            self.toggle_or_open()
+        }
+    }
+
+    /// 選択がディレクトリで展開済みなら折りたたむ。それ以外 (ファイル・未展開
+    /// ディレクトリ) なら親ディレクトリの行へ選択を移動する。
+    pub fn collapse_or_parent(&mut self) {
+        let Some(row) = self.visible.get(self.selected) else {
+            return;
+        };
+        if row.is_dir && row.expanded {
+            self.toggle_or_open();
+        } else {
+            self.select_parent();
+        }
+    }
+
+    /// 親ディレクトリの行へ選択を移動したうえで折りたたむ。ranger 等の H 相当。
+    pub fn select_parent_and_collapse(&mut self) {
+        if !self.select_parent() {
+            return;
+        }
+        if let Some(row) = self.visible.get(self.selected) {
+            if row.is_dir && row.expanded {
+                self.toggle_or_open();
+            }
+        }
+    }
+
+    /// 選択を先頭行へ移動する (gg)。
+    pub fn select_top(&mut self) {
+        self.selected = 0;
+    }
+
+    /// 選択を末尾行へ移動する (G)。
+    pub fn select_bottom(&mut self) {
+        self.selected = self.visible.len().saturating_sub(1);
+    }
+
+    /// visible 上で現在行より上方向にある、depth が1小さい直近の行へ選択を移す。
+    /// 見つかれば true (トップレベル行では親がないので false)。
+    fn select_parent(&mut self) -> bool {
+        let Some(depth) = self.visible.get(self.selected).map(|r| r.depth) else {
+            return false;
+        };
+        if depth == 0 {
+            return false;
+        }
+        let Some(idx) = self.visible[..self.selected]
+            .iter()
+            .rposition(|r| r.depth == depth - 1)
+        else {
+            return false;
+        };
+        self.selected = idx;
+        true
+    }
+
     /// ファイルシステム変更を検知した際に再走査する。展開中ディレクトリと
     /// 選択位置は path で覚えておき、再構築後に付け直す
     /// (走査順が変わりうるため index_path はそのまま使い回せない)。

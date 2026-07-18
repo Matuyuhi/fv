@@ -206,7 +206,9 @@ fn normal_status_line(app: &App) -> Line<'static> {
         }
     }
     let hint = match app.focus {
-        Focus::Tree => "j/k: move  Enter: open/expand  Tab: focus  q: quit",
+        Focus::Tree => {
+            "j/k: move  h/l: collapse/expand  H: to parent  gg/G: top/bottom  r: rescan  Enter: open  Tab: focus  q: quit"
+        }
         Focus::Viewer => {
             "j/k: scroll  Ctrl+d/u: page  gg/G: top/bottom  /: search  :: goto  Tab: focus  q: quit"
         }
