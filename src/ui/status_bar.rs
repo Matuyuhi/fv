@@ -56,13 +56,10 @@ fn normal_status_line(app: &App) -> Line<'static> {
             search.matches.len()
         ));
     }
+    // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {
-        Focus::Tree => {
-            "j/k: move  h/l: collapse/expand  H: to parent  gg/G: top/bottom  r: rescan  Enter: open  Tab: focus  q: quit  ?: help"
-        }
-        Focus::Viewer => {
-            "j/k: scroll  w: wrap  h/l: hscroll  gg/G: top/bottom  /: search  n/N: match  :N: goto  Ctrl+d/u: page  Ctrl+o/i: history  Tab: focus  q: quit  ?: help"
-        }
+        Focus::Tree => "j/k: move  h/l: collapse/expand  Enter: open  Tab: focus  q: quit  ?: help",
+        Focus::Viewer => "j/k: scroll  w: wrap  /: search  Tab: focus  q: quit  ?: help",
     };
     Line::from(hint)
 }
