@@ -213,7 +213,7 @@ fn normal_status_line(app: &App) -> Line<'static> {
             "j/k: move  h/l: collapse/expand  H: to parent  gg/G: top/bottom  r: rescan  Enter: open  Tab: focus  q: quit"
         }
         Focus::Viewer => {
-            "j/k: scroll  Ctrl+d/u: page  gg/G: top/bottom  /: search  :: goto  Tab: focus  q: quit"
+            "j/k: scroll  gg/G: top/bottom  /: search  n/N: match  :N: goto  Ctrl+d/u: page  Ctrl+o/i: history  Tab: focus  q: quit"
         }
     };
     Line::from(hint)

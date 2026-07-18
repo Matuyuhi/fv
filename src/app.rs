@@ -353,6 +353,13 @@ impl App {
         match key.code {
             KeyCode::Char('d') if ctrl => self.viewer.scroll_by(half_page),
             KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
+            // Ctrl+o: 履歴を戻る。Backspace は同じ操作の代替キー
+            KeyCode::Char('o') if ctrl => self.viewer.back(),
+            KeyCode::Backspace => self.viewer.back(),
+            // Ctrl+i: 履歴を進む。多くの端末では Ctrl+i が Tab (0x09) と同一バイトで届き
+            // KeyCode::Tab として解釈されるため、この分岐が発火しない環境がある。
+            // Tab はフォーカス切り替えに使っているため奪えず、この制約は許容する
+            KeyCode::Char('i') if ctrl => self.viewer.forward(),
             KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
             KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
             KeyCode::Char('g') if self.viewer.is_text() => self.pending_g = true,

@@ -16,6 +16,8 @@ use crate::git;
 const MAX_HIGHLIGHT_BYTES: usize = 10 * 1024 * 1024;
 /// バイナリ判定で先頭から NUL バイトを探す範囲
 const BINARY_SNIFF_BYTES: usize = 8192;
+/// 履歴スタックの上限件数。vim の jumplist に倣い、超えたら古い方から捨てる
+const HISTORY_LIMIT: usize = 50;
 
 pub enum Content {
     // plain は normalize 済み (タブ展開後) の行文字列。lines の span と桁位置が一致するので、
@@ -64,6 +66,14 @@ pub struct Viewer {
     // open() の度に更新される root。reload() は path しか受け取らないので、
     // changed_lines の再取得に使う root をここに保持しておく
     root: PathBuf,
+    // 開いたファイルの履歴 (jumplist)。history[history_index] が現在位置。
+    // 通常の open() は history_index より後ろ (進む方向の履歴) を切り捨てて末尾に積む。
+    // history が空の間は history_index は未使用 (0 のまま)
+    history: Vec<PathBuf>,
+    history_index: usize,
+    // ファイルごとの最後の scroll 位置。Ctrl+o/i で履歴を移動した時だけ復元に使う
+    // (通常の open では常に先頭から表示する既存挙動を変えないため)
+    last_scroll: HashMap<PathBuf, usize>,
 }
 
 impl Viewer {
@@ -82,6 +92,9 @@ impl Viewer {
             viewport_height: 0,
             search: None,
             root: PathBuf::new(),
+            history: Vec::new(),
+            history_index: 0,
+            last_scroll: HashMap::new(),
         }
     }
 
@@ -99,6 +112,64 @@ impl Viewer {
                 return;
             }
         }
+        // 通常の open (ツリー/ファインダー/クリック経由) は既存挙動どおり常に先頭から表示する。
+        // scroll 位置だけは離れる前に記録しておき、後で Ctrl+o/i で戻ってきた時に復元する
+        self.record_scroll();
+        self.push_history(path);
+        self.set_current(path, root, 0);
+    }
+
+    /// Ctrl+o: 履歴を1つ戻る。先頭にいる場合は no-op
+    pub fn back(&mut self) {
+        if self.history_index == 0 {
+            return;
+        }
+        self.record_scroll();
+        self.history_index -= 1;
+        self.open_from_history();
+    }
+
+    /// Ctrl+i: 履歴を1つ進む。末尾にいる場合は no-op
+    pub fn forward(&mut self) {
+        if self.history.is_empty() || self.history_index + 1 >= self.history.len() {
+            return;
+        }
+        self.record_scroll();
+        self.history_index += 1;
+        self.open_from_history();
+    }
+
+    // 現在開いているファイルの scroll 位置を記録する。ファイルを離れる直前 (open/back/forward) に呼ぶ
+    fn record_scroll(&mut self) {
+        if let Some(open) = &self.current {
+            self.last_scroll.insert(open.path.clone(), self.scroll);
+        }
+    }
+
+    // 履歴スタックに新規ファイルを積む。ブラウザ履歴と同じく、現在位置より後ろ (進む方向) は
+    // 切り捨ててから末尾に追加する。呼び出し元 (open) で「同一ファイルの連続 open」は
+    // 早期 return 済みなので、ここでは単純に追加してよい
+    fn push_history(&mut self, path: &Path) {
+        if !self.history.is_empty() {
+            self.history.truncate(self.history_index + 1);
+        }
+        self.history.push(path.to_path_buf());
+        if self.history.len() > HISTORY_LIMIT {
+            self.history.remove(0);
+        }
+        self.history_index = self.history.len() - 1;
+    }
+
+    // history[history_index] を、記録済みの scroll 位置を復元しつつ開く
+    fn open_from_history(&mut self) {
+        let path = self.history[self.history_index].clone();
+        let root = self.root.clone();
+        let scroll = self.last_scroll.get(&path).copied().unwrap_or(0);
+        self.set_current(&path, &root, scroll);
+    }
+
+    // open/back/forward 共通の「ファイルを実際に表示状態にする」処理
+    fn set_current(&mut self, path: &Path, root: &Path, scroll: usize) {
         self.root = root.to_path_buf();
         let title = path.strip_prefix(root).unwrap_or(path).display().to_string();
         let content = match self.cache.get(path) {
@@ -109,7 +180,7 @@ impl Viewer {
                 loaded
             }
         };
-        self.scroll = 0;
+        self.scroll = scroll;
         self.current = Some(Open {
             title,
             path: path.to_path_buf(),
