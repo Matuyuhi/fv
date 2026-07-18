@@ -16,10 +16,11 @@ pub enum Focus {
     Viewer,
 }
 
-// 今回は Search のみだが、行ジャンプ等の別入力を後で足せるように kind で分けておく
+// Search と Goto (:N 行ジャンプ) の入力を kind で分ける
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InputKind {
     Search,
+    Goto,
 }
 
 pub enum Mode {
@@ -34,6 +35,8 @@ pub struct App {
     pub tree: Tree,
     pub viewer: Viewer,
     pub should_quit: bool,
+    // g 待ち状態。Mode を増やすほどのものではないので App の小さなフラグで持つ
+    pub pending_g: bool,
     watcher: Option<FsWatcher>,
     last_rescan: Instant,
     rescan_pending: bool,
@@ -51,6 +54,7 @@ impl App {
             tree,
             viewer: Viewer::new(),
             should_quit: false,
+            pending_g: false,
             watcher,
             last_rescan: Instant::now(),
             rescan_pending: false,
@@ -99,6 +103,8 @@ impl App {
                 return;
             }
             KeyCode::Tab => {
+                // フォーカスを跨ぐと g 待ちの文脈は失われるので破棄する
+                self.pending_g = false;
                 self.focus = match self.focus {
                     Focus::Tree => Focus::Viewer,
                     Focus::Viewer => Focus::Tree,
@@ -121,8 +127,9 @@ impl App {
                 self.cancel_input(kind);
             }
             KeyCode::Enter => {
-                self.mode = Mode::Normal;
+                // Goto は confirm 時に buffer を読むので、Mode を Normal に戻す前に確定処理を行う
                 self.confirm_input(kind);
+                self.mode = Mode::Normal;
             }
             KeyCode::Backspace => {
                 if let Mode::Input { buffer, .. } = &mut self.mode {
@@ -131,6 +138,10 @@ impl App {
                 self.live_update_input(kind);
             }
             KeyCode::Char(c) => {
+                // Goto は行番号入力なので数字以外は無視する
+                if kind == InputKind::Goto && !c.is_ascii_digit() {
+                    return;
+                }
                 if let Mode::Input { buffer, .. } = &mut self.mode {
                     buffer.push(c);
                 }
@@ -143,12 +154,22 @@ impl App {
     fn cancel_input(&mut self, kind: InputKind) {
         match kind {
             InputKind::Search => self.viewer.cancel_search(),
+            // Goto は確定時にしか状態を変えないので、キャンセル時に戻すものがない
+            InputKind::Goto => {}
         }
     }
 
     fn confirm_input(&mut self, kind: InputKind) {
         match kind {
             InputKind::Search => self.viewer.confirm_search(),
+            InputKind::Goto => {
+                // buffer は数字のみ。空文字列や "0" は parse/goto_line 側で no-op になる
+                if let Mode::Input { buffer, .. } = &self.mode {
+                    if let Ok(line_no) = buffer.parse::<usize>() {
+                        self.viewer.goto_line(line_no);
+                    }
+                }
+            }
         }
     }
 
@@ -160,6 +181,8 @@ impl App {
                     self.viewer.update_search(&query);
                 }
             }
+            // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
+            InputKind::Goto => {}
         }
     }
 
@@ -177,12 +200,28 @@ impl App {
     }
 
     fn on_viewer_key(&mut self, key: KeyEvent, ctrl: bool) {
+        // g 待ち状態: 続く g で先頭へ。それ以外のキーは待ちを解除した上で下の通常処理に流す
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') && self.viewer.is_text() {
+                self.viewer.jump_to_top();
+                return;
+            }
+        }
         let half_page = (self.viewer.viewport_height / 2).max(1) as isize;
         match key.code {
             KeyCode::Char('d') if ctrl => self.viewer.scroll_by(half_page),
             KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
             KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
             KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
+            KeyCode::Char('g') if self.viewer.is_text() => self.pending_g = true,
+            KeyCode::Char('G') if self.viewer.is_text() => self.viewer.jump_to_bottom(),
+            KeyCode::Char(':') if self.viewer.is_text() => {
+                self.mode = Mode::Input {
+                    kind: InputKind::Goto,
+                    buffer: String::new(),
+                };
+            }
             KeyCode::Char('/') if self.viewer.is_text() => {
                 self.mode = Mode::Input {
                     kind: InputKind::Search,

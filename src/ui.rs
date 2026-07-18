@@ -122,6 +122,10 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             kind: InputKind::Search,
             buffer,
         } => search_input_line(buffer),
+        Mode::Input {
+            kind: InputKind::Goto,
+            buffer,
+        } => goto_input_line(buffer),
         Mode::Normal => normal_status_line(app),
     };
     let paragraph =
@@ -137,7 +141,19 @@ fn search_input_line(buffer: &str) -> Line<'static> {
     ])
 }
 
+fn goto_input_line(buffer: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(format!(":{buffer}")),
+        // 常に末尾に立つ簡易カーソル (このアプリの入力は末尾への追記のみ)
+        Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
+    ])
+}
+
 fn normal_status_line(app: &App) -> Line<'static> {
+    // g 待ち状態は vim の pending 表示相当。他のステータスより優先して出す
+    if app.pending_g {
+        return Line::from("g");
+    }
     if let Some(search) = &app.viewer.search {
         if let Some(current) = search.current {
             return Line::from(format!(
@@ -150,7 +166,9 @@ fn normal_status_line(app: &App) -> Line<'static> {
     }
     let hint = match app.focus {
         Focus::Tree => "j/k: move  Enter: open/expand  Tab: focus  q: quit",
-        Focus::Viewer => "j/k: scroll  Ctrl+d/u: page  /: search  Tab: focus  q: quit",
+        Focus::Viewer => {
+            "j/k: scroll  Ctrl+d/u: page  gg/G: top/bottom  /: search  :: goto  Tab: focus  q: quit"
+        }
     };
     Line::from(hint)
 }

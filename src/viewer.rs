@@ -132,6 +132,29 @@ impl Viewer {
         self.scroll = (self.scroll as isize + delta).clamp(0, last) as usize;
     }
 
+    /// gg: ファイル先頭へ
+    pub fn jump_to_top(&mut self) {
+        self.scroll = 0;
+    }
+
+    /// G: 最終行が viewport の下端に来る位置へ。ファイルが viewport より短ければ先頭のまま
+    pub fn jump_to_bottom(&mut self) {
+        let total = self.line_count();
+        let last = total.saturating_sub(1);
+        let bottom = total.saturating_sub(self.viewport_height);
+        self.scroll = bottom.min(last);
+    }
+
+    /// :N の行ジャンプ。1-origin。範囲外は最終行にクランプ。0 は no-op (呼び出し側でも弾いているが念のため)
+    pub fn goto_line(&mut self, line_no: usize) {
+        if line_no == 0 {
+            return;
+        }
+        let last = self.line_count().saturating_sub(1);
+        let target = (line_no - 1).min(last);
+        self.center_on(target);
+    }
+
     pub fn line_count(&self) -> usize {
         match &self.current {
             Some(open) => match open.content.as_ref() {
