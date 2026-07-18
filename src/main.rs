@@ -13,7 +13,7 @@ use std::panic;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     install_panic_hook();
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen)?;
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     let result = run(&mut terminal, &mut app);
@@ -46,10 +46,10 @@ fn run(
         // poll がタイムアウトしても 100ms 周期でループが回り、その都度 watcher を drain する。
         // これがそのまま再描画・自動リロードのポーリング間隔にもなる
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key);
-                }
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => app.on_key(key),
+                Event::Mouse(mouse) => app.on_mouse(mouse),
+                _ => {}
             }
         }
         app.on_tick();
@@ -70,7 +70,7 @@ fn resolve_root() -> Result<PathBuf, Box<dyn Error>> {
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
 }
 
 // panic 時も端末を alternate screen / raw mode のまま残さないための hook。

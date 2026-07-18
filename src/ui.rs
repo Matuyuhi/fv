@@ -21,6 +21,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(full);
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]).areas(main);
+    // マウスのヒットテスト用に、次の on_mouse で使えるよう書き戻す (viewport_height と同じパターン)
+    app.tree_area = left;
+    app.viewer_area = right;
     draw_tree(frame, app, left);
     draw_viewer(frame, app, right);
     draw_status_bar(frame, app, status);
