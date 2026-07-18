@@ -16,7 +16,12 @@ const MAX_HIGHLIGHT_BYTES: usize = 10 * 1024 * 1024;
 const BINARY_SNIFF_BYTES: usize = 8192;
 
 pub enum Content {
-    Text { lines: Vec<Line<'static>> },
+    // plain は normalize 済み (タブ展開後) の行文字列。lines の span と桁位置が一致するので、
+    // 検索マッチの char 列インデックスをそのままハイライト適用に使い回せる
+    Text {
+        lines: Vec<Line<'static>>,
+        plain: Vec<String>,
+    },
     Binary,
     Error(String),
 }
@@ -25,6 +30,20 @@ pub struct Open {
     pub title: String,
     pub path: PathBuf,
     pub content: Rc<Content>,
+}
+
+/// 1件のマッチ位置。列は plain の char 単位インデックス (gutter は含まない)
+pub struct Match {
+    pub line: usize,
+    pub start_col: usize,
+    pub end_col: usize,
+}
+
+pub struct SearchState {
+    pub query: String,
+    pub matches: Vec<Match>,
+    // Enter で確定した後にだけ Some。n/N で動かす現在位置
+    pub current: Option<usize>,
 }
 
 pub struct Viewer {
@@ -36,6 +55,8 @@ pub struct Viewer {
     pub scroll: usize,
     // 描画時に ui 側が実測値を書き戻す。Ctrl+d/u の半ページ量の算出用
     pub viewport_height: usize,
+    // ファイルごとではなく viewer に1つだけ持つ検索状態
+    pub search: Option<SearchState>,
 }
 
 impl Viewer {
@@ -52,6 +73,7 @@ impl Viewer {
             current: None,
             scroll: 0,
             viewport_height: 0,
+            search: None,
         }
     }
 
@@ -84,6 +106,7 @@ impl Viewer {
             path: path.to_path_buf(),
             content,
         });
+        self.recompute_search();
     }
 
     /// 外部変更を検知したファイルを読み直す。current が同じファイルなら
@@ -101,6 +124,7 @@ impl Viewer {
         }
         let last = self.line_count().saturating_sub(1);
         self.scroll = self.scroll.min(last);
+        self.recompute_search();
     }
 
     pub fn scroll_by(&mut self, delta: isize) {
@@ -111,10 +135,116 @@ impl Viewer {
     pub fn line_count(&self) -> usize {
         match &self.current {
             Some(open) => match open.content.as_ref() {
-                Content::Text { lines } => lines.len(),
+                Content::Text { lines, .. } => lines.len(),
                 _ => 0,
             },
             None => 0,
+        }
+    }
+
+    pub fn is_text(&self) -> bool {
+        matches!(
+            self.current.as_ref().map(|open| open.content.as_ref()),
+            Some(Content::Text { .. })
+        )
+    }
+
+    /// Search 入力中のライブプレビュー。マッチを再計算するだけでジャンプはしない
+    pub fn update_search(&mut self, query: &str) {
+        if query.is_empty() {
+            self.search = None;
+            return;
+        }
+        let matches = self.compute_matches(query);
+        self.search = Some(SearchState {
+            query: query.to_string(),
+            matches,
+            current: None,
+        });
+    }
+
+    /// Enter で確定。現在のスクロール位置以降の最初のマッチへジャンプ (なければ先頭へ wrap)
+    pub fn confirm_search(&mut self) {
+        let Some(search) = &self.search else {
+            return;
+        };
+        if search.matches.is_empty() {
+            return;
+        }
+        let scroll = self.scroll;
+        let idx = search
+            .matches
+            .iter()
+            .position(|m| m.line >= scroll)
+            .unwrap_or(0);
+        let line = search.matches[idx].line;
+        if let Some(search) = &mut self.search {
+            search.current = Some(idx);
+        }
+        self.center_on(line);
+    }
+
+    pub fn cancel_search(&mut self) {
+        self.search = None;
+    }
+
+    pub fn next_match(&mut self) {
+        self.step_match(1);
+    }
+
+    pub fn prev_match(&mut self) {
+        self.step_match(-1);
+    }
+
+    fn step_match(&mut self, delta: isize) {
+        let Some(search) = &self.search else {
+            return;
+        };
+        if search.matches.is_empty() {
+            return;
+        }
+        let Some(current) = search.current else {
+            return;
+        };
+        let len = search.matches.len() as isize;
+        let next = (current as isize + delta).rem_euclid(len) as usize;
+        let line = search.matches[next].line;
+        if let Some(search) = &mut self.search {
+            search.current = Some(next);
+        }
+        self.center_on(line);
+    }
+
+    // マッチ行が viewport の中央付近に来るようスクロールする
+    fn center_on(&mut self, line: usize) {
+        let last = self.line_count().saturating_sub(1);
+        let half = self.viewport_height / 2;
+        self.scroll = line.saturating_sub(half).min(last);
+    }
+
+    fn compute_matches(&self, query: &str) -> Vec<Match> {
+        let Some(open) = &self.current else {
+            return Vec::new();
+        };
+        let Content::Text { plain, .. } = open.content.as_ref() else {
+            return Vec::new();
+        };
+        search_matches(plain, query)
+    }
+
+    // ファイルを開き直した/reload した際、同じクエリでマッチを再計算する。
+    // 確定済みだった場合は現在位置を新しいマッチ数に合わせてクランプする
+    fn recompute_search(&mut self) {
+        let Some(query) = self.search.as_ref().map(|s| s.query.clone()) else {
+            return;
+        };
+        let matches = self.compute_matches(&query);
+        if let Some(search) = &mut self.search {
+            let current = search
+                .current
+                .map(|idx| idx.min(matches.len().saturating_sub(1)));
+            search.current = if matches.is_empty() { None } else { current };
+            search.matches = matches;
         }
     }
 
@@ -134,7 +264,8 @@ impl Viewer {
         } else {
             self.highlight_lines(path, &text, gutter_width)
         };
-        Content::Text { lines }
+        let plain = plain_text_lines(&text);
+        Content::Text { lines, plain }
     }
 
     fn highlight_lines(&self, path: &Path, text: &str, gutter_width: usize) -> Vec<Line<'static>> {
@@ -199,6 +330,48 @@ fn plain_lines(text: &str, gutter_width: usize) -> Vec<Line<'static>> {
 // 改行を落とし、端末で幅が不定になるタブをスペースに展開する
 fn normalize(segment: &str) -> String {
     segment.trim_end_matches(['\n', '\r']).replace('\t', "    ")
+}
+
+// lines/plain_lines/highlight_lines と同じ行分割・タブ展開を行い、桁位置を一致させる
+fn plain_text_lines(text: &str) -> Vec<String> {
+    let mut lines: Vec<String> = text.lines().map(|line| line.replace('\t', "    ")).collect();
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+// smart-case (クエリが全て小文字なら大小無視、大文字を含めば区別) の部分一致検索。
+// 大小無視の比較は ASCII の範囲だけ行う (to_ascii_lowercase は char 数を変えないため、
+// plain の char 列インデックスと桁位置が確実に一致する)
+fn search_matches(plain: &[String], query: &str) -> Vec<Match> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let ignore_case = !query.chars().any(|c| c.is_uppercase());
+    let needle: Vec<char> = fold_case(query, ignore_case).collect();
+    let mut matches = Vec::new();
+    for (line, text) in plain.iter().enumerate() {
+        let haystack: Vec<char> = fold_case(text, ignore_case).collect();
+        if haystack.len() < needle.len() {
+            continue;
+        }
+        for start in 0..=(haystack.len() - needle.len()) {
+            if haystack[start..start + needle.len()] == needle[..] {
+                matches.push(Match {
+                    line,
+                    start_col: start,
+                    end_col: start + needle.len(),
+                });
+            }
+        }
+    }
+    matches
+}
+
+fn fold_case(s: &str, ignore_case: bool) -> impl Iterator<Item = char> + '_ {
+    s.chars()
+        .map(move |c| if ignore_case { c.to_ascii_lowercase() } else { c })
 }
 
 fn gutter_span(number: usize, width: usize) -> Span<'static> {

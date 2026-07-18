@@ -16,9 +16,21 @@ pub enum Focus {
     Viewer,
 }
 
+// 今回は Search のみだが、行ジャンプ等の別入力を後で足せるように kind で分けておく
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InputKind {
+    Search,
+}
+
+pub enum Mode {
+    Normal,
+    Input { kind: InputKind, buffer: String },
+}
+
 pub struct App {
     pub root: PathBuf,
     pub focus: Focus,
+    pub mode: Mode,
     pub tree: Tree,
     pub viewer: Viewer,
     pub should_quit: bool,
@@ -35,6 +47,7 @@ impl App {
         Self {
             root,
             focus: Focus::Tree,
+            mode: Mode::Normal,
             tree,
             viewer: Viewer::new(),
             should_quit: false,
@@ -70,12 +83,18 @@ impl App {
 
     pub fn on_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        // Ctrl+c は Input モード中でも終了させる
+        if ctrl && key.code == KeyCode::Char('c') {
+            self.should_quit = true;
+            return;
+        }
+        if let Mode::Input { kind, .. } = &self.mode {
+            let kind = *kind;
+            self.on_input_key(kind, key);
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => {
-                self.should_quit = true;
-                return;
-            }
-            KeyCode::Char('c') if ctrl => {
                 self.should_quit = true;
                 return;
             }
@@ -91,6 +110,56 @@ impl App {
         match self.focus {
             Focus::Tree => self.on_tree_key(key),
             Focus::Viewer => self.on_viewer_key(key, ctrl),
+        }
+    }
+
+    // Input モード中は q も含め全ての印字キーを buffer に積む。Esc でキャンセル、Enter で確定
+    fn on_input_key(&mut self, kind: InputKind, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                self.cancel_input(kind);
+            }
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                self.confirm_input(kind);
+            }
+            KeyCode::Backspace => {
+                if let Mode::Input { buffer, .. } = &mut self.mode {
+                    buffer.pop();
+                }
+                self.live_update_input(kind);
+            }
+            KeyCode::Char(c) => {
+                if let Mode::Input { buffer, .. } = &mut self.mode {
+                    buffer.push(c);
+                }
+                self.live_update_input(kind);
+            }
+            _ => {}
+        }
+    }
+
+    fn cancel_input(&mut self, kind: InputKind) {
+        match kind {
+            InputKind::Search => self.viewer.cancel_search(),
+        }
+    }
+
+    fn confirm_input(&mut self, kind: InputKind) {
+        match kind {
+            InputKind::Search => self.viewer.confirm_search(),
+        }
+    }
+
+    fn live_update_input(&mut self, kind: InputKind) {
+        match kind {
+            InputKind::Search => {
+                if let Mode::Input { buffer, .. } = &self.mode {
+                    let query = buffer.clone();
+                    self.viewer.update_search(&query);
+                }
+            }
         }
     }
 
@@ -114,6 +183,15 @@ impl App {
             KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
             KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
             KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
+            KeyCode::Char('/') if self.viewer.is_text() => {
+                self.mode = Mode::Input {
+                    kind: InputKind::Search,
+                    buffer: String::new(),
+                };
+            }
+            // 未確定 (Enter していない) 状態では no-op。Viewer::next_match/prev_match が保証する
+            KeyCode::Char('n') => self.viewer.next_match(),
+            KeyCode::Char('N') => self.viewer.prev_match(),
             _ => {}
         }
     }
