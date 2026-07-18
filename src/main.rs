@@ -24,7 +24,11 @@ use ratatui::backend::CrosstermBackend;
 use app::App;
 
 enum Command {
-    Run { root: PathBuf, show_hidden: bool },
+    Run {
+        root: PathBuf,
+        show_hidden: bool,
+        icons: bool,
+    },
     Help,
     Version,
 }
@@ -36,16 +40,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - read-only TUI code viewer\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings"
+                "fv - read-only TUI code viewer\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings"
             );
         }
-        Command::Run { root, show_hidden } => run_app(root, show_hidden)?,
+        Command::Run {
+            root,
+            show_hidden,
+            icons,
+        } => run_app(root, show_hidden, icons)?,
     }
     Ok(())
 }
 
-fn run_app(root: PathBuf, show_hidden: bool) -> Result<(), Box<dyn Error>> {
-    let mut app = App::new(root, show_hidden);
+fn run_app(root: PathBuf, show_hidden: bool, icons: bool) -> Result<(), Box<dyn Error>> {
+    let mut app = App::new(root, show_hidden, icons);
     install_panic_hook();
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
@@ -81,12 +89,15 @@ fn run(
 fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn Error>> {
     let mut root = None;
     let mut show_hidden = false;
+    let mut icons = None;
 
     for arg in args {
         match arg.as_str() {
             "--version" | "-V" => return Ok(Command::Version),
             "--help" | "-h" => return Ok(Command::Help),
             "--hidden" | "-a" => show_hidden = true,
+            "--icons" => icons = Some(true),
+            "--no-icons" => icons = Some(false),
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
             _ => {
                 if root.replace(PathBuf::from(arg)).is_some() {
@@ -97,7 +108,29 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
     }
 
     let root = resolve_root(root.unwrap_or_else(|| PathBuf::from(".")))?;
-    Ok(Command::Run { root, show_hidden })
+    let icons = icons.unwrap_or_else(icons_default);
+    Ok(Command::Run {
+        root,
+        show_hidden,
+        icons,
+    })
+}
+
+// フラグ未指定時のアイコン有効判定。FV_ICONS があればそれに従い、
+// なければ「Nerd Font シンボルを同梱していて未設定でも豆腐にならないターミナル」に限り有効化する。
+// フォント自体の有無は端末に照会できない (未収録グリフも 1 セル幅で描画されるため
+// カーソル位置プローブでも判別不能)。それ以外の端末は --icons / FV_ICONS=1 で opt-in する
+fn icons_default() -> bool {
+    if let Ok(v) = env::var("FV_ICONS") {
+        return !matches!(v.as_str(), "" | "0" | "false" | "off");
+    }
+    let term_program = env::var("TERM_PROGRAM").unwrap_or_default();
+    if matches!(term_program.as_str(), "WezTerm" | "ghostty") {
+        return true;
+    }
+    // kitty は 0.32 以降 Nerd Font シンボルを同梱している
+    env::var("TERM").is_ok_and(|t| t.contains("kitty") || t.contains("ghostty"))
+        || env::var("KITTY_WINDOW_ID").is_ok()
 }
 
 fn resolve_root(root: PathBuf) -> Result<PathBuf, Box<dyn Error>> {

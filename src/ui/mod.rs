@@ -1,5 +1,6 @@
 mod finder_panel;
 mod help;
+mod icons;
 mod status_bar;
 mod tree_pane;
 mod viewer_pane;

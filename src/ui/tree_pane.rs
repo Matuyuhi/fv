@@ -20,7 +20,10 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         .visible
         .iter()
         .map(|row| {
-            let marker = if row.is_dir {
+            // アイコン有効時は folder の開閉アイコンが展開状態を兼ねるためマーカー不要
+            let marker = if app.icons {
+                ""
+            } else if row.is_dir {
                 if row.expanded { "▾ " } else { "▸ " }
             } else {
                 "  "
@@ -28,7 +31,24 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             // ディレクトリは git.files に直接エントリを持たないため自然に None になる
             let file_status = git.and_then(|g| g.files.get(&row.path).copied());
             let prefix = file_status.map(status_prefix).unwrap_or("");
-            let label = format!("{}{}{}{}", "  ".repeat(row.depth), marker, prefix, row.name);
+            let icon = if app.icons {
+                let glyph = if row.is_dir {
+                    super::icons::dir_icon(row.expanded)
+                } else {
+                    super::icons::file_icon(&row.name)
+                };
+                format!("{glyph} ")
+            } else {
+                String::new()
+            };
+            let label = format!(
+                "{}{}{}{}{}",
+                "  ".repeat(row.depth),
+                marker,
+                prefix,
+                icon,
+                row.name
+            );
             let style = if row.is_dir {
                 let has_changes = git.is_some_and(|g| g.changed_dirs.contains(&row.path));
                 let color = if has_changes {
