@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::finder::Finder;
 use crate::tree::Tree;
 use crate::viewer::Viewer;
 use crate::watch::FsWatcher;
@@ -26,6 +27,8 @@ pub enum InputKind {
 pub enum Mode {
     Normal,
     Input { kind: InputKind, buffer: String },
+    // Ctrl+p ファジーファインダー。Input に押し込むと Search/Goto と挙動が絡み合うため独立させる
+    Finder(Finder),
 }
 
 pub struct App {
@@ -92,9 +95,18 @@ impl App {
             self.should_quit = true;
             return;
         }
+        if let Mode::Finder(_) = &self.mode {
+            self.on_finder_key(key, ctrl);
+            return;
+        }
         if let Mode::Input { kind, .. } = &self.mode {
             let kind = *kind;
             self.on_input_key(kind, key);
+            return;
+        }
+        // Input モード中は除き、どのフォーカスからでも起動する
+        if ctrl && key.code == KeyCode::Char('p') {
+            self.open_finder();
             return;
         }
         match key.code {
@@ -183,6 +195,43 @@ impl App {
             }
             // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
             InputKind::Goto => {}
+        }
+    }
+
+    // 候補は既存 tree の nodes から集めるだけで、新たな走査はしない
+    fn open_finder(&mut self) {
+        let candidates = self
+            .tree
+            .collect_file_paths(&self.root)
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        self.mode = Mode::Finder(Finder::new(candidates));
+    }
+
+    fn on_finder_key(&mut self, key: KeyEvent, ctrl: bool) {
+        let Mode::Finder(finder) = &mut self.mode else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Enter => {
+                // finder (self.mode の借用) を使い切ってから self.mode へ書き戻す
+                let path = finder.selected_path().map(|rel| self.root.join(rel));
+                if let Some(path) = path {
+                    self.viewer.open(&path, &self.root);
+                    self.focus = Focus::Viewer;
+                }
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Backspace => finder.backspace(),
+            KeyCode::Down => finder.move_selection(1),
+            KeyCode::Up => finder.move_selection(-1),
+            KeyCode::Char('n') if ctrl => finder.move_selection(1),
+            KeyCode::Char('p') if ctrl => finder.move_selection(-1),
+            // ctrl 付きの印字キー (Ctrl+n/p 以外) はクエリに積まない
+            KeyCode::Char(c) if !ctrl => finder.push_char(c),
+            _ => {}
         }
     }
 

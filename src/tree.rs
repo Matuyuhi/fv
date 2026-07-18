@@ -94,6 +94,14 @@ impl Tree {
         }
     }
 
+    /// root 以下の全ファイルを相対パスで列挙する。Finder 起動時に一度だけ呼ばれ、
+    /// 折りたたまれているディレクトリの中身も対象にする (新たな走査はせず既存 nodes を使う)
+    pub fn collect_file_paths(&self, root: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        collect_files(&self.nodes, root, &mut out);
+        out
+    }
+
     fn rebuild_visible(&mut self) {
         let mut rows = Vec::new();
         flatten(&self.nodes, 0, &mut Vec::new(), &mut rows);
@@ -129,6 +137,19 @@ fn flatten(nodes: &[Node], depth: usize, prefix: &mut Vec<usize>, rows: &mut Vec
             }
         }
         prefix.pop();
+    }
+}
+
+fn collect_files(nodes: &[Node], root: &Path, out: &mut Vec<PathBuf>) {
+    for node in nodes {
+        match &node.kind {
+            NodeKind::File => {
+                if let Ok(rel) = node.path.strip_prefix(root) {
+                    out.push(rel.to_path_buf());
+                }
+            }
+            NodeKind::Dir { children, .. } => collect_files(children, root, out),
+        }
     }
 }
 

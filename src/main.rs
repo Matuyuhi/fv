@@ -1,4 +1,5 @@
 mod app;
+mod finder;
 mod tree;
 mod ui;
 mod viewer;
