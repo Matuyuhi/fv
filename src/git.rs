@@ -31,7 +31,10 @@ pub fn file_statuses(root: &Path) -> Option<GitStatus> {
     // status の porcelain 出力パスは -C の cwd ではなく常に repo トップレベル基準になるため、
     // トップレベルを別途取得して絶対パスの組み立てに使う
     let toplevel = git_toplevel(root)?;
-    let output = run_git(root, ["status", "--porcelain", "-z", "--untracked-files=all"])?;
+    let output = run_git(
+        root,
+        ["status", "--porcelain", "-z", "--untracked-files=all"],
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -62,13 +65,19 @@ pub fn file_statuses(root: &Path) -> Option<GitStatus> {
         files.insert(abs, classify(x, y));
     }
 
-    Some(GitStatus { files, changed_dirs })
+    Some(GitStatus {
+        files,
+        changed_dirs,
+    })
 }
 
 /// `git diff HEAD -U0` の hunk header から、追加・変更された行番号 (1-origin, +側) を集める。
 /// HEAD の無い初期 repo では素の `git diff -U0` (index との比較) にフォールバックする。
 pub fn changed_lines(root: &Path, file: &Path) -> Option<HashSet<usize>> {
-    let mut output = run_git(root, diff_args(&["diff", "HEAD", "-U0", "--no-color"], file));
+    let mut output = run_git(
+        root,
+        diff_args(&["diff", "HEAD", "-U0", "--no-color"], file),
+    );
     if !output.as_ref().is_some_and(|o| o.status.success()) {
         output = run_git(root, diff_args(&["diff", "-U0", "--no-color"], file));
     }
