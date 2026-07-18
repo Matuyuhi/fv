@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, Focus, InputKind, Mode};
@@ -118,6 +118,8 @@ fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Viewer;
     let inner_height = area.height.saturating_sub(2) as usize;
     app.viewer.viewport_height = inner_height;
+    // 罫線分のみを引いた概算値。hscroll の緩いクランプにしか使わないので gutter 幅までは引かない
+    app.viewer.viewport_width = area.width.saturating_sub(2) as usize;
 
     let Some(open) = &app.viewer.current else {
         let paragraph = Paragraph::new("no file selected")
@@ -126,22 +128,40 @@ fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
         frame.render_widget(paragraph, area);
         return;
     };
-    let block = pane_block(open.title.clone(), focused);
+    // hscroll > 0 の間はステータスバーではなくタイトル側に現在オフセットを出す
+    let title = if !app.viewer.wrap && app.viewer.hscroll > 0 {
+        format!("{}  →{}", open.title, app.viewer.hscroll)
+    } else {
+        open.title.clone()
+    };
+    let block = pane_block(title, focused);
     match open.content.as_ref() {
         Content::Text { lines, .. } => {
             // Paragraph::scroll は u16 上限で巨大ファイルに届かないため、
             // 表示範囲を自前でスライスして先頭から描画する
             let start = app.viewer.scroll.min(lines.len().saturating_sub(1));
             let end = (start + inner_height).min(lines.len());
+            let wrap = app.viewer.wrap;
+            let hscroll = app.viewer.hscroll;
             let visible: Vec<Line> = (start..end)
                 .map(|i| {
                     let line = mark_changed_line(&lines[i], i, &open.changed_lines);
-                    highlight_matches(&line, i, &app.viewer.search)
+                    let line = highlight_matches(&line, i, &app.viewer.search);
+                    // シフトは最後に適用する。検索ハイライトの bg 計算は元の桁位置基準なので、
+                    // 先にシフトすると global col がずれてマッチと違う文字に色が付いてしまう
+                    if wrap {
+                        line
+                    } else {
+                        hscroll_line(&line, hscroll)
+                    }
                 })
                 .collect();
-            let paragraph = Paragraph::new(visible)
+            let mut paragraph = Paragraph::new(visible)
                 .block(block)
                 .style(Style::default().bg(app.viewer.background()));
+            if wrap {
+                paragraph = paragraph.wrap(Wrap { trim: false });
+            }
             frame.render_widget(paragraph, area);
         }
         Content::Binary => {
@@ -213,7 +233,7 @@ fn normal_status_line(app: &App) -> Line<'static> {
             "j/k: move  h/l: collapse/expand  H: to parent  gg/G: top/bottom  r: rescan  Enter: open  Tab: focus  q: quit"
         }
         Focus::Viewer => {
-            "j/k: scroll  gg/G: top/bottom  /: search  n/N: match  :N: goto  Ctrl+d/u: page  Ctrl+o/i: history  Tab: focus  q: quit"
+            "j/k: scroll  w: wrap  h/l: hscroll  gg/G: top/bottom  /: search  n/N: match  :N: goto  Ctrl+d/u: page  Ctrl+o/i: history  Tab: focus  q: quit"
         }
     };
     Line::from(hint)
@@ -314,6 +334,34 @@ fn mark_changed_line(line: &Line<'static>, line_idx: usize, changed: &Option<Has
     let mut spans = Vec::with_capacity(line.spans.len());
     spans.push(Span::styled(text, Style::default().fg(Color::Cyan)));
     spans.extend(line.spans.iter().skip(1).cloned());
+    Line::from(spans)
+}
+
+// gutter (span[0]) は固定したまま、コンテンツ部分だけ hscroll 文字分左にシフトした
+// 新しい Line を返す。highlight_matches 適用後に呼ぶことで、シフトで画面外に落ちる文字ごと
+// その bg スタイルも一緒に捨てられ、残った文字のハイライトは桁がずれず正しく残る
+fn hscroll_line(line: &Line<'static>, hscroll: usize) -> Line<'static> {
+    if hscroll == 0 {
+        return line.clone();
+    }
+    let mut spans = Vec::with_capacity(line.spans.len());
+    if let Some(gutter) = line.spans.first() {
+        spans.push(gutter.clone());
+    }
+    let mut col = 0usize;
+    for span in line.spans.iter().skip(1) {
+        let chars: Vec<char> = span.content.chars().collect();
+        let span_end = col + chars.len();
+        if span_end <= hscroll {
+            // span 全体が切り捨て範囲に収まる場合は丸ごと捨てる
+            col = span_end;
+            continue;
+        }
+        let skip = hscroll.saturating_sub(col);
+        let segment: String = chars[skip..].iter().collect();
+        spans.push(Span::styled(segment, span.style));
+        col = span_end;
+    }
     Line::from(spans)
 }
 

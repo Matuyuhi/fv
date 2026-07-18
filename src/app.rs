@@ -362,6 +362,15 @@ impl App {
             KeyCode::Char('i') if ctrl => self.viewer.forward(),
             KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
             KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
+            KeyCode::Char('w') if self.viewer.is_text() => self.viewer.toggle_wrap(),
+            // 6 桁単位の水平スクロール。wrap 中は Viewer::hscroll_by 側で no-op になる
+            KeyCode::Char('h') | KeyCode::Left if self.viewer.is_text() => {
+                self.viewer.hscroll_by(-6)
+            }
+            KeyCode::Char('l') | KeyCode::Right if self.viewer.is_text() => {
+                self.viewer.hscroll_by(6)
+            }
+            KeyCode::Char('0') if self.viewer.is_text() => self.viewer.hscroll_reset(),
             KeyCode::Char('g') if self.viewer.is_text() => self.pending_g = true,
             KeyCode::Char('G') if self.viewer.is_text() => self.viewer.jump_to_bottom(),
             KeyCode::Char(':') if self.viewer.is_text() => {

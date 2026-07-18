@@ -61,6 +61,12 @@ pub struct Viewer {
     pub scroll: usize,
     // 描画時に ui 側が実測値を書き戻す。Ctrl+d/u の半ページ量の算出用
     pub viewport_height: usize,
+    // 描画時に ui 側が実測値を書き戻す。hscroll の緩いクランプ算出用
+    pub viewport_width: usize,
+    // ファイルを跨いで維持する表示設定。true の間は draw_viewer が Paragraph::wrap を付ける
+    pub wrap: bool,
+    // wrap off 時のみ有効な水平スクロール量 (char 単位)。wrap on の間は 0 に固定する
+    pub hscroll: usize,
     // ファイルごとではなく viewer に1つだけ持つ検索状態
     pub search: Option<SearchState>,
     // open() の度に更新される root。reload() は path しか受け取らないので、
@@ -90,6 +96,9 @@ impl Viewer {
             current: None,
             scroll: 0,
             viewport_height: 0,
+            viewport_width: 0,
+            wrap: false,
+            hscroll: 0,
             search: None,
             root: PathBuf::new(),
             history: Vec::new(),
@@ -181,6 +190,8 @@ impl Viewer {
             }
         };
         self.scroll = scroll;
+        // ファイルを跨ぐたびに水平位置はリセットする (wrap は跨いで維持する設定なのでここでは触らない)
+        self.hscroll = 0;
         self.current = Some(Open {
             title,
             path: path.to_path_buf(),
@@ -207,12 +218,54 @@ impl Viewer {
         }
         let last = self.line_count().saturating_sub(1);
         self.scroll = self.scroll.min(last);
+        self.hscroll = 0;
         self.recompute_search();
     }
 
     pub fn scroll_by(&mut self, delta: isize) {
         let last = self.line_count().saturating_sub(1) as isize;
         self.scroll = (self.scroll as isize + delta).clamp(0, last) as usize;
+    }
+
+    /// w: 折返しトグル。有効化した瞬間は水平スクロール位置の意味が失われるので 0 に戻す
+    pub fn toggle_wrap(&mut self) {
+        self.wrap = !self.wrap;
+        if self.wrap {
+            self.hscroll = 0;
+        }
+    }
+
+    /// h/l 等の水平スクロール。wrap 中は no-op (呼び出し側の条件分岐と二重に守る)
+    pub fn hscroll_by(&mut self, delta: isize) {
+        if self.wrap {
+            return;
+        }
+        let max = self.max_hscroll() as isize;
+        self.hscroll = (self.hscroll as isize + delta).clamp(0, max) as usize;
+    }
+
+    /// 0: 水平スクロールを先頭に戻す
+    pub fn hscroll_reset(&mut self) {
+        self.hscroll = 0;
+    }
+
+    // 現在 viewport に見えている行の最大 char 幅から表示幅の半分を引いた値を上限にする、
+    // 無限に右へ流れていかない程度の緩いクランプ (gutter 幅や罫線は考慮しない概算でよい)
+    fn max_hscroll(&self) -> usize {
+        let Some(open) = &self.current else {
+            return 0;
+        };
+        let Content::Text { plain, .. } = open.content.as_ref() else {
+            return 0;
+        };
+        let start = self.scroll.min(plain.len());
+        let end = (self.scroll + self.viewport_height.max(1)).min(plain.len());
+        let max_width = plain[start..end]
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0);
+        max_width.saturating_sub(self.viewport_width / 2)
     }
 
     /// gg: ファイル先頭へ
