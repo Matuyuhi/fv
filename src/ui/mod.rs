@@ -4,10 +4,10 @@ mod status_bar;
 mod tree_pane;
 mod viewer_pane;
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders};
-use ratatui::Frame;
 
 use crate::app::{App, Mode};
 

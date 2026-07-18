@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 
 use crate::app::{App, Focus, InputKind, Mode};
 
@@ -46,15 +46,15 @@ fn normal_status_line(app: &App) -> Line<'static> {
     if app.pending_g {
         return Line::from("g");
     }
-    if let Some(search) = &app.viewer.search {
-        if let Some(current) = search.current {
-            return Line::from(format!(
-                "「{}」 {}/{}  n: next  N: prev  Tab: focus  q: quit  ?: help",
-                search.query,
-                current + 1,
-                search.matches.len()
-            ));
-        }
+    if let Some(search) = &app.viewer.search
+        && let Some(current) = search.current
+    {
+        return Line::from(format!(
+            "「{}」 {}/{}  n: next  N: prev  Tab: focus  q: quit  ?: help",
+            search.query,
+            current + 1,
+            search.matches.len()
+        ));
     }
     let hint = match app.focus {
         Focus::Tree => {

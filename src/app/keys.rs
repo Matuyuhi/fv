@@ -103,10 +103,10 @@ impl App {
             InputKind::Search => self.viewer.confirm_search(),
             InputKind::Goto => {
                 // buffer は数字のみ。空文字列や "0" は parse/goto_line 側で no-op になる
-                if let Mode::Input { buffer, .. } = &self.mode {
-                    if let Ok(line_no) = buffer.parse::<usize>() {
-                        self.viewer.goto_line(line_no);
-                    }
+                if let Mode::Input { buffer, .. } = &self.mode
+                    && let Ok(line_no) = buffer.parse::<usize>()
+                {
+                    self.viewer.goto_line(line_no);
                 }
             }
         }

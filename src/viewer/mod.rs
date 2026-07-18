@@ -85,10 +85,10 @@ impl Viewer {
     }
 
     pub fn open(&mut self, path: &Path, root: &Path) {
-        if let Some(open) = &self.current {
-            if open.path == path {
-                return;
-            }
+        if let Some(open) = &self.current
+            && open.path == path
+        {
+            return;
         }
         // 通常の open (ツリー/ファインダー/クリック経由) は既存挙動どおり常に先頭から表示する。
         // scroll 位置だけは離れる前に記録しておき、後で Ctrl+o/i で戻ってきた時に復元する

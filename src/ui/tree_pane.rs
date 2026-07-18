@@ -1,7 +1,7 @@
+use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{List, ListItem};
-use ratatui::Frame;
 
 use crate::app::{App, Focus};
 use crate::git::FileStatus;
@@ -21,11 +21,7 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|row| {
             let marker = if row.is_dir {
-                if row.expanded {
-                    "▾ "
-                } else {
-                    "▸ "
-                }
+                if row.expanded { "▾ " } else { "▸ " }
             } else {
                 "  "
             };
