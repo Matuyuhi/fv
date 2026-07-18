@@ -1,5 +1,5 @@
-use super::content::Content;
 use super::Viewer;
+use super::content::Content;
 
 /// 1件のマッチ位置。列は plain の char 単位インデックス (gutter は含まない)
 pub struct Match {

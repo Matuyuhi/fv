@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};

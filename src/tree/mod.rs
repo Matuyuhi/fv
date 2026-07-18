@@ -64,10 +64,10 @@ impl Tree {
             return self.toggle_or_open();
         }
         if expanded {
-            if let Some(next) = self.visible.get(self.selected + 1) {
-                if next.depth == depth + 1 {
-                    self.selected += 1;
-                }
+            if let Some(next) = self.visible.get(self.selected + 1)
+                && next.depth == depth + 1
+            {
+                self.selected += 1;
             }
             None
         } else {
@@ -93,10 +93,11 @@ impl Tree {
         if !self.select_parent() {
             return;
         }
-        if let Some(row) = self.visible.get(self.selected) {
-            if row.is_dir && row.expanded {
-                self.toggle_or_open();
-            }
+        if let Some(row) = self.visible.get(self.selected)
+            && row.is_dir
+            && row.expanded
+        {
+            self.toggle_or_open();
         }
     }
 
@@ -144,12 +145,12 @@ impl Tree {
         scan::apply_expanded(&mut self.nodes, &expanded);
         self.rebuild_visible();
 
-        if let Some(path) = selected_path {
-            if let Some(pos) = self.visible.iter().position(|row| {
+        if let Some(path) = selected_path
+            && let Some(pos) = self.visible.iter().position(|row| {
                 scan::node(&self.nodes, &row.index_path).is_some_and(|n| n.path == path)
-            }) {
-                self.selected = pos;
-            }
+            })
+        {
+            self.selected = pos;
             // 消えていた場合は rebuild_visible が既に selected を範囲内にクランプ済み
         }
     }

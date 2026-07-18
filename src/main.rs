@@ -16,10 +16,10 @@ use std::time::Duration;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 
 use app::App;
 
@@ -31,7 +31,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Ok(());
         }
         Some("--help" | "-h") => {
-            println!("fv - read-only TUI code viewer\n\nusage: fv [dir]\n\npress ? inside the app for keybindings");
+            println!(
+                "fv - read-only TUI code viewer\n\nusage: fv [dir]\n\npress ? inside the app for keybindings"
+            );
             return Ok(());
         }
         _ => {}

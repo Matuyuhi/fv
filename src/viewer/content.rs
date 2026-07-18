@@ -81,16 +81,16 @@ impl Viewer {
     }
 
     fn find_syntax(&self, path: &Path, text: &str) -> &SyntaxReference {
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if let Some(syntax) = self.syntax_set.find_syntax_by_extension(ext) {
-                return syntax;
-            }
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && let Some(syntax) = self.syntax_set.find_syntax_by_extension(ext)
+        {
+            return syntax;
         }
         // Makefile 等、拡張子なしのファイル名そのものが文法定義に登録されている
-        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-            if let Some(syntax) = self.syntax_set.find_syntax_by_extension(file_name) {
-                return syntax;
-            }
+        if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
+            && let Some(syntax) = self.syntax_set.find_syntax_by_extension(file_name)
+        {
+            return syntax;
         }
         let first_line = text.lines().next().unwrap_or("");
         self.syntax_set
