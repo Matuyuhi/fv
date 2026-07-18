@@ -24,6 +24,18 @@ use ratatui::Terminal;
 use app::App;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // TUI に入る前に処理するフラグ。brew の formula test も --version に依存している
+    match env::args().nth(1).as_deref() {
+        Some("--version" | "-V") => {
+            println!("fv {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Some("--help" | "-h") => {
+            println!("fv - read-only TUI code viewer\n\nusage: fv [dir]\n\npress ? inside the app for keybindings");
+            return Ok(());
+        }
+        _ => {}
+    }
     let root = resolve_root()?;
     let mut app = App::new(root);
 

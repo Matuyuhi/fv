@@ -1,0 +1,197 @@
+name: Release
+
+# リリースはタグ手打ち不要。Cargo.toml の version を「リリース信号」にする:
+#   main へ push → guard が version を読み、その v<version> が未公開なら
+#   タグ作成 + 4 ターゲットをビルド + Release 添付 + tap formula 更新。
+# つまり「version を上げて main に push（PR マージ）」するだけでリリースされる。
+# 手動で回したいときは Actions の "Run workflow"(workflow_dispatch) でも起動可。
+#
+# 重要: GitHub の immutable releases 対策として、Release は **draft で作成 →
+# 資産を upload → 最後に publish** する（公開後は資産を変更できないため）。
+#
+# 前提シークレット: HOMEBREW_TAP_TOKEN
+#   Matuyuhi/homebrew-tools への書き込み権を持つ PAT（fine-grained: Contents=R/W）。
+#   未設定なら update-tap はスキップ（publish までは走る）。
+#
+# サードパーティ Action は供給網最小化のため公式 actions/checkout, actions/cache のみ。残りは gh / rustup / sed。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  guard:
+    # Cargo.toml の version を読み、その版が「公開済み」でなければ release=true。
+    # （失敗で残った draft は公開済みではないので release=true となり、後段で作り直す）
+    runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          VER="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          DRAFT="$(gh release view "v$VER" --repo "$REPO" --json isDraft -q '.isDraft' 2>/dev/null || echo missing)"
+          if [ "$DRAFT" = "false" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "v$VER is already published; nothing to do."
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "v$VER not published (state: $DRAFT); will release."
+          fi
+
+  create-release:
+    needs: guard
+    if: needs.guard.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create a DRAFT release (immutable-safe; assets are added while draft)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VER: ${{ needs.guard.outputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          # 失敗で残った draft / タグがあれば消してから作り直す（公開済みは guard で除外済み）。
+          gh release delete "v$VER" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "v$VER" --repo "$REPO" --draft --target "$SHA" \
+            --title "v$VER" --generate-notes
+
+  build:
+    needs: [guard, create-release]
+    if: needs.guard.outputs.release == 'true'
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # mac は arm ランナー1種で両 arch をビルド（x86_64 はクロス）。
+          - { os: macos-26, target: aarch64-apple-darwin, asset: fv-aarch64-apple-darwin.tar.gz }
+          - { os: macos-26, target: x86_64-apple-darwin, asset: fv-x86_64-apple-darwin.tar.gz }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, asset: fv-x86_64-linux.tar.gz }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, asset: fv-aarch64-linux.tar.gz }
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+          rustc --version
+
+      # Cargo.lock には fv 自身の version 行が含まれ、release（bump）のたびに変わる。
+      # それを除いてハッシュし「依存が実際に変わった時だけ」キーが変わるようにする
+      # （依存の version 変更は checksum 行に必ず出るので取りこぼさない）。これをしないと
+      # bump ごとに別キーで巨大キャッシュが新規保存され、リポジトリのキャッシュ上限を食い潰す。
+      - name: Compute version-independent cargo cache key
+        id: cargo_key
+        shell: bash
+        run: |
+          key=$(grep -v '^version = "' Cargo.lock | shasum -a 256 | cut -d' ' -f1)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo & target
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ steps.cargo_key.outputs.key }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        run: tar -C "target/${{ matrix.target }}/release" -czf "${{ matrix.asset }}" fv
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VER: ${{ needs.guard.outputs.version }}
+        run: gh release upload "v$VER" "${{ matrix.asset }}" --repo "$REPO" --clobber
+
+  publish:
+    # 全ビルドが資産を上げ終えてから公開（ここで immutable にロックされる）。
+    needs: [guard, build]
+    if: needs.guard.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VER: ${{ needs.guard.outputs.version }}
+        run: gh release edit "v$VER" --repo "$REPO" --draft=false
+
+  update-tap:
+    needs: [guard, publish]
+    if: needs.guard.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Generate formula from template and push to tap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VER: ${{ needs.guard.outputs.version }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not set; skipping tap update."
+            echo "Release assets are published; update Matuyuhi/homebrew-tools/Formula/fv.rb manually."
+            exit 0
+          fi
+
+          mkdir dist && cd dist
+          for a in fv-aarch64-apple-darwin fv-x86_64-apple-darwin fv-aarch64-linux fv-x86_64-linux; do
+            gh release download "v$VER" --repo "$REPO" -p "$a.tar.gz"
+          done
+          MA="$(sha256sum fv-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)"
+          MX="$(sha256sum fv-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)"
+          LA="$(sha256sum fv-aarch64-linux.tar.gz | cut -d' ' -f1)"
+          LX="$(sha256sum fv-x86_64-linux.tar.gz | cut -d' ' -f1)"
+          cd ..
+
+          # テンプレートのプレースホルダを実値に差し替える（値は hex / 数字ドットのみ）。
+          cp packaging/homebrew/fv.rb formula.rb
+          sed -i \
+            -e "s/__VERSION__/${VER}/g" \
+            -e "s/__SHA_MACOS_ARM__/${MA}/g" \
+            -e "s/__SHA_MACOS_X86__/${MX}/g" \
+            -e "s/__SHA_LINUX_ARM__/${LA}/g" \
+            -e "s/__SHA_LINUX_X86__/${LX}/g" \
+            formula.rb
+
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/Matuyuhi/homebrew-tools.git" tap
+          mkdir -p tap/Formula
+          cp formula.rb tap/Formula/fv.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/fv.rb
+          if git diff --cached --quiet; then
+            echo "Formula unchanged; nothing to push."
+          else
+            git commit -m "fv ${VER}"
+            git push
+          fi

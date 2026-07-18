@@ -91,7 +91,7 @@ impl Finder {
                     })
                 })
                 .collect();
-            scored.sort_by(|a, b| b.score.cmp(&a.score));
+            scored.sort_by_key(|m| std::cmp::Reverse(m.score));
             scored
         };
         self.selected = self.selected.min(self.matches.len().saturating_sub(1));

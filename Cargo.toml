@@ -2,6 +2,9 @@
 name = "fv"
 version = "0.1.0"
 edition = "2021"
+description = "Read-only TUI code viewer with syntax highlighting and git status"
+license = "Apache-2.0"
+repository = "https://github.com/Matuyuhi/fv"
 
 [dependencies]
 ratatui = "0.29"
