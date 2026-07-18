@@ -25,6 +25,8 @@ pub struct App {
     pub viewer: Viewer,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
     pub git: Option<GitStatus>,
+    // Nerd Font アイコン表示。起動時に確定し実行中は変わらない (判定は main 側)
+    pub icons: bool,
     pub should_quit: bool,
     // g 待ち状態。Mode を増やすほどのものではないので App の小さなフラグで持つ
     pub pending_g: bool,
@@ -37,7 +39,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root: PathBuf, show_hidden: bool) -> Self {
+    pub fn new(root: PathBuf, show_hidden: bool, icons: bool) -> Self {
         let tree = Tree::new(&root, show_hidden);
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
         let watcher = FsWatcher::new(&root, show_hidden);
@@ -49,6 +51,7 @@ impl App {
             tree,
             viewer: Viewer::new(),
             git,
+            icons,
             should_quit: false,
             pending_g: false,
             tree_area: Rect::default(),
