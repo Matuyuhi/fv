@@ -1,4 +1,5 @@
 mod app;
+mod config;
 mod finder;
 mod git;
 mod tree;
@@ -22,13 +23,10 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use app::App;
+use config::Config;
 
 enum Command {
-    Run {
-        root: PathBuf,
-        show_hidden: bool,
-        icons: bool,
-    },
+    Run { root: PathBuf, config: Config },
     Help,
     Version,
 }
@@ -40,20 +38,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - read-only TUI code viewer\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings"
+                "fv - read-only TUI code viewer\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
-        Command::Run {
-            root,
-            show_hidden,
-            icons,
-        } => run_app(root, show_hidden, icons)?,
+        Command::Run { root, config } => run_app(root, config)?,
     }
     Ok(())
 }
 
-fn run_app(root: PathBuf, show_hidden: bool, icons: bool) -> Result<(), Box<dyn Error>> {
-    let mut app = App::new(root, show_hidden, icons);
+fn run_app(root: PathBuf, config: Config) -> Result<(), Box<dyn Error>> {
+    let mut app = App::new(root, config);
     install_panic_hook();
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
@@ -88,16 +82,16 @@ fn run(
 
 fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn Error>> {
     let mut root = None;
-    let mut show_hidden = false;
-    let mut icons = None;
+    let mut cli_hidden = false;
+    let mut cli_icons = None;
 
     for arg in args {
         match arg.as_str() {
             "--version" | "-V" => return Ok(Command::Version),
             "--help" | "-h" => return Ok(Command::Help),
-            "--hidden" | "-a" => show_hidden = true,
-            "--icons" => icons = Some(true),
-            "--no-icons" => icons = Some(false),
+            "--hidden" | "-a" => cli_hidden = true,
+            "--icons" => cli_icons = Some(true),
+            "--no-icons" => cli_icons = Some(false),
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
             _ => {
                 if root.replace(PathBuf::from(arg)).is_some() {
@@ -108,12 +102,23 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
     }
 
     let root = resolve_root(root.unwrap_or_else(|| PathBuf::from(".")))?;
-    let icons = icons.unwrap_or_else(icons_default);
-    Ok(Command::Run {
-        root,
-        show_hidden,
-        icons,
-    })
+    let config = resolve_config(cli_hidden, cli_icons);
+    Ok(Command::Run { root, config })
+}
+
+// CLI での明示指定 > 前回セッションで設定画面から保存された値 > 既存の自動判定、の優先順位で確定する
+fn resolve_config(cli_hidden: bool, cli_icons: Option<bool>) -> Config {
+    let saved = Config::load();
+    Config {
+        show_hidden: cli_hidden || saved.as_ref().is_some_and(|c| c.show_hidden),
+        icons: cli_icons
+            .or_else(|| saved.as_ref().map(|c| c.icons))
+            .unwrap_or_else(icons_default),
+        wrap_default: saved.as_ref().is_some_and(|c| c.wrap_default),
+        theme: saved
+            .map(|c| c.theme)
+            .unwrap_or_else(|| "base16-ocean.dark".to_string()),
+    }
 }
 
 // フラグ未指定時のアイコン有効判定。FV_ICONS があればそれに従い、

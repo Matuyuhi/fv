@@ -21,9 +21,22 @@ const BINARY_SNIFF_BYTES: usize = 8192;
 /// 履歴スタックの上限件数。vim の jumplist に倣い、超えたら古い方から捨てる
 const HISTORY_LIMIT: usize = 50;
 
+/// syntect が同梱するデフォルトテーマの一覧。設定画面のテーマ切替はこの中を巡回する
+pub const THEME_NAMES: [&str; 7] = [
+    "base16-ocean.dark",
+    "base16-eighties.dark",
+    "base16-mocha.dark",
+    "base16-ocean.light",
+    "InspiredGitHub",
+    "Solarized (dark)",
+    "Solarized (light)",
+];
+
 pub struct Viewer {
     syntax_set: SyntaxSet,
     theme: Theme,
+    theme_set: ThemeSet,
+    theme_name: String,
     // ハイライト済み行のキャッシュ。ファイルを開き直しても再計算しない
     cache: HashMap<PathBuf, Rc<Content>>,
     pub current: Option<Open>,
@@ -54,14 +67,19 @@ pub struct Viewer {
 impl Viewer {
     pub fn new() -> Self {
         let syntax_set = SyntaxSet::load_defaults_newlines();
-        let mut theme = ThemeSet::load_defaults()
+        let theme_set = ThemeSet::load_defaults();
+        let theme_name = "base16-ocean.dark".to_string();
+        let mut theme = theme_set
             .themes
-            .remove("base16-ocean.dark")
+            .get(&theme_name)
+            .cloned()
             .expect("base16-ocean.dark is bundled in syntect's default themes");
         tweak_comment_color(&mut theme);
         Self {
             syntax_set,
             theme,
+            theme_set,
+            theme_name,
             cache: HashMap::new(),
             current: None,
             scroll: 0,
@@ -83,6 +101,30 @@ impl Viewer {
             .background
             .map(|c| Color::Rgb(c.r, c.g, c.b))
             .unwrap_or(Color::Reset)
+    }
+
+    pub fn theme_name(&self) -> &str {
+        &self.theme_name
+    }
+
+    /// テーマ切替。ハイライトは Content に焼き込み済みのため、切り替えたら
+    /// cache を丸ごと破棄して開いているファイルを再ハイライトする
+    /// (再描画毎の再ハイライト禁止ルールへの違反ではなく、cache key = path だけでは
+    /// もう内容を一意に決められなくなったことに対する正当な無効化)
+    pub fn set_theme(&mut self, name: &str) -> bool {
+        let Some(mut theme) = self.theme_set.themes.get(name).cloned() else {
+            return false;
+        };
+        tweak_comment_color(&mut theme);
+        self.theme = theme;
+        self.theme_name = name.to_string();
+        self.cache.clear();
+        if let Some(path) = self.current.as_ref().map(|open| open.path.clone()) {
+            let root = self.root.clone();
+            let scroll = self.scroll;
+            self.set_current(&path, &root, scroll);
+        }
+        true
     }
 
     pub fn open(&mut self, path: &Path, root: &Path) {
@@ -283,9 +325,18 @@ impl Viewer {
     }
 }
 
+const COMMENT_COLOR_ADJUSTMENT: u8 = 56;
+
 fn tweak_comment_color(theme: &mut Theme) {
+    // 背景が明るいテーマ (base16-ocean.light, Solarized (light) 等) で常に明るくすると
+    // 白背景に同化して見えなくなるため、背景輝度に応じて明るくする/暗くするを切り替える。
+    // background が無いテーマは元々暗背景想定 (base16-ocean.dark 由来) なので明るくする側とする
+    let darken = theme
+        .settings
+        .background
+        .is_some_and(|bg| luminance(bg) >= 128);
     for item in &mut theme.scopes {
-        // コメント系スコープだけ少し明るくして背景への同化を防ぐ
+        // コメント系スコープだけ背景への同化を防ぐ
         if !format!("{:?}", item.scope)
             .to_ascii_lowercase()
             .contains("comment")
@@ -295,12 +346,25 @@ fn tweak_comment_color(theme: &mut Theme) {
         let Some(fg) = item.style.foreground else {
             continue;
         };
-        const ADJUSTMENT: u8 = 56;
         item.style.foreground = Some(SyntectColor {
-            r: fg.r.saturating_add(ADJUSTMENT),
-            g: fg.g.saturating_add(ADJUSTMENT),
-            b: fg.b.saturating_add(ADJUSTMENT),
+            r: adjust(fg.r, darken),
+            g: adjust(fg.g, darken),
+            b: adjust(fg.b, darken),
             a: fg.a,
         });
     }
+}
+
+fn adjust(c: u8, darken: bool) -> u8 {
+    if darken {
+        c.saturating_sub(COMMENT_COLOR_ADJUSTMENT)
+    } else {
+        c.saturating_add(COMMENT_COLOR_ADJUSTMENT)
+    }
+}
+
+// ITU-R BT.601 の重み付けを整数演算で近似した簡易輝度 (0-255)。
+// 255 * 299 (最大項) が u16 に収まらないため u32 で計算する
+fn luminance(c: SyntectColor) -> u16 {
+    ((c.r as u32 * 299 + c.g as u32 * 587 + c.b as u32 * 114) / 1000) as u16
 }

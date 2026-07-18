@@ -18,6 +18,7 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         } => goto_input_line(buffer),
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Help => Line::from("?: close"),
+        Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
         Mode::Normal => normal_status_line(app),
     };
     let paragraph =
@@ -58,8 +59,12 @@ fn normal_status_line(app: &App) -> Line<'static> {
     }
     // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {
-        Focus::Tree => "j/k: move  h/l: collapse/expand  a: hidden  Tab: focus  q: quit  ?: help",
-        Focus::Viewer => "j/k: scroll  w: wrap  /: search  a: hidden  Tab: focus  q: quit  ?: help",
+        Focus::Tree => {
+            "j/k: move  h/l: collapse/expand  a: hidden  s: settings  Tab: focus  q: quit  ?: help"
+        }
+        Focus::Viewer => {
+            "j/k: scroll  w: wrap  /: search  s: settings  Tab: focus  q: quit  ?: help"
+        }
     };
     Line::from(hint)
 }

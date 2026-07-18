@@ -31,6 +31,10 @@ impl Tree {
         tree
     }
 
+    pub fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
     pub fn move_selection(&mut self, delta: isize) {
         if self.visible.is_empty() {
             return;

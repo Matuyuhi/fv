@@ -2,16 +2,17 @@ mod keys;
 mod mode;
 mod mouse;
 
-pub use mode::{Focus, InputKind, Mode};
+pub use mode::{Focus, InputKind, Mode, SETTINGS_ROWS, SettingsState};
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
 
+use crate::config::Config;
 use crate::git::{self, GitStatus};
 use crate::tree::Tree;
-use crate::viewer::Viewer;
+use crate::viewer::{self, Viewer};
 use crate::watch::FsWatcher;
 
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
@@ -39,19 +40,24 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root: PathBuf, show_hidden: bool, icons: bool) -> Self {
-        let tree = Tree::new(&root, show_hidden);
+    pub fn new(root: PathBuf, config: Config) -> Self {
+        let tree = Tree::new(&root, config.show_hidden);
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
-        let watcher = FsWatcher::new(&root, show_hidden);
+        let watcher = FsWatcher::new(&root, config.show_hidden);
         let git = git::file_statuses(&root);
+        let mut viewer = Viewer::new();
+        viewer.wrap = config.wrap_default;
+        // 設定ファイルのテーマ名が壊れていても set_theme が false を返すだけで、
+        // Viewer::new() が入れた既定テーマのまま起動を続ける (パニックしない)
+        viewer.set_theme(&config.theme);
         Self {
             root,
             focus: Focus::Tree,
             mode: Mode::Normal,
             tree,
-            viewer: Viewer::new(),
+            viewer,
             git,
-            icons,
+            icons: config.icons,
             should_quit: false,
             pending_g: false,
             tree_area: Rect::default(),
@@ -99,5 +105,42 @@ impl App {
         self.watcher = FsWatcher::new(&self.root, show_hidden);
         self.last_rescan = Instant::now();
         self.rescan_pending = false;
+        self.persist_config();
+    }
+
+    pub fn toggle_icons(&mut self) {
+        self.icons = !self.icons;
+        self.persist_config();
+    }
+
+    pub fn toggle_wrap(&mut self) {
+        self.viewer.toggle_wrap();
+        self.persist_config();
+    }
+
+    /// delta の符号方向に THEME_NAMES を巡回する (設定画面の h/l 用)
+    pub fn cycle_theme(&mut self, delta: isize) {
+        let names = viewer::THEME_NAMES;
+        let current = self.viewer.theme_name();
+        let idx = names.iter().position(|n| *n == current).unwrap_or(0) as isize;
+        let len = names.len() as isize;
+        let next = (idx + delta).rem_euclid(len) as usize;
+        self.viewer.set_theme(names[next]);
+        self.persist_config();
+    }
+
+    fn current_config(&self) -> Config {
+        Config {
+            show_hidden: self.tree.show_hidden(),
+            icons: self.icons,
+            wrap_default: self.viewer.wrap,
+            theme: self.viewer.theme_name().to_string(),
+        }
+    }
+
+    // 保存失敗 (権限なし等) はここで握り潰す。読み取り専用ビューアの付随機能が
+    // ファイル書き込み失敗でクラッシュ・エラー表示をする理由はない
+    fn persist_config(&self) {
+        let _ = self.current_config().save();
     }
 }
