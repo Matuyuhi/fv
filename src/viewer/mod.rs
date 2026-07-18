@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use ratatui::style::Color;
-use syntect::highlighting::{Theme, ThemeSet};
+use syntect::highlighting::{Color as SyntectColor, Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 
 use crate::git;
@@ -54,10 +54,11 @@ pub struct Viewer {
 impl Viewer {
     pub fn new() -> Self {
         let syntax_set = SyntaxSet::load_defaults_newlines();
-        let theme = ThemeSet::load_defaults()
+        let mut theme = ThemeSet::load_defaults()
             .themes
             .remove("base16-ocean.dark")
             .expect("base16-ocean.dark is bundled in syntect's default themes");
+        tweak_comment_color(&mut theme);
         Self {
             syntax_set,
             theme,
@@ -279,5 +280,27 @@ impl Viewer {
             self.current.as_ref().map(|open| open.content.as_ref()),
             Some(Content::Text { .. })
         )
+    }
+}
+
+fn tweak_comment_color(theme: &mut Theme) {
+    for item in &mut theme.scopes {
+        // コメント系スコープだけ少し明るくして背景への同化を防ぐ
+        if !format!("{:?}", item.scope)
+            .to_ascii_lowercase()
+            .contains("comment")
+        {
+            continue;
+        }
+        let Some(fg) = item.style.foreground else {
+            continue;
+        };
+        const ADJUSTMENT: u8 = 56;
+        item.style.foreground = Some(SyntectColor {
+            r: fg.r.saturating_add(ADJUSTMENT),
+            g: fg.g.saturating_add(ADJUSTMENT),
+            b: fg.b.saturating_add(ADJUSTMENT),
+            a: fg.a,
+        });
     }
 }
