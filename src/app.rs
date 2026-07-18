@@ -31,6 +31,8 @@ pub enum Mode {
     Input { kind: InputKind, buffer: String },
     // Ctrl+p ファジーファインダー。Input に押し込むと Search/Goto と挙動が絡み合うため独立させる
     Finder(Finder),
+    // キーバインド一覧のオーバーレイ。状態を持たないので unit variant で十分
+    Help,
 }
 
 pub struct App {
@@ -113,6 +115,10 @@ impl App {
             self.should_quit = true;
             return;
         }
+        if let Mode::Help = &self.mode {
+            self.on_help_key(key);
+            return;
+        }
         if let Mode::Finder(_) = &self.mode {
             self.on_finder_key(key, ctrl);
             return;
@@ -130,6 +136,10 @@ impl App {
         match key.code {
             KeyCode::Char('q') => {
                 self.should_quit = true;
+                return;
+            }
+            KeyCode::Char('?') => {
+                self.mode = Mode::Help;
                 return;
             }
             KeyCode::Tab => {
@@ -263,6 +273,14 @@ impl App {
             }
             // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
             InputKind::Goto => {}
+        }
+    }
+
+    // Help 中は ?/Esc/q のいずれでも閉じる。それ以外は無視する (Ctrl+c は on_key 冒頭で処理済み)
+    fn on_help_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            _ => {}
         }
     }
 
