@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::finder::Finder;
 
-use super::{App, Focus, InputKind, Mode};
+use super::{App, Focus, InputKind, Mode, SETTINGS_ROWS, SettingsState};
 
 impl App {
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -16,6 +16,10 @@ impl App {
         }
         if let Mode::Help = &self.mode {
             self.on_help_key(key);
+            return;
+        }
+        if let Mode::Settings(_) = &self.mode {
+            self.on_settings_key(key);
             return;
         }
         if let Mode::Finder(_) = &self.mode {
@@ -44,6 +48,11 @@ impl App {
             KeyCode::Char('a') => {
                 self.pending_g = false;
                 self.toggle_hidden();
+                return;
+            }
+            KeyCode::Char('s') => {
+                self.pending_g = false;
+                self.mode = Mode::Settings(SettingsState::default());
                 return;
             }
             KeyCode::Tab => {
@@ -134,6 +143,40 @@ impl App {
     fn on_help_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            _ => {}
+        }
+    }
+
+    // Settings 中は s/Esc/q のいずれでも閉じる。h/l/Enter は「選択行の値を変える」で統一し、
+    // 方向が意味を持つ (テーマの巡回方向) のは h/l だけ。Enter は l と同じ「進む」扱いにする
+    fn on_settings_key(&mut self, key: KeyEvent) {
+        let Mode::Settings(state) = &mut self.mode else {
+            return;
+        };
+        match key.code {
+            KeyCode::Char('s') | KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Char('j') | KeyCode::Down => {
+                state.selected = (state.selected + 1) % SETTINGS_ROWS.len();
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                state.selected = (state.selected + SETTINGS_ROWS.len() - 1) % SETTINGS_ROWS.len();
+            }
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => self.apply_settings_action(1),
+            KeyCode::Char('h') | KeyCode::Left => self.apply_settings_action(-1),
+            _ => {}
+        }
+    }
+
+    fn apply_settings_action(&mut self, delta: isize) {
+        let Mode::Settings(state) = &self.mode else {
+            return;
+        };
+        let selected = state.selected;
+        match selected {
+            0 => self.toggle_hidden(),
+            1 => self.toggle_icons(),
+            2 => self.toggle_wrap(),
+            3 => self.cycle_theme(delta),
             _ => {}
         }
     }
@@ -234,7 +277,7 @@ impl App {
             KeyCode::Char('i') if ctrl => self.viewer.forward(),
             KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
             KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
-            KeyCode::Char('w') if self.viewer.is_text() => self.viewer.toggle_wrap(),
+            KeyCode::Char('w') if self.viewer.is_text() => self.toggle_wrap(),
             // 6 桁単位の水平スクロール。wrap 中は Viewer::hscroll_by 側で no-op になる
             KeyCode::Char('h') | KeyCode::Left if self.viewer.is_text() => {
                 self.viewer.hscroll_by(-6)

@@ -17,6 +17,7 @@ fv is for *looking at* code, not editing it — browse a directory tree, open fi
 - Auto-reload on file system changes
 - Mouse support (click to select/open, wheel to scroll)
 - Wrap toggle, horizontal scroll, navigation history (`Ctrl+o`/`Ctrl+i`)
+- Settings popup (`s`) for hidden files / icons / wrap default / syntax theme, persisted to `~/.config/fv/config`
 
 ## Install
 
@@ -56,6 +57,7 @@ Press `?` inside fv for the full list.
 | `w` | Toggle wrap |
 | `Ctrl+o`/`Ctrl+i` | History back / forward |
 | `r` | Rescan tree |
+| `s` | Settings |
 | `?` | Help |
 
 ## License

@@ -1,6 +1,7 @@
 mod finder_panel;
 mod help;
 mod icons;
+mod settings_panel;
 mod status_bar;
 mod tree_pane;
 mod viewer_pane;
@@ -28,6 +29,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     if matches!(app.mode, Mode::Help) {
         help::draw_help(frame, full);
+    }
+    if matches!(app.mode, Mode::Settings(_)) {
+        settings_panel::draw_settings(frame, app, full);
     }
 }
 
