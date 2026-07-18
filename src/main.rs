@@ -2,12 +2,14 @@ mod app;
 mod tree;
 mod ui;
 mod viewer;
+mod watch;
 
 use std::env;
 use std::error::Error;
 use std::io;
 use std::panic;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
@@ -39,11 +41,16 @@ fn run(
 ) -> Result<(), Box<dyn Error>> {
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                app.on_key(key);
+        // poll がタイムアウトしても 100ms 周期でループが回り、その都度 watcher を drain する。
+        // これがそのまま再描画・自動リロードのポーリング間隔にもなる
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    app.on_key(key);
+                }
             }
         }
+        app.on_tick();
         if app.should_quit {
             return Ok(());
         }

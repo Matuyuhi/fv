@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
@@ -66,6 +67,33 @@ impl Tree {
         }
     }
 
+    /// ファイルシステム変更を検知した際に再走査する。展開中ディレクトリと
+    /// 選択位置は path で覚えておき、再構築後に付け直す
+    /// (走査順が変わりうるため index_path はそのまま使い回せない)。
+    pub fn rescan(&mut self, root: &Path) {
+        let expanded = collect_expanded(&self.nodes);
+        let selected_path = self
+            .visible
+            .get(self.selected)
+            .and_then(|row| node(&self.nodes, &row.index_path))
+            .map(|n| n.path.clone());
+
+        self.nodes = build_nodes(root);
+        apply_expanded(&mut self.nodes, &expanded);
+        self.rebuild_visible();
+
+        if let Some(path) = selected_path {
+            if let Some(pos) = self
+                .visible
+                .iter()
+                .position(|row| node(&self.nodes, &row.index_path).is_some_and(|n| n.path == path))
+            {
+                self.selected = pos;
+            }
+            // 消えていた場合は rebuild_visible が既に selected を範囲内にクランプ済み
+        }
+    }
+
     fn rebuild_visible(&mut self) {
         let mut rows = Vec::new();
         flatten(&self.nodes, 0, &mut Vec::new(), &mut rows);
@@ -101,6 +129,45 @@ fn flatten(nodes: &[Node], depth: usize, prefix: &mut Vec<usize>, rows: &mut Vec
             }
         }
         prefix.pop();
+    }
+}
+
+fn node<'a>(nodes: &'a [Node], index_path: &[usize]) -> Option<&'a Node> {
+    let (&first, rest) = index_path.split_first()?;
+    let mut node = nodes.get(first)?;
+    for &i in rest {
+        match &node.kind {
+            NodeKind::Dir { children, .. } => node = children.get(i)?,
+            NodeKind::File => return None,
+        }
+    }
+    Some(node)
+}
+
+fn collect_expanded(nodes: &[Node]) -> HashSet<PathBuf> {
+    let mut set = HashSet::new();
+    fn walk(nodes: &[Node], set: &mut HashSet<PathBuf>) {
+        for node in nodes {
+            if let NodeKind::Dir { expanded, children } = &node.kind {
+                if *expanded {
+                    set.insert(node.path.clone());
+                }
+                walk(children, set);
+            }
+        }
+    }
+    walk(nodes, &mut set);
+    set
+}
+
+fn apply_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>) {
+    for node in nodes {
+        if let NodeKind::Dir { expanded: is_expanded, children } = &mut node.kind {
+            if expanded.contains(&node.path) {
+                *is_expanded = true;
+            }
+            apply_expanded(children, expanded);
+        }
     }
 }
 

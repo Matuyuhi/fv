@@ -1,9 +1,14 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tree::Tree;
 use crate::viewer::Viewer;
+use crate::watch::FsWatcher;
+
+// イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
+const RESCAN_DEBOUNCE: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -17,17 +22,49 @@ pub struct App {
     pub tree: Tree,
     pub viewer: Viewer,
     pub should_quit: bool,
+    watcher: Option<FsWatcher>,
+    last_rescan: Instant,
+    rescan_pending: bool,
 }
 
 impl App {
     pub fn new(root: PathBuf) -> Self {
         let tree = Tree::new(&root);
+        // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
+        let watcher = FsWatcher::new(&root);
         Self {
             root,
             focus: Focus::Tree,
             tree,
             viewer: Viewer::new(),
             should_quit: false,
+            watcher,
+            last_rescan: Instant::now(),
+            rescan_pending: false,
+        }
+    }
+
+    /// watcher に溜まったファイル変更を取り込む。キー入力の有無に関わらず、
+    /// イベントループの毎 tick (poll タイムアウト時も含む) で呼ばれる。
+    pub fn on_tick(&mut self) {
+        let Some(watcher) = &self.watcher else {
+            return;
+        };
+        let changed = watcher.drain();
+        let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
+
+        for path in &changed {
+            if open_path.as_deref() == Some(path.as_path()) {
+                self.viewer.reload(path);
+            } else {
+                self.rescan_pending = true;
+            }
+        }
+
+        if self.rescan_pending && self.last_rescan.elapsed() >= RESCAN_DEBOUNCE {
+            self.tree.rescan(&self.root);
+            self.last_rescan = Instant::now();
+            self.rescan_pending = false;
         }
     }
 

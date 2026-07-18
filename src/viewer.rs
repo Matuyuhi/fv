@@ -23,6 +23,7 @@ pub enum Content {
 
 pub struct Open {
     pub title: String,
+    pub path: PathBuf,
     pub content: Rc<Content>,
 }
 
@@ -63,12 +64,12 @@ impl Viewer {
     }
 
     pub fn open(&mut self, path: &Path, root: &Path) {
-        let title = path.strip_prefix(root).unwrap_or(path).display().to_string();
         if let Some(open) = &self.current {
-            if open.title == title {
+            if open.path == path {
                 return;
             }
         }
+        let title = path.strip_prefix(root).unwrap_or(path).display().to_string();
         let content = match self.cache.get(path) {
             Some(cached) => Rc::clone(cached),
             None => {
@@ -78,7 +79,28 @@ impl Viewer {
             }
         };
         self.scroll = 0;
-        self.current = Some(Open { title, content });
+        self.current = Some(Open {
+            title,
+            path: path.to_path_buf(),
+            content,
+        });
+    }
+
+    /// 外部変更を検知したファイルを読み直す。current が同じファイルなら
+    /// 差し替え、スクロール位置は維持しつつ新しい行数にクランプする。
+    pub fn reload(&mut self, path: &Path) {
+        self.cache.remove(path);
+        let is_current = self.current.as_ref().is_some_and(|open| open.path == path);
+        if !is_current {
+            return;
+        }
+        let loaded = Rc::new(self.load(path));
+        self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
+        if let Some(open) = &mut self.current {
+            open.content = loaded;
+        }
+        let last = self.line_count().saturating_sub(1);
+        self.scroll = self.scroll.min(last);
     }
 
     pub fn scroll_by(&mut self, delta: isize) {
