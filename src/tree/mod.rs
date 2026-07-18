@@ -11,16 +11,18 @@ use node::{Node, NodeKind};
 
 pub struct Tree {
     nodes: Vec<Node>,
+    show_hidden: bool,
     pub visible: Vec<Row>,
     pub selected: usize,
     pub list_state: ListState,
 }
 
 impl Tree {
-    pub fn new(root: &Path) -> Self {
-        let nodes = scan::build_nodes(root);
+    pub fn new(root: &Path, show_hidden: bool) -> Self {
+        let nodes = scan::build_nodes(root, show_hidden);
         let mut tree = Self {
             nodes,
+            show_hidden,
             visible: Vec::new(),
             selected: 0,
             list_state: ListState::default(),
@@ -141,7 +143,7 @@ impl Tree {
             .and_then(|row| scan::node(&self.nodes, &row.index_path))
             .map(|n| n.path.clone());
 
-        self.nodes = scan::build_nodes(root);
+        self.nodes = scan::build_nodes(root, self.show_hidden);
         scan::apply_expanded(&mut self.nodes, &expanded);
         self.rebuild_visible();
 
@@ -153,6 +155,13 @@ impl Tree {
             self.selected = pos;
             // 消えていた場合は rebuild_visible が既に selected を範囲内にクランプ済み
         }
+    }
+
+    /// 隠し項目の表示設定を切り替え、展開状態と選択位置を保ったまま再走査する。
+    pub fn toggle_hidden(&mut self, root: &Path) -> bool {
+        self.show_hidden = !self.show_hidden;
+        self.rescan(root);
+        self.show_hidden
     }
 
     /// root 以下の全ファイルを相対パスで列挙する。Finder 起動時に一度だけ呼ばれ、

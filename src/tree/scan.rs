@@ -107,9 +107,12 @@ pub(super) fn node_mut<'a>(nodes: &'a mut [Node], index_path: &[usize]) -> Optio
 // 親階層の .gitignore が適用されないため、走査は WalkBuilder 1回に寄せる。
 // require_git(false) は git repo 外のディレクトリでも .gitignore を効かせるため
 // (ignore クレートの既定では git repo 内でのみ適用される)。
-pub(super) fn build_nodes(root: &Path) -> Vec<Node> {
+pub(super) fn build_nodes(root: &Path, show_hidden: bool) -> Vec<Node> {
     let mut top = Vec::new();
-    let walker = WalkBuilder::new(root).require_git(false).build();
+    let walker = WalkBuilder::new(root)
+        .require_git(false)
+        .hidden(!show_hidden)
+        .build();
     for entry in walker.flatten() {
         if entry.depth() == 0 {
             continue;

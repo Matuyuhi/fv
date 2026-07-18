@@ -23,24 +23,29 @@ use ratatui::backend::CrosstermBackend;
 
 use app::App;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // TUI に入る前に処理するフラグ。brew の formula test も --version に依存している
-    match env::args().nth(1).as_deref() {
-        Some("--version" | "-V") => {
-            println!("fv {}", env!("CARGO_PKG_VERSION"));
-            return Ok(());
-        }
-        Some("--help" | "-h") => {
-            println!(
-                "fv - read-only TUI code viewer\n\nusage: fv [dir]\n\npress ? inside the app for keybindings"
-            );
-            return Ok(());
-        }
-        _ => {}
-    }
-    let root = resolve_root()?;
-    let mut app = App::new(root);
+enum Command {
+    Run { root: PathBuf, show_hidden: bool },
+    Help,
+    Version,
+}
 
+fn main() -> Result<(), Box<dyn Error>> {
+    match parse_command(env::args().skip(1))? {
+        Command::Version => {
+            println!("fv {}", env!("CARGO_PKG_VERSION"));
+        }
+        Command::Help => {
+            println!(
+                "fv - read-only TUI code viewer\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings"
+            );
+        }
+        Command::Run { root, show_hidden } => run_app(root, show_hidden)?,
+    }
+    Ok(())
+}
+
+fn run_app(root: PathBuf, show_hidden: bool) -> Result<(), Box<dyn Error>> {
+    let mut app = App::new(root, show_hidden);
     install_panic_hook();
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
@@ -73,9 +78,30 @@ fn run(
     }
 }
 
-fn resolve_root() -> Result<PathBuf, Box<dyn Error>> {
-    let arg = env::args().nth(1).unwrap_or_else(|| String::from("."));
-    let root = PathBuf::from(&arg).canonicalize()?;
+fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn Error>> {
+    let mut root = None;
+    let mut show_hidden = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--version" | "-V" => return Ok(Command::Version),
+            "--help" | "-h" => return Ok(Command::Help),
+            "--hidden" | "-a" => show_hidden = true,
+            _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
+            _ => {
+                if root.replace(PathBuf::from(arg)).is_some() {
+                    return Err("only one directory can be specified".into());
+                }
+            }
+        }
+    }
+
+    let root = resolve_root(root.unwrap_or_else(|| PathBuf::from(".")))?;
+    Ok(Command::Run { root, show_hidden })
+}
+
+fn resolve_root(root: PathBuf) -> Result<PathBuf, Box<dyn Error>> {
+    let root = root.canonicalize()?;
     if !root.is_dir() {
         return Err(format!("{} is not a directory", root.display()).into());
     }

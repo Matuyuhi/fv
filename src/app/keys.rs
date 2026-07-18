@@ -41,6 +41,11 @@ impl App {
                 self.mode = Mode::Help;
                 return;
             }
+            KeyCode::Char('a') => {
+                self.pending_g = false;
+                self.toggle_hidden();
+                return;
+            }
             KeyCode::Tab => {
                 // フォーカスを跨ぐと g 待ちの文脈は失われるので破棄する
                 self.pending_g = false;
