@@ -1,5 +1,8 @@
 # fv
 
+<img width="700" alt="スクリーンショット 2026-07-18 21 19 04" src="https://github.com/user-attachments/assets/5736ca52-ebf1-42d5-92fa-61c41ebc7e97" />
+
+
 Read-only TUI code viewer with syntax highlighting and git status.
 
 fv is for *looking at* code, not editing it — browse a directory tree, open files with syntax highlighting, search, and see git changes at a glance. Files reload automatically when they change on disk.
