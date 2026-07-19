@@ -1,0 +1,64 @@
+name: Bump version
+
+# Cargo.toml の version を patch / minor / major のいずれかで上げ、main へ push する。
+# push が release.yml の guard を通過してリリースが走る。
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # push できるよう全履歴を取得し、ボット用認証を使う
+          token: ${{ github.token }}
+
+      - name: Compute next version
+        id: ver
+        run: |
+          current="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          IFS='.' read -r major minor patch <<< "$current"
+          case "${{ inputs.bump }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          next="${major}.${minor}.${patch}"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Update Cargo.toml
+        run: |
+          sed -i "0,/^version = \"${{ steps.ver.outputs.current }}\"/s//version = \"${{ steps.ver.outputs.next }}\"/" Cargo.toml
+
+      - name: Setup Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc --version
+
+      - name: Update Cargo.lock
+        run: cargo update --workspace
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to ${{ steps.ver.outputs.next }}"
+          git push origin HEAD:main
