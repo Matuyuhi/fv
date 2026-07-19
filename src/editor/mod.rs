@@ -1,0 +1,401 @@
+mod buffer;
+mod diff;
+
+pub use buffer::EditBuffer;
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::text::Line;
+
+use crate::git;
+use crate::viewer::Viewer;
+
+/// これを超えるファイルは編集対象にしない (メモリ・再ハイライトの両面で現実的でないため)
+const MAX_EDIT_BYTES: u64 = 10 * 1024 * 1024;
+
+pub enum EditOutcome {
+    Continue,
+    Exit,
+}
+
+pub struct EditState {
+    pub path: PathBuf,
+    pub buffer: EditBuffer,
+    /// (line, col)。バッファの生テキスト上の char 座標 (タブは 1 char)
+    pub cursor: (usize, usize),
+    // 上下移動で維持する目標列。短い行を跨いでも元の列に戻れるようにする (vim 相当)
+    desired_col: usize,
+    /// 描画キャッシュ。編集操作の度に再生成し、カーソル移動だけでは触らない
+    pub lines: Vec<Line<'static>>,
+    /// 行番号 gutter の char 幅 (末尾空白込み)。マウス座標変換とカーソル追従が参照する
+    pub gutter_width: usize,
+    /// 保存エラー・discard 確認などステータスバーに出す一時メッセージ
+    pub notice: Option<String>,
+    confirm_discard: bool,
+    // ライブ diff の比較元 (編集開始時の HEAD / index 版)。repo 外・untracked は None
+    baseline: Option<Vec<String>>,
+    /// 未保存バッファ vs baseline の変更行 (1-origin)。viewer の changed_lines と同じ描画に使う
+    pub changed_lines: Option<HashSet<usize>>,
+}
+
+impl EditState {
+    /// 編集セッションを開始する。非 UTF-8・巨大ファイル・読込失敗は None (呼び出し側で no-op)
+    pub fn open(path: &Path, viewer: &Viewer, start_line: usize, root: &Path) -> Option<Self> {
+        let size = fs::metadata(path).ok()?.len();
+        if size > MAX_EDIT_BYTES {
+            return None;
+        }
+        let buffer = EditBuffer::load(path).ok()?;
+        let cursor_line = start_line.min(buffer.line_count() - 1);
+        let mut state = Self {
+            path: path.to_path_buf(),
+            buffer,
+            cursor: (cursor_line, 0),
+            desired_col: 0,
+            lines: Vec::new(),
+            gutter_width: 0,
+            notice: None,
+            confirm_discard: false,
+            baseline: git::baseline_lines(root, path),
+            changed_lines: None,
+        };
+        state.rebuild(viewer);
+        Some(state)
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent, viewer: &mut Viewer) -> EditOutcome {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        // discard 確認は Esc の連続でだけ成立させる。他のキーを挟んだら仕切り直し
+        let confirming = std::mem::take(&mut self.confirm_discard);
+        self.notice = None;
+        // 端末により word 移動は Ctrl+矢印 / Alt+矢印 のどちらでも届くため両方受ける
+        let word = key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        match key.code {
+            KeyCode::Esc => {
+                if !confirming && self.buffer.dirty() {
+                    self.confirm_discard = true;
+                    self.notice = Some("unsaved changes — Esc: discard / Ctrl+s: save".to_string());
+                    return EditOutcome::Continue;
+                }
+                return EditOutcome::Exit;
+            }
+            KeyCode::Char('s') if ctrl => self.save(viewer),
+            KeyCode::Char('z') if ctrl => {
+                if let Some(cursor) = self.buffer.undo() {
+                    self.cursor = cursor;
+                    self.after_edit(viewer);
+                }
+            }
+            KeyCode::Char('y') if ctrl => {
+                if let Some(cursor) = self.buffer.redo() {
+                    self.cursor = cursor;
+                    self.after_edit(viewer);
+                }
+            }
+            KeyCode::Char('k') if ctrl => self.delete_line(viewer),
+            KeyCode::Enter => {
+                self.cursor = self.buffer.insert_block(self.cursor, "\n");
+                self.after_edit(viewer);
+            }
+            KeyCode::Backspace => self.backspace(viewer),
+            KeyCode::Delete => self.delete_forward(viewer),
+            KeyCode::Tab => {
+                self.cursor = self.buffer.insert_typed(self.cursor, '\t');
+                self.after_edit(viewer);
+            }
+            KeyCode::Left if word => self.word_left(viewer),
+            KeyCode::Right if word => self.word_right(viewer),
+            KeyCode::Left => self.move_left(viewer),
+            KeyCode::Right => self.move_right(viewer),
+            KeyCode::Up => self.move_vertical(-1, viewer),
+            KeyCode::Down => self.move_vertical(1, viewer),
+            KeyCode::PageUp => {
+                self.move_vertical(-(viewer.viewport_height.max(1) as isize), viewer)
+            }
+            KeyCode::PageDown => self.move_vertical(viewer.viewport_height.max(1) as isize, viewer),
+            KeyCode::Home => self.move_to((self.cursor.0, 0), viewer),
+            KeyCode::End => {
+                self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), viewer)
+            }
+            KeyCode::Char(c) if !ctrl => {
+                self.cursor = self.buffer.insert_typed(self.cursor, c);
+                self.after_edit(viewer);
+            }
+            _ => {}
+        }
+        EditOutcome::Continue
+    }
+
+    /// bracketed paste の一括挿入。undo 1 単位・再ハイライト 1 回に畳む
+    pub fn paste(&mut self, text: &str, viewer: &mut Viewer) {
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        self.cursor = self.buffer.insert_block(self.cursor, &text);
+        self.after_edit(viewer);
+    }
+
+    /// マウスクリック。row/col はコンテンツ領域 (枠線の内側) 相対の画面座標
+    pub fn click_at(&mut self, row: usize, col: usize, viewer: &Viewer) {
+        let (line, display) = if viewer.wrap {
+            // 描画 (ui/editor_pane) と同じ視覚行数の計算で、クリック行が
+            // どの論理行の何段目かを scroll から辿って特定する
+            let width = self.content_width(viewer);
+            let mut line = viewer.scroll.min(self.buffer.line_count() - 1);
+            let mut remaining = row;
+            loop {
+                let rows = wrap_rows(self.display_len(line), width);
+                if remaining < rows || line + 1 >= self.buffer.line_count() {
+                    remaining = remaining.min(rows - 1);
+                    break;
+                }
+                remaining -= rows;
+                line += 1;
+            }
+            (
+                line,
+                remaining * width + col.saturating_sub(self.gutter_width),
+            )
+        } else {
+            (
+                viewer.scroll + row,
+                viewer.hscroll + col.saturating_sub(self.gutter_width),
+            )
+        };
+        let line = line.min(self.buffer.line_count() - 1);
+        let col = char_col_at(self.buffer.line(line), display);
+        self.cursor = (line, col);
+        self.desired_col = col;
+        self.buffer.seal();
+    }
+
+    fn save(&mut self, viewer: &mut Viewer) {
+        match fs::write(&self.path, self.buffer.to_text()) {
+            Ok(()) => {
+                self.buffer.mark_saved();
+                // cache と git 変更行マークを watcher を待たずに即時更新する
+                viewer.reload(&self.path);
+                // reload は hscroll を 0 に戻すため、カーソル位置まで追従し直す
+                self.ensure_visible(viewer);
+                self.notice = Some("saved".to_string());
+            }
+            Err(e) => self.notice = Some(format!("save failed: {e}")),
+        }
+    }
+
+    fn backspace(&mut self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        if col > 0 {
+            self.buffer.delete((line, col - 1), (line, col));
+            self.cursor = (line, col - 1);
+        } else if line > 0 {
+            let prev_len = self.buffer.line_len(line - 1);
+            self.buffer.delete((line - 1, prev_len), (line, 0));
+            self.cursor = (line - 1, prev_len);
+        } else {
+            return;
+        }
+        self.after_edit(viewer);
+    }
+
+    fn delete_forward(&mut self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        if col < self.buffer.line_len(line) {
+            self.buffer.delete((line, col), (line, col + 1));
+        } else if line + 1 < self.buffer.line_count() {
+            self.buffer.delete((line, col), (line + 1, 0));
+        } else {
+            return;
+        }
+        self.after_edit(viewer);
+    }
+
+    /// Ctrl+k: カーソル行を丸ごと削除。最終行は内容だけ消す (バッファは常に 1 行以上を保つ)
+    fn delete_line(&mut self, viewer: &mut Viewer) {
+        let (line, _) = self.cursor;
+        if line + 1 < self.buffer.line_count() {
+            self.buffer.delete((line, 0), (line + 1, 0));
+        } else if self.buffer.line_len(line) > 0 {
+            self.buffer
+                .delete((line, 0), (line, self.buffer.line_len(line)));
+        } else {
+            return;
+        }
+        self.cursor = (line.min(self.buffer.line_count() - 1), 0);
+        self.after_edit(viewer);
+    }
+
+    fn move_left(&mut self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        let target = if col > 0 {
+            (line, col - 1)
+        } else if line > 0 {
+            (line - 1, self.buffer.line_len(line - 1))
+        } else {
+            return;
+        };
+        self.move_to(target, viewer);
+    }
+
+    fn move_right(&mut self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        let target = if col < self.buffer.line_len(line) {
+            (line, col + 1)
+        } else if line + 1 < self.buffer.line_count() {
+            (line + 1, 0)
+        } else {
+            return;
+        };
+        self.move_to(target, viewer);
+    }
+
+    // 上下移動は desired_col を保つため move_to を通さない
+    fn move_vertical(&mut self, delta: isize, viewer: &mut Viewer) {
+        let last = (self.buffer.line_count() - 1) as isize;
+        let line = (self.cursor.0 as isize + delta).clamp(0, last) as usize;
+        self.cursor = (line, self.desired_col.min(self.buffer.line_len(line)));
+        self.buffer.seal();
+        self.ensure_visible(viewer);
+    }
+
+    /// WORD (非空白の連なり) 単位で次の語頭へ。行末からは次行頭へ
+    fn word_right(&mut self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        let chars: Vec<char> = self.buffer.line(line).chars().collect();
+        if col >= chars.len() {
+            if line + 1 < self.buffer.line_count() {
+                self.move_to((line + 1, 0), viewer);
+            }
+            return;
+        }
+        let mut c = col;
+        while c < chars.len() && !chars[c].is_whitespace() {
+            c += 1;
+        }
+        while c < chars.len() && chars[c].is_whitespace() {
+            c += 1;
+        }
+        self.move_to((line, c), viewer);
+    }
+
+    fn word_left(&mut self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        if col == 0 {
+            if line > 0 {
+                self.move_to((line - 1, self.buffer.line_len(line - 1)), viewer);
+            }
+            return;
+        }
+        let chars: Vec<char> = self.buffer.line(line).chars().collect();
+        let mut c = col;
+        while c > 0 && chars[c - 1].is_whitespace() {
+            c -= 1;
+        }
+        while c > 0 && !chars[c - 1].is_whitespace() {
+            c -= 1;
+        }
+        self.move_to((line, c), viewer);
+    }
+
+    fn move_to(&mut self, cursor: (usize, usize), viewer: &mut Viewer) {
+        self.cursor = cursor;
+        self.desired_col = cursor.1;
+        self.buffer.seal();
+        self.ensure_visible(viewer);
+    }
+
+    // 編集操作の後始末: 目標列の同期・描画キャッシュ再生成・カーソル追従
+    fn after_edit(&mut self, viewer: &mut Viewer) {
+        self.desired_col = self.cursor.1;
+        self.rebuild(viewer);
+        self.ensure_visible(viewer);
+    }
+
+    fn rebuild(&mut self, viewer: &Viewer) {
+        self.lines = viewer.highlight_text(&self.path, &self.buffer.display_text());
+        self.gutter_width = self.buffer.line_count().to_string().len() + 1;
+        // 保存を待たず、未保存バッファの状態で変更行マークを更新する
+        self.changed_lines = self
+            .baseline
+            .as_ref()
+            .map(|baseline| diff::changed_lines(baseline, self.buffer.lines()));
+    }
+
+    // カーソルが viewport に収まるよう viewer の scroll/hscroll を動かす
+    fn ensure_visible(&self, viewer: &mut Viewer) {
+        let (line, col) = self.cursor;
+        let height = viewer.viewport_height.max(1);
+        if line < viewer.scroll {
+            viewer.scroll = line;
+        }
+        if viewer.wrap {
+            // wrap 中に水平スクロールは存在しない。縦は視覚行数で収まりを判定する
+            viewer.hscroll = 0;
+            let width = self.content_width(viewer);
+            let cursor_row = display_col(self.buffer.line(line), col) / width;
+            let mut rows = cursor_row + 1;
+            for i in viewer.scroll..line {
+                rows += wrap_rows(self.display_len(i), width);
+            }
+            // カーソル行自体が viewport より背が高い場合は先頭合わせが限界 (閲覧時と同じ制約)
+            while rows > height && viewer.scroll < line {
+                rows -= wrap_rows(self.display_len(viewer.scroll), width);
+                viewer.scroll += 1;
+            }
+            return;
+        }
+        if line >= viewer.scroll + height {
+            viewer.scroll = line + 1 - height;
+        }
+        let display = display_col(self.buffer.line(line), col);
+        let width = self.content_width(viewer);
+        if display < viewer.hscroll {
+            viewer.hscroll = display;
+        } else if display >= viewer.hscroll + width {
+            viewer.hscroll = display + 1 - width;
+        }
+    }
+
+    // gutter を除いたコンテンツ部の桁数。wrap の折返し幅と hscroll のクランプ幅を兼ねる
+    fn content_width(&self, viewer: &Viewer) -> usize {
+        viewer
+            .viewport_width
+            .saturating_sub(self.gutter_width)
+            .max(1)
+    }
+
+    fn display_len(&self, line: usize) -> usize {
+        display_col(self.buffer.line(line), self.buffer.line_len(line))
+    }
+}
+
+/// 論理行が占める視覚行数 (wrap 時)。空行も 1 行を占める
+pub fn wrap_rows(display_len: usize, width: usize) -> usize {
+    display_len.div_ceil(width).max(1)
+}
+
+/// バッファ char 座標 → 表示桁 (タブ = 4 桁。content.rs の normalize と揃える)
+pub fn display_col(line: &str, char_col: usize) -> usize {
+    line.chars()
+        .take(char_col)
+        .map(|c| if c == '\t' { 4 } else { 1 })
+        .sum()
+}
+
+// 表示桁 → バッファ char 座標。タブの展開幅の途中はそのタブ自身に丸める
+fn char_col_at(line: &str, display: usize) -> usize {
+    let mut acc = 0;
+    for (i, c) in line.chars().enumerate() {
+        if acc >= display {
+            return i;
+        }
+        acc += if c == '\t' { 4 } else { 1 };
+        if acc > display {
+            return i;
+        }
+    }
+    line.chars().count()
+}

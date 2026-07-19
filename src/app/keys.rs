@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::editor::{EditOutcome, EditState};
 use crate::finder::Finder;
 
 use super::{App, Focus, InputKind, Mode, SETTINGS_ROWS, SettingsState};
@@ -29,6 +30,12 @@ impl App {
         if let Mode::Input { kind, .. } = &self.mode {
             let kind = *kind;
             self.on_input_key(kind, key);
+            return;
+        }
+        // 編集中は q/s/Tab 等のグローバルキーも全て文字入力として扱うため、
+        // ここより先のディスパッチには流さない (Ctrl+c だけが上で強制終了として残る)
+        if let Mode::Edit(_) = &self.mode {
+            self.on_edit_key(key);
             return;
         }
         // Input モード中は除き、どのフォーカスからでも起動する
@@ -136,6 +143,24 @@ impl App {
             }
             // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
             InputKind::Goto => {}
+        }
+    }
+
+    fn on_edit_key(&mut self, key: KeyEvent) {
+        // self.mode (EditState) と self.viewer は別フィールドなので同時に借りられる
+        let Mode::Edit(state) = &mut self.mode else {
+            return;
+        };
+        match state.handle_key(key, &mut self.viewer) {
+            EditOutcome::Exit => {
+                // 編集中は wrap を無視して hscroll を動かしているため、
+                // wrap 閲覧に戻る時は「wrap 中は hscroll 0」の前提を復元する
+                if self.viewer.wrap {
+                    self.viewer.hscroll = 0;
+                }
+                self.mode = Mode::Normal;
+            }
+            EditOutcome::Continue => {}
         }
     }
 
@@ -286,6 +311,15 @@ impl App {
                 self.viewer.hscroll_by(6)
             }
             KeyCode::Char('0') if self.viewer.is_text() => self.viewer.hscroll_reset(),
+            KeyCode::Char('e') if self.viewer.is_text() => {
+                // 巨大ファイル・非 UTF-8・読込失敗は open が None を返し no-op になる
+                if let Some(open) = &self.viewer.current
+                    && let Some(state) =
+                        EditState::open(&open.path, &self.viewer, self.viewer.scroll, &self.root)
+                {
+                    self.mode = Mode::Edit(state);
+                }
+            }
             KeyCode::Char('g') if self.viewer.is_text() => self.pending_g = true,
             KeyCode::Char('G') if self.viewer.is_text() => self.viewer.jump_to_bottom(),
             KeyCode::Char(':') if self.viewer.is_text() => {

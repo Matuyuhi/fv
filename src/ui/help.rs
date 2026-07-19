@@ -60,6 +60,21 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             (":N Enter", "N 行目へジャンプ"),
             ("/", "検索"),
             ("n / N", "次 / 前のマッチへ"),
+            ("e", "編集モードに入る"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
+        "Edit (e)",
+        &[
+            ("文字入力", "挿入 (クリックでカーソル移動)"),
+            ("↑/↓/←/→", "カーソル移動"),
+            ("Ctrl+←/→", "単語単位で移動"),
+            ("Home/End", "行頭 / 行末へ"),
+            ("Ctrl+s", "保存"),
+            ("Ctrl+z / Ctrl+y", "undo / redo"),
+            ("Ctrl+k", "行削除"),
+            ("Esc", "終了 (未保存なら確認)"),
         ],
     );
     push_help_section(

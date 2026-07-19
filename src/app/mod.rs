@@ -99,6 +99,13 @@ impl App {
         self.git = git::file_statuses(&self.root);
     }
 
+    /// bracketed paste (main のイベントループから)。編集中のみ意味を持つ
+    pub fn on_paste(&mut self, text: &str) {
+        if let Mode::Edit(state) = &mut self.mode {
+            state.paste(text, &mut self.viewer);
+        }
+    }
+
     pub fn toggle_hidden(&mut self) {
         let show_hidden = self.tree.toggle_hidden(&self.root);
         // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。

@@ -96,6 +96,30 @@ pub fn changed_lines(root: &Path, file: &Path) -> Option<HashSet<usize>> {
     Some(lines)
 }
 
+/// changed_lines と同じ基準 (HEAD → 初期 repo は index) のファイル内容を行で返す。
+/// 編集中のライブ diff の比較元。untracked・repo 外・取得失敗は None
+pub fn baseline_lines(root: &Path, file: &Path) -> Option<Vec<String>> {
+    // `./` 前置きの spec は -C の cwd 相対で解決される (repo toplevel の取得が要らない)
+    let rel = file.strip_prefix(root).ok()?.to_str()?.to_string();
+    let mut output = run_git(root, ["show", &format!("HEAD:./{rel}")]);
+    if !output.as_ref().is_some_and(|o| o.status.success()) {
+        output = run_git(root, ["show", &format!(":0:./{rel}")]);
+    }
+    let output = output?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines: Vec<String> = text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_string())
+        .collect();
+    if text.ends_with('\n') {
+        lines.pop();
+    }
+    Some(lines)
+}
+
 fn diff_args(base: &[&str], file: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = base.iter().map(OsString::from).collect();
     args.push("--".into());

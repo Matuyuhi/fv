@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 概要
 
-fv は読み取り専用の TUI コードビューア（ratatui + crossterm + syntect + ignore + notify）。編集機能は意図的に持たない。新規依存の追加は原則しない方針（ファジーマッチ・git 連携は依存を足さず自前実装 / git CLI 呼び出しで済ませている）。
+fv は TUI コードビューア + インライン編集（ratatui + crossterm + syntect + ignore + notify）。当初は読み取り専用方針だったが、「AI が書いたコードをその場で手直しする」用途のため編集機能を段階導入中（Stage 1: 挿入・削除・undo/redo・ペースト・保存 済み / 将来: 選択・yank、vim 風モーダル）。VSCode 級の完全なエディタは目指さない。新規依存の追加は原則しない方針（ファジーマッチ・git 連携・編集バッファは依存を足さず自前実装 / git CLI 呼び出しで済ませている）。
 
 ## コマンド
 
@@ -37,11 +37,12 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `app/` — mod.rs(App 状態・on_tick), keys.rs(全キールーティング), mouse.rs, mode.rs(Focus/Mode/InputKind)
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(走査・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/スクロール/履歴), content.rs(読込・syntect ハイライト), search.rs
-- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, viewer_pane.rs, status_bar.rs, finder_panel.rs, help.rs
+- `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo)
+- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, viewer_pane.rs, editor_pane.rs, status_bar.rs, finder_panel.rs, help.rs
 - `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー) / `watch.rs`(notify)
 
 ### キールーティングの優先順位（app/keys.rs on_key）
-Ctrl+c → Mode::Help → Mode::Finder → Mode::Input(Search/Goto) → Normal(q/Tab → focus 別ディスパッチ)。新しいモード・キーを足す時はこの順序に組み込む。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。
+Ctrl+c → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → Mode::Edit → Normal(q/Tab → focus 別ディスパッチ)。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c だけは強制終了として残る）。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。
 
 ### 桁位置の整合インバリアント（複数ファイルに跨る前提）
 - 各行 `Line` の **span[0] は行番号 gutter**。検索ハイライト・水平スクロールは span[1..] を char 単位で走査する
@@ -57,6 +58,16 @@ Ctrl+c → Mode::Help → Mode::Finder → Mode::Input(Search/Goto) → Normal(q
 - 走査は起動時に WalkBuilder 1 回で一括（サブディレクトリ起点の遅延走査だと親の .gitignore が効かない）。`require_git(false)` で非 git ディレクトリでも .gitignore を尊重
 - `rescan` は展開状態と選択を **path で**保存・復元する（index_path は再走査で無効になる）
 - watch.rs のイベントフィルタは「`.` 始まり成分の除外 + root .gitignore の `matched_path_or_any_parents`」（`matched` だと `target/` が配下パスに効かない）。ツリー再走査は 500ms デバウンスで、git status の再取得もこれに相乗りする（別タイマーを作らない）
+
+### インライン編集（editor/ + ui/editor_pane.rs）
+- `Mode::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）
+- `EditBuffer` は disk から**生テキストを独立ロード**する。viewer の `plain` はタブ展開済みで保存に使えない。CRLF・末尾改行を記憶し `to_text()` で復元（保存でファイルを壊さないための核）。undo/redo は Insert/Delete 2 種の op の逆適用で、連続タイピングは coalesce（カーソル移動・改行・保存・ペーストで区切る）
+- 編集描画は viewer_pane と**独立したパス**（editor_pane）。検索ハイライト・変更行マークのパイプラインと相互作用させない。カーソルは端末カーソルでなく REVERSED スタイル重ね（全角・タブの画面幅計算を回避）
+- wrap は維持されるが `Paragraph::wrap`（単語境界 wrap・折返し位置が外から計算不能）は使わず **char 単位の自前分割**。視覚行数の計算は editor_pane（描画）・ensure_visible（カーソル追従）・click_at（クリック座標）の 3 者で `wrap_rows` を共有し、ズレると即カーソル位置バグになる
+- 編集の度に `Viewer::highlight_text` で全再ハイライト（256KB 超はプレーン行に切替）。キー入力起因の 1 回きりの再生成であり「再描画毎の再ハイライト禁止」には反しない。`Content` cache は編集中は使わず、保存時の `viewer.reload()` で更新する
+- `display_text()` は常に末尾 \n 付き（LinesWithEndings の行数を `lines.len()` に一致させ、末尾空行の描画欠けを防ぐ）
+- 変更行マーク `▎` は編集中も出る。ただし viewer と違い**未保存バッファのライブ diff**: 編集開始時に `git.rs::baseline_lines`（HEAD → 初期 repo は index。changed_lines と同じ基準）を 1 回取得し、以後は編集の度に editor/diff.rs（prefix/suffix トリム + LCS 自前実装）で再計算する。git CLI をキーストローク毎に呼ばない
+- 既知の制約: 外部変更との競合は last-write-wins（保存が上書きする）。非 UTF-8・10MB 超は編集不可（`e` が no-op）
 
 ### git 連携（git.rs）
 git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。porcelain -z の rename は `XY new\0old\0` の 2 パス形式。`git diff HEAD` は HEAD 無し repo で fail するため素の diff にフォールバックする。全失敗を Option で吸収し panic しない。
