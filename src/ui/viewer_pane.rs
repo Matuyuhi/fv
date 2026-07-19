@@ -84,7 +84,7 @@ pub(super) fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
 // 新しい Line を返す。キャッシュ済みの Line 自体は変更しない。span 数・各 span の
 // 文字数はどちらも変わらないため、highlight_matches の列計算 (span[0] を除外して
 // col=0 から数える) には影響しない
-fn mark_changed_line(
+pub(super) fn mark_changed_line(
     line: &Line<'static>,
     line_idx: usize,
     changed: &Option<HashSet<usize>>,
@@ -111,7 +111,7 @@ fn mark_changed_line(
 // gutter (span[0]) は固定したまま、コンテンツ部分だけ hscroll 文字分左にシフトした
 // 新しい Line を返す。highlight_matches 適用後に呼ぶことで、シフトで画面外に落ちる文字ごと
 // その bg スタイルも一緒に捨てられ、残った文字のハイライトは桁がずれず正しく残る
-fn hscroll_line(line: &Line<'static>, hscroll: usize) -> Line<'static> {
+pub(super) fn hscroll_line(line: &Line<'static>, hscroll: usize) -> Line<'static> {
     if hscroll == 0 {
         return line.clone();
     }

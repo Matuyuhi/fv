@@ -31,7 +31,22 @@ pub struct Open {
     pub changed_lines: Option<HashSet<usize>>,
 }
 
+// 編集中はキーストローク毎に全文を再ハイライトするため、閲覧時の
+// MAX_HIGHLIGHT_BYTES より大幅に低い閾値で早めにプレーン表示へ逃がす
+const EDIT_HIGHLIGHT_BYTES: usize = 256 * 1024;
+
 impl Viewer {
+    /// 編集バッファの描画行を生成する (editor 用)。cache は経由しない —
+    /// 再生成はキー入力起因の 1 回きりで、「再描画毎の再ハイライト禁止」には反しない
+    pub fn highlight_text(&self, path: &Path, text: &str) -> Vec<Line<'static>> {
+        let gutter_width = text.lines().count().max(1).to_string().len();
+        if text.len() > EDIT_HIGHLIGHT_BYTES {
+            plain_lines(text, gutter_width)
+        } else {
+            self.highlight_lines(path, text, gutter_width)
+        }
+    }
+
     pub(super) fn load(&self, path: &Path) -> Content {
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,

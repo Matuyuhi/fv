@@ -1,2 +1,8 @@
+# build
 /target
+# intellij
 /.idea
+
+# bin
+.DS_Store
+

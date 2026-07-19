@@ -1,3 +1,4 @@
+use crate::editor::EditState;
 use crate::finder::Finder;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -31,4 +32,7 @@ pub enum Mode {
     Help,
     // 設定画面のオーバーレイ (s キー)
     Settings(SettingsState),
+    // viewer フォーカスの e で入るインライン編集。バッファ等の編集状態は
+    // この variant が所有し、「編集中なのに状態がない」を型で表現不能にする
+    Edit(EditState),
 }

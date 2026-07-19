@@ -1,3 +1,4 @@
+mod editor_pane;
 mod finder_panel;
 mod help;
 mod icons;
@@ -22,7 +23,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     app.tree_area = left;
     app.viewer_area = right;
     tree_pane::draw_tree(frame, app, left);
-    viewer_pane::draw_viewer(frame, app, right);
+    if matches!(app.mode, Mode::Edit(_)) {
+        editor_pane::draw_editor(frame, app, right);
+    } else {
+        viewer_pane::draw_viewer(frame, app, right);
+    }
     status_bar::draw_status_bar(frame, app, status);
     if matches!(app.mode, Mode::Finder(_)) {
         finder_panel::draw_finder(frame, app, full);

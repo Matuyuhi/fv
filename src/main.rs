@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod editor;
 mod finder;
 mod git;
 mod tree;
@@ -14,10 +15,15 @@ use std::panic;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind};
+use crossterm::event::{
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    supports_keyboard_enhancement,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -38,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - read-only TUI code viewer\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
         Command::Run { root, config } => run_app(root, config)?,
@@ -50,7 +56,21 @@ fn run_app(root: PathBuf, config: Config) -> Result<(), Box<dyn Error>> {
     let mut app = App::new(root, config);
     install_panic_hook();
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(
+        io::stdout(),
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )?;
+    // kitty keyboard protocol (ghostty/kitty/WezTerm 等)。修飾付きキーの報告が
+    // 曖昧さなしになり、mac の Cmd (SUPER) 修飾も受信できるようになる。
+    // 未対応端末では query が false になり何もしない (挙動は従来どおり)
+    if matches!(supports_keyboard_enhancement(), Ok(true)) {
+        let _ = execute!(
+            io::stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
+    }
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     let result = run(&mut terminal, &mut app);
@@ -68,8 +88,10 @@ fn run(
         // これがそのまま再描画・自動リロードのポーリング間隔にもなる
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => app.on_key(key),
+                // kitty protocol 有効時はキー長押しが Repeat で届くため Press と同様に扱う
+                Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
                 Event::Mouse(mouse) => app.on_mouse(mouse),
+                Event::Paste(text) => app.on_paste(&text),
                 _ => {}
             }
         }
@@ -148,7 +170,14 @@ fn resolve_root(root: PathBuf) -> Result<PathBuf, Box<dyn Error>> {
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+    // Pop は push していない端末に送っても無害 (空スタックの pop / 未対応端末は無視)
+    let _ = execute!(
+        io::stdout(),
+        PopKeyboardEnhancementFlags,
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        DisableBracketedPaste
+    );
 }
 
 // panic 時も端末を alternate screen / raw mode のまま残さないための hook。

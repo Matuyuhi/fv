@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::{App, Focus, InputKind, Mode};
+use crate::editor::EditState;
 
 pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let line = match &app.mode {
@@ -19,6 +20,7 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Help => Line::from("?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
+        Mode::Edit(state) => edit_status_line(state),
         Mode::Normal => normal_status_line(app),
     };
     let paragraph =
@@ -40,6 +42,18 @@ fn goto_input_line(buffer: &str) -> Line<'static> {
         // 常に末尾に立つ簡易カーソル (このアプリの入力は末尾への追記のみ)
         Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
     ])
+}
+
+fn edit_status_line(state: &EditState) -> Line<'static> {
+    // 保存エラー・discard 確認は通常のキーヒントより優先して見せる
+    if let Some(notice) = &state.notice {
+        return Line::from(notice.clone());
+    }
+    Line::from(format!(
+        "[EDIT] {}:{}  Ctrl+s: save  Ctrl+z/y: undo/redo  Ctrl+k: delete line  Esc: exit",
+        state.cursor.0 + 1,
+        state.cursor.1 + 1
+    ))
 }
 
 fn normal_status_line(app: &App) -> Line<'static> {
