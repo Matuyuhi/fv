@@ -17,11 +17,13 @@ use std::time::Duration;
 
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyEventKind,
+    Event, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    supports_keyboard_enhancement,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -60,6 +62,15 @@ fn run_app(root: PathBuf, config: Config) -> Result<(), Box<dyn Error>> {
         EnableMouseCapture,
         EnableBracketedPaste
     )?;
+    // kitty keyboard protocol (ghostty/kitty/WezTerm 等)。修飾付きキーの報告が
+    // 曖昧さなしになり、mac の Cmd (SUPER) 修飾も受信できるようになる。
+    // 未対応端末では query が false になり何もしない (挙動は従来どおり)
+    if matches!(supports_keyboard_enhancement(), Ok(true)) {
+        let _ = execute!(
+            io::stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
+    }
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     let result = run(&mut terminal, &mut app);
@@ -77,7 +88,8 @@ fn run(
         // これがそのまま再描画・自動リロードのポーリング間隔にもなる
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => app.on_key(key),
+                // kitty protocol 有効時はキー長押しが Repeat で届くため Press と同様に扱う
+                Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
                 Event::Mouse(mouse) => app.on_mouse(mouse),
                 Event::Paste(text) => app.on_paste(&text),
                 _ => {}
@@ -158,8 +170,10 @@ fn resolve_root(root: PathBuf) -> Result<PathBuf, Box<dyn Error>> {
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
+    // Pop は push していない端末に送っても無害 (空スタックの pop / 未対応端末は無視)
     let _ = execute!(
         io::stdout(),
+        PopKeyboardEnhancementFlags,
         LeaveAlternateScreen,
         DisableMouseCapture,
         DisableBracketedPaste

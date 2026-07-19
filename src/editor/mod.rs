@@ -67,31 +67,64 @@ impl EditState {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, viewer: &mut Viewer) -> EditOutcome {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let mods = key.modifiers;
+        let ctrl = mods.contains(KeyModifiers::CONTROL);
+        // SUPER (mac の Cmd) は kitty keyboard protocol 対応端末でのみ届く (main.rs で opt-in)
+        let cmd = mods.contains(KeyModifiers::SUPER);
+        let shift = mods.contains(KeyModifiers::SHIFT);
+        // 修飾付き文字は端末により大文字 (Shift 畳み込み済み) で届くことがあるため小文字に揃える
+        let code = match key.code {
+            KeyCode::Char(c) if ctrl || cmd => KeyCode::Char(c.to_ascii_lowercase()),
+            other => other,
+        };
         // discard 確認は Esc の連続でだけ成立させる。他のキーを挟んだら仕切り直し
         let confirming = std::mem::take(&mut self.confirm_discard);
         self.notice = None;
+        if confirming {
+            match code {
+                KeyCode::Esc => return EditOutcome::Exit,
+                // Ctrl+s が端末に奪われる環境向けの逃げ道。保存できたらそのまま閲覧へ戻る
+                KeyCode::Char('s') if !ctrl && !cmd => {
+                    self.save(viewer);
+                    return if self.buffer.dirty() {
+                        EditOutcome::Continue
+                    } else {
+                        EditOutcome::Exit
+                    };
+                }
+                // それ以外のキーは確認を解除した上で通常どおり処理する
+                _ => {}
+            }
+        }
         // 端末により word 移動は Ctrl+矢印 / Alt+矢印 のどちらでも届くため両方受ける
-        let word = key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
-        match key.code {
+        let word = mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        match code {
             KeyCode::Esc => {
-                if !confirming && self.buffer.dirty() {
+                if self.buffer.dirty() {
                     self.confirm_discard = true;
-                    self.notice = Some("unsaved changes — Esc: discard / Ctrl+s: save".to_string());
+                    self.notice = Some(
+                        "unsaved changes — Esc: discard / s: save & exit / Ctrl+s: save"
+                            .to_string(),
+                    );
                     return EditOutcome::Continue;
                 }
                 return EditOutcome::Exit;
             }
-            KeyCode::Char('s') if ctrl => self.save(viewer),
-            KeyCode::Char('z') if ctrl => {
+            KeyCode::Char('s') if ctrl || cmd => self.save(viewer),
+            // mac 慣習の Cmd+Shift+z も redo に割り当てる
+            KeyCode::Char('z') if (ctrl || cmd) && shift => {
+                if let Some(cursor) = self.buffer.redo() {
+                    self.cursor = cursor;
+                    self.after_edit(viewer);
+                }
+            }
+            KeyCode::Char('z') if ctrl || cmd => {
                 if let Some(cursor) = self.buffer.undo() {
                     self.cursor = cursor;
                     self.after_edit(viewer);
                 }
             }
-            KeyCode::Char('y') if ctrl => {
+            KeyCode::Char('y') if ctrl || cmd => {
                 if let Some(cursor) = self.buffer.redo() {
                     self.cursor = cursor;
                     self.after_edit(viewer);
@@ -108,6 +141,11 @@ impl EditState {
                 self.cursor = self.buffer.insert_typed(self.cursor, '\t');
                 self.after_edit(viewer);
             }
+            // mac 慣習: Cmd+←/→ は行頭・行末
+            KeyCode::Left if cmd => self.move_to((self.cursor.0, 0), viewer),
+            KeyCode::Right if cmd => {
+                self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), viewer)
+            }
             KeyCode::Left if word => self.word_left(viewer),
             KeyCode::Right if word => self.word_right(viewer),
             KeyCode::Left => self.move_left(viewer),
@@ -122,7 +160,8 @@ impl EditState {
             KeyCode::End => {
                 self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), viewer)
             }
-            KeyCode::Char(c) if !ctrl => {
+            // Cmd/Alt 付きは未割当ショートカットの可能性が高いので文字として挿入しない
+            KeyCode::Char(c) if !ctrl && !cmd && !mods.contains(KeyModifiers::ALT) => {
                 self.cursor = self.buffer.insert_typed(self.cursor, c);
                 self.after_edit(viewer);
             }

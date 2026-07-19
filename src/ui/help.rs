@@ -70,11 +70,11 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("文字入力", "挿入 (クリックでカーソル移動)"),
             ("↑/↓/←/→", "カーソル移動"),
             ("Ctrl+←/→", "単語単位で移動"),
-            ("Home/End", "行頭 / 行末へ"),
-            ("Ctrl+s", "保存"),
-            ("Ctrl+z / Ctrl+y", "undo / redo"),
+            ("Home/End", "行頭 / 行末へ (Cmd+←/→ も可)"),
+            ("Ctrl+s / Cmd+s", "保存"),
+            ("Ctrl+z / Ctrl+y", "undo / redo (Cmd+z / Cmd+Shift+z)"),
             ("Ctrl+k", "行削除"),
-            ("Esc", "終了 (未保存なら確認)"),
+            ("Esc", "終了 (未保存なら確認。確認中の s で保存して終了)"),
         ],
     );
     push_help_section(
