@@ -2,6 +2,12 @@ name: Bump version
 
 # Cargo.toml の version を patch / minor / major のいずれかで上げ、main へ push する。
 # push が release.yml の guard を通過してリリースが走る。
+#
+# 重要: GITHUB_TOKEN で push しても他ワークフローは起動しない（GitHub 制約）。
+# そのため push には PAT が必要。
+# 前提シークレット: BUMP_TOKEN
+#   Matuyuhi/fv の Contents=R/W 権を持つ fine-grained PAT。
+#   未設定なら push をスキップし、手動で bump コミットをプッシュする旨を案内する。
 
 on:
   workflow_dispatch:
@@ -25,13 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # push できるよう全履歴を取得し、ボット用認証を使う
-          token: ${{ github.token }}
+          # BUMP_TOKEN（PAT）があればそちらを優先する。
+          # PAT push は release.yml を起動できる；GITHUB_TOKEN push は起動できない。
+          token: ${{ secrets.BUMP_TOKEN || github.token }}
 
       - name: Compute next version
         id: ver
         run: |
-          current="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          current="$(grep -m1 '^[[:space:]]*version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
           IFS='.' read -r major minor patch <<< "$current"
           case "${{ inputs.bump }}" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
@@ -43,8 +50,12 @@ jobs:
           echo "next=$next" >> "$GITHUB_OUTPUT"
 
       - name: Update Cargo.toml
+        env:
+          CURRENT: ${{ steps.ver.outputs.current }}
+          NEXT: ${{ steps.ver.outputs.next }}
         run: |
-          sed -i "0,/^version = \"${{ steps.ver.outputs.current }}\"/s//version = \"${{ steps.ver.outputs.next }}\"/" Cargo.toml
+          # [package] セクション内の最初の version 行だけを書き換える
+          sed -i "0,/^\(version[[:space:]]*=[[:space:]]*\)\"${CURRENT}\"/s//\1\"${NEXT}\"/" Cargo.toml
 
       - name: Setup Rust
         run: |
@@ -53,12 +64,21 @@ jobs:
           rustc --version
 
       - name: Update Cargo.lock
-        run: cargo update --workspace
+        # fv パッケージのエントリだけ更新する（他の依存は触らない）
+        run: cargo update -p fv
 
       - name: Commit and push
+        env:
+          HAS_PAT: ${{ secrets.BUMP_TOKEN != '' }}
+          NEXT: ${{ steps.ver.outputs.next }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock
-          git commit -m "chore: bump version to ${{ steps.ver.outputs.next }}"
-          git push origin HEAD:main
+          git commit -m "chore: bump version to ${NEXT}"
+          if [ "$HAS_PAT" = "true" ]; then
+            git push origin HEAD:main
+          else
+            echo "::warning::BUMP_TOKEN is not set. Push skipped — release.yml will not be triggered."
+            echo "Run: git push origin HEAD:main  (with a PAT that has Contents=R/W on this repo)"
+          fi
