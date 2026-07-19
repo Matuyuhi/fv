@@ -3,19 +3,20 @@
 <img width="700" alt="スクリーンショット 2026-07-18 21 19 04" src="https://github.com/user-attachments/assets/5736ca52-ebf1-42d5-92fa-61c41ebc7e97" />
 
 
-Read-only TUI code viewer with syntax highlighting and git status.
+TUI code viewer with syntax highlighting, git status, and inline editing.
 
-fv is for *looking at* code, not editing it — browse a directory tree, open files with syntax highlighting, search, and see git changes at a glance. Files reload automatically when they change on disk.
+Browse a directory tree, open files with syntax highlighting, search, see git changes at a glance, and edit files in-place without leaving the terminal. Files reload automatically when they change on disk.
 
 ## Features
 
 - File tree with `.gitignore`-aware scanning and git status markers
 - Syntax highlighting (syntect)
+- **Inline editing** (`e`) — insert, delete, undo/redo, paste, save
+- Live changed-line markers (`▎`) in the gutter while editing (LCS diff against git HEAD, no per-keystroke git calls)
 - Fuzzy file finder (`Ctrl+p`)
 - In-file search (`/`, `n`/`N`) and line jump (`:N`)
-- Changed-line markers in the gutter (`▎`) based on `git diff`
 - Auto-reload on file system changes
-- Mouse support (click to select/open, wheel to scroll)
+- Mouse support (click to select/open/move cursor, wheel to scroll)
 - Wrap toggle, horizontal scroll, navigation history (`Ctrl+o`/`Ctrl+i`)
 - Settings popup (`s`) for hidden files / icons / wrap default / syntax theme, persisted to `~/.config/fv/config`
 
@@ -59,6 +60,20 @@ Press `?` inside fv for the full list.
 | `r` | Rescan tree |
 | `s` | Settings |
 | `?` | Help |
+| `e` | Enter edit mode |
+
+### Edit mode (`e`)
+
+| Key | Action |
+| --- | --- |
+| character keys | Insert text (click to move cursor) |
+| `↑`/`↓`/`←`/`→` | Move cursor |
+| `Ctrl+←`/`→` | Move word by word |
+| `Home`/`End` | Beginning / end of line |
+| `Ctrl+s` / `Cmd+s` | Save |
+| `Ctrl+z` / `Ctrl+y` | Undo / redo |
+| `Ctrl+k` | Delete line |
+| `Esc` | Exit edit mode (prompts if unsaved; press `s` at prompt to save) |
 
 ## License
 
