@@ -99,10 +99,29 @@ impl App {
         self.git = git::file_statuses(&self.root);
     }
 
-    /// bracketed paste (main のイベントループから)。編集中のみ意味を持つ
+    /// bracketed paste (main のイベントループから)。編集バッファへは複数行のまま、
+    /// Search/Goto/Finder の 1 行入力へは制御文字を落として流す
+    /// (paste 有効化前は生キー入力として届いていた挙動の維持)
     pub fn on_paste(&mut self, text: &str) {
-        if let Mode::Edit(state) = &mut self.mode {
-            state.paste(text, &mut self.viewer);
+        match &mut self.mode {
+            Mode::Edit(state) => state.paste(text, &mut self.viewer),
+            Mode::Input { kind, buffer } => {
+                let kind = *kind;
+                for c in text.chars().filter(|c| !c.is_control()) {
+                    // キー入力側 (on_input_key) と同じ Goto の数字ガードを通す
+                    if kind == InputKind::Goto && !c.is_ascii_digit() {
+                        continue;
+                    }
+                    buffer.push(c);
+                }
+                self.live_update_input(kind);
+            }
+            Mode::Finder(finder) => {
+                for c in text.chars().filter(|c| !c.is_control()) {
+                    finder.push_char(c);
+                }
+            }
+            _ => {}
         }
     }
 

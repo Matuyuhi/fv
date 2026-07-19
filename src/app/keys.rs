@@ -133,7 +133,8 @@ impl App {
         }
     }
 
-    fn live_update_input(&mut self, kind: InputKind) {
+    // on_paste (mod.rs) からも呼ぶため pub(super)
+    pub(super) fn live_update_input(&mut self, kind: InputKind) {
         match kind {
             InputKind::Search => {
                 if let Mode::Input { buffer, .. } = &self.mode {
