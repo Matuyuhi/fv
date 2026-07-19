@@ -30,15 +30,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          # BUMP_TOKEN（PAT）があればそちらを優先する。
-          # PAT push は release.yml を起動できる；GITHUB_TOKEN push は起動できない。
-          token: ${{ secrets.BUMP_TOKEN || github.token }}
 
       - name: Compute next version
         id: ver
         run: |
-          current="$(grep -m1 '^[[:space:]]*version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          # [package] セクション内の version 行だけを読む（依存の version 行を誤読しない）
+          current="$(awk '/^\[package\]/,/^\[/{if (/^version[[:space:]]*=/) {match($0, /"([^"]+)"/, m); print m[1]; exit}}' Cargo.toml)"
           IFS='.' read -r major minor patch <<< "$current"
           case "${{ inputs.bump }}" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
@@ -51,11 +48,16 @@ jobs:
 
       - name: Update Cargo.toml
         env:
-          CURRENT: ${{ steps.ver.outputs.current }}
           NEXT: ${{ steps.ver.outputs.next }}
         run: |
-          # [package] セクション内の最初の version 行だけを書き換える
-          sed -i "0,/^\(version[[:space:]]*=[[:space:]]*\)\"${CURRENT}\"/s//\1\"${NEXT}\"/" Cargo.toml
+          # [package] セクション内の version 行だけを書き換える（依存の version 行は不変）
+          awk -v next="$NEXT" '
+            /^\[package\]/ { in_pkg=1 }
+            /^\[/ && !/^\[package\]/ { in_pkg=0 }
+            in_pkg && /^version[[:space:]]*=/ && !done { sub(/"[^"]*"/, "\"" next "\""); done=1 }
+            { print }
+          ' Cargo.toml > Cargo.toml.tmp
+          mv Cargo.toml.tmp Cargo.toml
 
       - name: Setup Rust
         run: |
@@ -69,16 +71,17 @@ jobs:
 
       - name: Commit and push
         env:
-          HAS_PAT: ${{ secrets.BUMP_TOKEN != '' }}
+          BUMP_TOKEN: ${{ secrets.BUMP_TOKEN }}
           NEXT: ${{ steps.ver.outputs.next }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock
           git commit -m "chore: bump version to ${NEXT}"
-          if [ "$HAS_PAT" = "true" ]; then
+          if [ -n "$BUMP_TOKEN" ]; then
+            git remote set-url origin "https://x-access-token:${BUMP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git push origin HEAD:main
           else
             echo "::warning::BUMP_TOKEN is not set. Push skipped — release.yml will not be triggered."
-            echo "Run: git push origin HEAD:main  (with a PAT that has Contents=R/W on this repo)"
+            echo "Set a fine-grained PAT (Contents=R/W on this repo) as the BUMP_TOKEN secret, then re-run."
           fi
