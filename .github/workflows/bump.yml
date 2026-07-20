@@ -1,0 +1,90 @@
+name: Bump version
+
+# Cargo.toml の version を patch / minor / major のいずれかで上げ、
+# bump/vX.Y.Z ブランチに push して main への PR を自動作成する。
+# PR をマージすれば release.yml の guard が動いてリリースが走る。
+#
+# GITHUB_TOKEN（permissions で contents/pull-requests を許可）で
+# bump ブランチ push と PR 作成を行う。
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Compute next version
+        id: ver
+        run: |
+          # [package] セクション内の version 行だけを読む（依存の version 行を誤読しない）
+          current="$(awk '/^\[package\]/,/^\[/{if (/^version[[:space:]]*=/) {match($0, /"([^"]+)"/, m); print m[1]; exit}}' Cargo.toml)"
+          IFS='.' read -r major minor patch <<< "$current"
+          case "${{ inputs.bump }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          next="${major}.${minor}.${patch}"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "branch=bump/v${next}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Cargo.toml
+        env:
+          NEXT: ${{ steps.ver.outputs.next }}
+        run: |
+          # [package] セクション内の version 行だけを書き換える（依存の version 行は不変）
+          awk -v next="$NEXT" '
+            /^\[package\]/ { in_pkg=1 }
+            /^\[/ && !/^\[package\]/ { in_pkg=0 }
+            in_pkg && /^version[[:space:]]*=/ && !done { sub(/"[^"]*"/, "\"" next "\""); done=1 }
+            { print }
+          ' Cargo.toml > Cargo.toml.tmp
+          mv Cargo.toml.tmp Cargo.toml
+
+      - name: Setup Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc --version
+
+      - name: Update Cargo.lock
+        # fv パッケージのエントリだけ更新する（他の依存は触らない）
+        run: cargo update -p fv
+
+      - name: Commit and push branch, then open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.ver.outputs.next }}
+          BRANCH: ${{ steps.ver.outputs.branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to ${NEXT}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo "$REPO" \
+            --head "$BRANCH" \
+            --base main \
+            --title "chore: bump version to ${NEXT}" \
+            --body "Automated version bump to \`${NEXT}\`. Merging this PR will trigger the release workflow."
