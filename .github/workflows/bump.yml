@@ -4,11 +4,8 @@ name: Bump version
 # bump/vX.Y.Z ブランチに push して main への PR を自動作成する。
 # PR をマージすれば release.yml の guard が動いてリリースが走る。
 #
-# 重要: GITHUB_TOKEN で push しても他ワークフローは起動しない（GitHub 制約）。
-# そのため push には PAT が必要。
-# 前提シークレット: BUMP_TOKEN
-#   Matuyuhi/fv の Contents=R/W + Pull requests=R/W 権を持つ fine-grained PAT。
-#   未設定なら push をスキップし、手動で bump コミットをプッシュする旨を案内する。
+# GITHUB_TOKEN（permissions で contents/pull-requests を許可）で
+# bump ブランチ push と PR 作成を行う。
 
 on:
   workflow_dispatch:
@@ -74,7 +71,7 @@ jobs:
 
       - name: Commit and push branch, then open PR
         env:
-          BUMP_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           NEXT: ${{ steps.ver.outputs.next }}
           BRANCH: ${{ steps.ver.outputs.branch }}
           REPO: ${{ github.repository }}
@@ -84,16 +81,10 @@ jobs:
           git checkout -b "$BRANCH"
           git add Cargo.toml Cargo.lock
           git commit -m "chore: bump version to ${NEXT}"
-          if [ -n "$BUMP_TOKEN" ]; then
-            git remote set-url origin "https://x-access-token:${BUMP_TOKEN}@github.com/${REPO}.git"
-            git push origin "$BRANCH"
-            gh pr create \
-              --repo "$REPO" \
-              --head "$BRANCH" \
-              --base main \
-              --title "chore: bump version to ${NEXT}" \
-              --body "Automated version bump to \`${NEXT}\`. Merging this PR will trigger the release workflow."
-          else
-            echo "::warning::BUMP_TOKEN is not set. Push skipped."
-            echo "Set a fine-grained PAT (Contents=R/W, Pull requests=R/W on this repo) as the BUMP_TOKEN secret, then re-run."
-          fi
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo "$REPO" \
+            --head "$BRANCH" \
+            --base main \
+            --title "chore: bump version to ${NEXT}" \
+            --body "Automated version bump to \`${NEXT}\`. Merging this PR will trigger the release workflow."
