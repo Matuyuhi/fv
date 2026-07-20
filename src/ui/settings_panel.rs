@@ -26,7 +26,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let values = [
         on_off(app.tree.show_hidden()),
         on_off(app.icons),
-        on_off(app.viewer.wrap),
+        on_off(app.viewer.viewport.wrap),
         app.viewer.theme_name().to_string(),
     ];
     let items: Vec<ListItem> = SETTINGS_ROWS

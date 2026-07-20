@@ -3,6 +3,7 @@ mod config;
 mod editor;
 mod finder;
 mod git;
+mod text;
 mod tree;
 mod ui;
 mod viewer;

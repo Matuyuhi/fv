@@ -60,7 +60,7 @@ impl App {
                 ) else {
                     return;
                 };
-                state.click_at(row as usize, col as usize, &self.viewer);
+                state.click_at(row as usize, col as usize, &self.viewer.viewport);
             }
             MouseEventKind::ScrollUp => self.viewer.scroll_by(-3),
             MouseEventKind::ScrollDown => self.viewer.scroll_by(3),

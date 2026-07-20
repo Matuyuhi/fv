@@ -1,16 +1,18 @@
 mod content;
+mod highlight;
 mod search;
+mod viewport;
 
 pub use content::{Content, Open};
+pub use highlight::Highlighter;
 pub use search::SearchState;
+pub use viewport::Viewport;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use ratatui::style::Color;
-use syntect::highlighting::{Color as SyntectColor, Theme, ThemeSet};
-use syntect::parsing::SyntaxSet;
 
 use crate::git;
 
@@ -33,22 +35,13 @@ pub const THEME_NAMES: [&str; 7] = [
 ];
 
 pub struct Viewer {
-    syntax_set: SyntaxSet,
-    theme: Theme,
-    theme_set: ThemeSet,
-    theme_name: String,
+    /// ハイライトエンジン。編集 (EditState) は Viewer 全体でなくこれだけを借りる
+    pub highlighter: Highlighter,
+    /// スクロール・折返し状態。閲覧と編集で同じ実体を共有する
+    pub viewport: Viewport,
     // ハイライト済み行のキャッシュ。ファイルを開き直しても再計算しない
     cache: HashMap<PathBuf, Rc<Content>>,
     pub current: Option<Open>,
-    pub scroll: usize,
-    // 描画時に ui 側が実測値を書き戻す。Ctrl+d/u の半ページ量の算出用
-    pub viewport_height: usize,
-    // 描画時に ui 側が実測値を書き戻す。hscroll の緩いクランプ算出用
-    pub viewport_width: usize,
-    // ファイルを跨いで維持する表示設定。true の間は draw_viewer が Paragraph::wrap を付ける
-    pub wrap: bool,
-    // wrap off 時のみ有効な水平スクロール量 (char 単位)。wrap on の間は 0 に固定する
-    pub hscroll: usize,
     // ファイルごとではなく viewer に1つだけ持つ検索状態
     pub search: Option<SearchState>,
     // open() の度に更新される root。reload() は path しか受け取らないので、
@@ -66,27 +59,11 @@ pub struct Viewer {
 
 impl Viewer {
     pub fn new() -> Self {
-        let syntax_set = SyntaxSet::load_defaults_newlines();
-        let theme_set = ThemeSet::load_defaults();
-        let theme_name = "base16-ocean.dark".to_string();
-        let mut theme = theme_set
-            .themes
-            .get(&theme_name)
-            .cloned()
-            .expect("base16-ocean.dark is bundled in syntect's default themes");
-        tweak_comment_color(&mut theme);
         Self {
-            syntax_set,
-            theme,
-            theme_set,
-            theme_name,
+            highlighter: Highlighter::new(),
+            viewport: Viewport::new(false),
             cache: HashMap::new(),
             current: None,
-            scroll: 0,
-            viewport_height: 0,
-            viewport_width: 0,
-            wrap: false,
-            hscroll: 0,
             search: None,
             root: PathBuf::new(),
             history: Vec::new(),
@@ -96,15 +73,11 @@ impl Viewer {
     }
 
     pub fn background(&self) -> Color {
-        self.theme
-            .settings
-            .background
-            .map(|c| Color::Rgb(c.r, c.g, c.b))
-            .unwrap_or(Color::Reset)
+        self.highlighter.background()
     }
 
     pub fn theme_name(&self) -> &str {
-        &self.theme_name
+        self.highlighter.theme_name()
     }
 
     /// テーマ切替。ハイライトは Content に焼き込み済みのため、切り替えたら
@@ -112,16 +85,13 @@ impl Viewer {
     /// (再描画毎の再ハイライト禁止ルールへの違反ではなく、cache key = path だけでは
     /// もう内容を一意に決められなくなったことに対する正当な無効化)
     pub fn set_theme(&mut self, name: &str) -> bool {
-        let Some(mut theme) = self.theme_set.themes.get(name).cloned() else {
+        if !self.highlighter.set_theme(name) {
             return false;
-        };
-        tweak_comment_color(&mut theme);
-        self.theme = theme;
-        self.theme_name = name.to_string();
+        }
         self.cache.clear();
         if let Some(path) = self.current.as_ref().map(|open| open.path.clone()) {
             let root = self.root.clone();
-            let scroll = self.scroll;
+            let scroll = self.viewport.scroll;
             self.set_current(&path, &root, scroll);
         }
         true
@@ -163,7 +133,8 @@ impl Viewer {
     // 現在開いているファイルの scroll 位置を記録する。ファイルを離れる直前 (open/back/forward) に呼ぶ
     fn record_scroll(&mut self) {
         if let Some(open) = &self.current {
-            self.last_scroll.insert(open.path.clone(), self.scroll);
+            self.last_scroll
+                .insert(open.path.clone(), self.viewport.scroll);
         }
     }
 
@@ -205,9 +176,9 @@ impl Viewer {
                 loaded
             }
         };
-        self.scroll = scroll;
+        self.viewport.scroll = scroll;
         // ファイルを跨ぐたびに水平位置はリセットする (wrap は跨いで維持する設定なのでここでは触らない)
-        self.hscroll = 0;
+        self.viewport.hscroll = 0;
         self.current = Some(Open {
             title,
             path: path.to_path_buf(),
@@ -233,36 +204,25 @@ impl Viewer {
             open.changed_lines = changed_lines;
         }
         let last = self.line_count().saturating_sub(1);
-        self.scroll = self.scroll.min(last);
-        self.hscroll = 0;
+        self.viewport.scroll = self.viewport.scroll.min(last);
+        self.viewport.hscroll = 0;
         self.recompute_search();
     }
 
     pub fn scroll_by(&mut self, delta: isize) {
-        let last = self.line_count().saturating_sub(1) as isize;
-        self.scroll = (self.scroll as isize + delta).clamp(0, last) as usize;
+        let last = self.line_count().saturating_sub(1);
+        self.viewport.scroll_by(delta, last);
     }
 
-    /// w: 折返しトグル。有効化した瞬間は水平スクロール位置の意味が失われるので 0 に戻す
-    pub fn toggle_wrap(&mut self) {
-        self.wrap = !self.wrap;
-        if self.wrap {
-            self.hscroll = 0;
-        }
-    }
-
-    /// h/l 等の水平スクロール。wrap 中は no-op (呼び出し側の条件分岐と二重に守る)
+    /// h/l 等の水平スクロール。クランプ上限だけ Content から算出して Viewport に渡す
     pub fn hscroll_by(&mut self, delta: isize) {
-        if self.wrap {
-            return;
-        }
-        let max = self.max_hscroll() as isize;
-        self.hscroll = (self.hscroll as isize + delta).clamp(0, max) as usize;
+        let max = self.max_hscroll();
+        self.viewport.hscroll_by(delta, max);
     }
 
     /// 0: 水平スクロールを先頭に戻す
     pub fn hscroll_reset(&mut self) {
-        self.hscroll = 0;
+        self.viewport.hscroll = 0;
     }
 
     // 現在 viewport に見えている行の最大 char 幅から表示幅の半分を引いた値を上限にする、
@@ -274,27 +234,27 @@ impl Viewer {
         let Content::Text { plain, .. } = open.content.as_ref() else {
             return 0;
         };
-        let start = self.scroll.min(plain.len());
-        let end = (self.scroll + self.viewport_height.max(1)).min(plain.len());
+        let start = self.viewport.scroll.min(plain.len());
+        let end = (self.viewport.scroll + self.viewport.height.max(1)).min(plain.len());
         let max_width = plain[start..end]
             .iter()
             .map(|line| line.chars().count())
             .max()
             .unwrap_or(0);
-        max_width.saturating_sub(self.viewport_width / 2)
+        max_width.saturating_sub(self.viewport.width / 2)
     }
 
     /// gg: ファイル先頭へ
     pub fn jump_to_top(&mut self) {
-        self.scroll = 0;
+        self.viewport.scroll = 0;
     }
 
     /// G: 最終行が viewport の下端に来る位置へ。ファイルが viewport より短ければ先頭のまま
     pub fn jump_to_bottom(&mut self) {
         let total = self.line_count();
         let last = total.saturating_sub(1);
-        let bottom = total.saturating_sub(self.viewport_height);
-        self.scroll = bottom.min(last);
+        let bottom = total.saturating_sub(self.viewport.height);
+        self.viewport.scroll = bottom.min(last);
     }
 
     /// :N の行ジャンプ。1-origin。範囲外は最終行にクランプ。0 は no-op (呼び出し側でも弾いているが念のため)
@@ -323,48 +283,4 @@ impl Viewer {
             Some(Content::Text { .. })
         )
     }
-}
-
-const COMMENT_COLOR_ADJUSTMENT: u8 = 56;
-
-fn tweak_comment_color(theme: &mut Theme) {
-    // 背景が明るいテーマ (base16-ocean.light, Solarized (light) 等) で常に明るくすると
-    // 白背景に同化して見えなくなるため、背景輝度に応じて明るくする/暗くするを切り替える。
-    // background が無いテーマは元々暗背景想定 (base16-ocean.dark 由来) なので明るくする側とする
-    let darken = theme
-        .settings
-        .background
-        .is_some_and(|bg| luminance(bg) >= 128);
-    for item in &mut theme.scopes {
-        // コメント系スコープだけ背景への同化を防ぐ
-        if !format!("{:?}", item.scope)
-            .to_ascii_lowercase()
-            .contains("comment")
-        {
-            continue;
-        }
-        let Some(fg) = item.style.foreground else {
-            continue;
-        };
-        item.style.foreground = Some(SyntectColor {
-            r: adjust(fg.r, darken),
-            g: adjust(fg.g, darken),
-            b: adjust(fg.b, darken),
-            a: fg.a,
-        });
-    }
-}
-
-fn adjust(c: u8, darken: bool) -> u8 {
-    if darken {
-        c.saturating_sub(COMMENT_COLOR_ADJUSTMENT)
-    } else {
-        c.saturating_add(COMMENT_COLOR_ADJUSTMENT)
-    }
-}
-
-// ITU-R BT.601 の重み付けを整数演算で近似した簡易輝度 (0-255)。
-// 255 * 299 (最大項) が u16 に収まらないため u32 で計算する
-fn luminance(c: SyntectColor) -> u16 {
-    ((c.r as u32 * 299 + c.g as u32 * 587 + c.b as u32 * 114) / 1000) as u16
 }

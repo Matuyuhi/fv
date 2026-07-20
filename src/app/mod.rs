@@ -31,7 +31,7 @@ pub struct App {
     pub should_quit: bool,
     // g 待ち状態。Mode を増やすほどのものではないので App の小さなフラグで持つ
     pub pending_g: bool,
-    // マウスのヒットテスト用。ui::draw が毎フレーム書き戻す (viewport_height と同じパターン)
+    // マウスのヒットテスト用。ui::draw が毎フレーム書き戻す (viewport の実測値と同じパターン)
     pub tree_area: Rect,
     pub viewer_area: Rect,
     watcher: Option<FsWatcher>,
@@ -46,7 +46,7 @@ impl App {
         let watcher = FsWatcher::new(&root, config.show_hidden);
         let git = git::file_statuses(&root);
         let mut viewer = Viewer::new();
-        viewer.wrap = config.wrap_default;
+        viewer.viewport.wrap = config.wrap_default;
         // 設定ファイルのテーマ名が壊れていても set_theme が false を返すだけで、
         // Viewer::new() が入れた既定テーマのまま起動を続ける (パニックしない)
         viewer.set_theme(&config.theme);
@@ -104,7 +104,9 @@ impl App {
     /// (paste 有効化前は生キー入力として届いていた挙動の維持)
     pub fn on_paste(&mut self, text: &str) {
         match &mut self.mode {
-            Mode::Edit(state) => state.paste(text, &mut self.viewer),
+            Mode::Edit(state) => {
+                state.paste(text, &self.viewer.highlighter, &mut self.viewer.viewport)
+            }
             Mode::Input { kind, buffer } => {
                 let kind = *kind;
                 for c in text.chars().filter(|c| !c.is_control()) {
@@ -140,7 +142,7 @@ impl App {
     }
 
     pub fn toggle_wrap(&mut self) {
-        self.viewer.toggle_wrap();
+        self.viewer.viewport.toggle_wrap();
         self.persist_config();
     }
 
@@ -159,7 +161,7 @@ impl App {
         Config {
             show_hidden: self.tree.show_hidden(),
             icons: self.icons,
-            wrap_default: self.viewer.wrap,
+            wrap_default: self.viewer.viewport.wrap,
             theme: self.viewer.theme_name().to_string(),
         }
     }
