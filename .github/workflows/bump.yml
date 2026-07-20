@@ -33,8 +33,20 @@ jobs:
       - name: Compute next version
         id: ver
         run: |
-          # [package] セクション内の version 行だけを読む（依存の version 行を誤読しない）
-          current="$(awk '/^\[package\]/,/^\[/{if (/^version[[:space:]]*=/) {match($0, /"([^"]+)"/, m); print m[1]; exit}}' Cargo.toml)"
+          # [package] セクション内の version 行だけを読む（依存の version 行を誤読しない）。
+          # レンジパターン /^\[package\]/,/^\[/ は開始行自体が終了条件にもマッチし
+          # レンジが1行で閉じてしまうため使わず、in_pkg フラグで判定する。
+          current="$(awk '
+            /^\[package\]/ { in_pkg=1; next }
+            /^\[/ { in_pkg=0 }
+            in_pkg && /^version[[:space:]]*=/ {
+              line=$0
+              sub(/^version[[:space:]]*=[[:space:]]*"/, "", line)
+              sub(/".*$/, "", line)
+              print line
+              exit
+            }
+          ' Cargo.toml)"
           IFS='.' read -r major minor patch <<< "$current"
           case "${{ inputs.bump }}" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
@@ -50,11 +62,12 @@ jobs:
         env:
           NEXT: ${{ steps.ver.outputs.next }}
         run: |
-          # [package] セクション内の version 行だけを書き換える（依存の version 行は不変）
-          awk -v next="$NEXT" '
+          # [package] セクション内の version 行だけを書き換える（依存の version 行は不変）。
+          # 変数名に next は使えない（awk/gawk の予約語で -v next=... が fatal error になる）。
+          awk -v newver="$NEXT" '
             /^\[package\]/ { in_pkg=1 }
             /^\[/ && !/^\[package\]/ { in_pkg=0 }
-            in_pkg && /^version[[:space:]]*=/ && !done { sub(/"[^"]*"/, "\"" next "\""); done=1 }
+            in_pkg && /^version[[:space:]]*=/ && !done { sub(/"[^"]*"/, "\"" newver "\""); done=1 }
             { print }
           ' Cargo.toml > Cargo.toml.tmp
           mv Cargo.toml.tmp Cargo.toml
