@@ -11,7 +11,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::text::Line;
 
 use crate::git;
-use crate::viewer::Viewer;
+use crate::text;
+use crate::viewer::{Highlighter, Viewer, Viewport};
 
 /// これを超えるファイルは編集対象にしない (メモリ・再ハイライトの両面で現実的でないため)
 const MAX_EDIT_BYTES: u64 = 10 * 1024 * 1024;
@@ -21,6 +22,9 @@ pub enum EditOutcome {
     Exit,
 }
 
+/// インライン編集の状態。閲覧側とは「Viewport (スクロール共有) と Highlighter
+/// (再ハイライト) だけを借りる」関係に留め、Viewer の cache・履歴・検索には触らない。
+/// 保存 (save) だけは cache の即時更新のため Viewer::reload を呼ぶ
 pub struct EditState {
     pub path: PathBuf,
     pub buffer: EditBuffer,
@@ -43,7 +47,12 @@ pub struct EditState {
 
 impl EditState {
     /// 編集セッションを開始する。非 UTF-8・巨大ファイル・読込失敗は None (呼び出し側で no-op)
-    pub fn open(path: &Path, viewer: &Viewer, start_line: usize, root: &Path) -> Option<Self> {
+    pub fn open(
+        path: &Path,
+        highlighter: &Highlighter,
+        start_line: usize,
+        root: &Path,
+    ) -> Option<Self> {
         let size = fs::metadata(path).ok()?.len();
         if size > MAX_EDIT_BYTES {
             return None;
@@ -62,7 +71,7 @@ impl EditState {
             baseline: git::baseline_lines(root, path),
             changed_lines: None,
         };
-        state.rebuild(viewer);
+        state.rebuild(highlighter);
         Some(state)
     }
 
@@ -98,6 +107,14 @@ impl EditState {
         }
         // 端末により word 移動は Ctrl+矢印 / Alt+矢印 のどちらでも届くため両方受ける
         let word = mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        // 保存だけは cache 再読込のため Viewer 全体が要る。先に処理して抜けることで、
+        // 以降の操作は highlighter/viewport の 2 フィールドしか借りないことを型で保証する
+        if code == KeyCode::Char('s') && (ctrl || cmd) {
+            self.save(viewer);
+            return EditOutcome::Continue;
+        }
+        let hl = &viewer.highlighter;
+        let vp = &mut viewer.viewport;
         match code {
             KeyCode::Esc => {
                 if self.buffer.dirty() {
@@ -110,60 +127,61 @@ impl EditState {
                 }
                 return EditOutcome::Exit;
             }
-            KeyCode::Char('s') if ctrl || cmd => self.save(viewer),
             // mac 慣習の Cmd+Shift+z も redo に割り当てる
             KeyCode::Char('z') if (ctrl || cmd) && shift => {
                 if let Some(cursor) = self.buffer.redo() {
                     self.cursor = cursor;
-                    self.after_edit(viewer);
+                    self.after_edit(hl, vp);
                 }
             }
             KeyCode::Char('z') if ctrl || cmd => {
                 if let Some(cursor) = self.buffer.undo() {
                     self.cursor = cursor;
-                    self.after_edit(viewer);
+                    self.after_edit(hl, vp);
                 }
             }
             KeyCode::Char('y') if ctrl || cmd => {
                 if let Some(cursor) = self.buffer.redo() {
                     self.cursor = cursor;
-                    self.after_edit(viewer);
+                    self.after_edit(hl, vp);
                 }
             }
-            KeyCode::Char('k') if ctrl => self.delete_line(viewer),
+            KeyCode::Char('k') if ctrl => self.delete_line(hl, vp),
             KeyCode::Enter => {
                 self.cursor = self.buffer.insert_block(self.cursor, "\n");
-                self.after_edit(viewer);
+                self.after_edit(hl, vp);
             }
-            KeyCode::Backspace => self.backspace(viewer),
-            KeyCode::Delete => self.delete_forward(viewer),
+            KeyCode::Backspace => self.backspace(hl, vp),
+            KeyCode::Delete => self.delete_forward(hl, vp),
             KeyCode::Tab => {
                 self.cursor = self.buffer.insert_typed(self.cursor, '\t');
-                self.after_edit(viewer);
+                self.after_edit(hl, vp);
             }
             // mac 慣習: Cmd+←/→ は行頭・行末
-            KeyCode::Left if cmd => self.move_to((self.cursor.0, 0), viewer),
+            KeyCode::Left if cmd => self.move_to((self.cursor.0, 0), vp),
             KeyCode::Right if cmd => {
-                self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), viewer)
+                self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), vp)
             }
-            KeyCode::Left if word => self.word_left(viewer),
-            KeyCode::Right if word => self.word_right(viewer),
-            KeyCode::Left => self.move_left(viewer),
-            KeyCode::Right => self.move_right(viewer),
-            KeyCode::Up => self.move_vertical(-1, viewer),
-            KeyCode::Down => self.move_vertical(1, viewer),
+            KeyCode::Left if word => self.word_left(vp),
+            KeyCode::Right if word => self.word_right(vp),
+            KeyCode::Left => self.move_left(vp),
+            KeyCode::Right => self.move_right(vp),
+            KeyCode::Up => self.move_vertical(-1, vp),
+            KeyCode::Down => self.move_vertical(1, vp),
             KeyCode::PageUp => {
-                self.move_vertical(-(viewer.viewport_height.max(1) as isize), viewer)
+                let page = vp.height.max(1) as isize;
+                self.move_vertical(-page, vp)
             }
-            KeyCode::PageDown => self.move_vertical(viewer.viewport_height.max(1) as isize, viewer),
-            KeyCode::Home => self.move_to((self.cursor.0, 0), viewer),
-            KeyCode::End => {
-                self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), viewer)
+            KeyCode::PageDown => {
+                let page = vp.height.max(1) as isize;
+                self.move_vertical(page, vp)
             }
+            KeyCode::Home => self.move_to((self.cursor.0, 0), vp),
+            KeyCode::End => self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), vp),
             // Cmd/Alt 付きは未割当ショートカットの可能性が高いので文字として挿入しない
             KeyCode::Char(c) if !ctrl && !cmd && !mods.contains(KeyModifiers::ALT) => {
                 self.cursor = self.buffer.insert_typed(self.cursor, c);
-                self.after_edit(viewer);
+                self.after_edit(hl, vp);
             }
             _ => {}
         }
@@ -171,22 +189,22 @@ impl EditState {
     }
 
     /// bracketed paste の一括挿入。undo 1 単位・再ハイライト 1 回に畳む
-    pub fn paste(&mut self, text: &str, viewer: &mut Viewer) {
+    pub fn paste(&mut self, text: &str, highlighter: &Highlighter, viewport: &mut Viewport) {
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
         self.cursor = self.buffer.insert_block(self.cursor, &text);
-        self.after_edit(viewer);
+        self.after_edit(highlighter, viewport);
     }
 
     /// マウスクリック。row/col はコンテンツ領域 (枠線の内側) 相対の画面座標
-    pub fn click_at(&mut self, row: usize, col: usize, viewer: &Viewer) {
-        let (line, display) = if viewer.wrap {
-            // 描画 (ui/editor_pane) と同じ視覚行数の計算で、クリック行が
+    pub fn click_at(&mut self, row: usize, col: usize, vp: &Viewport) {
+        let (line, display) = if vp.wrap {
+            // 描画 (ui/text_pane) と同じ視覚行数の計算で、クリック行が
             // どの論理行の何段目かを scroll から辿って特定する
-            let width = self.content_width(viewer);
-            let mut line = viewer.scroll.min(self.buffer.line_count() - 1);
+            let width = self.content_width(vp);
+            let mut line = vp.scroll.min(self.buffer.line_count() - 1);
             let mut remaining = row;
             loop {
-                let rows = wrap_rows(self.display_len(line), width);
+                let rows = text::wrap_rows(self.display_len(line), width);
                 if remaining < rows || line + 1 >= self.buffer.line_count() {
                     remaining = remaining.min(rows - 1);
                     break;
@@ -200,12 +218,12 @@ impl EditState {
             )
         } else {
             (
-                viewer.scroll + row,
-                viewer.hscroll + col.saturating_sub(self.gutter_width),
+                vp.scroll + row,
+                vp.hscroll + col.saturating_sub(self.gutter_width),
             )
         };
         let line = line.min(self.buffer.line_count() - 1);
-        let col = char_col_at(self.buffer.line(line), display);
+        let col = text::char_col_at(self.buffer.line(line), display);
         self.cursor = (line, col);
         self.desired_col = col;
         self.buffer.seal();
@@ -218,14 +236,14 @@ impl EditState {
                 // cache と git 変更行マークを watcher を待たずに即時更新する
                 viewer.reload(&self.path);
                 // reload は hscroll を 0 に戻すため、カーソル位置まで追従し直す
-                self.ensure_visible(viewer);
+                self.ensure_visible(&mut viewer.viewport);
                 self.notice = Some("saved".to_string());
             }
             Err(e) => self.notice = Some(format!("save failed: {e}")),
         }
     }
 
-    fn backspace(&mut self, viewer: &mut Viewer) {
+    fn backspace(&mut self, hl: &Highlighter, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         if col > 0 {
             self.buffer.delete((line, col - 1), (line, col));
@@ -237,10 +255,10 @@ impl EditState {
         } else {
             return;
         }
-        self.after_edit(viewer);
+        self.after_edit(hl, vp);
     }
 
-    fn delete_forward(&mut self, viewer: &mut Viewer) {
+    fn delete_forward(&mut self, hl: &Highlighter, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         if col < self.buffer.line_len(line) {
             self.buffer.delete((line, col), (line, col + 1));
@@ -249,11 +267,11 @@ impl EditState {
         } else {
             return;
         }
-        self.after_edit(viewer);
+        self.after_edit(hl, vp);
     }
 
     /// Ctrl+k: カーソル行を丸ごと削除。最終行は内容だけ消す (バッファは常に 1 行以上を保つ)
-    fn delete_line(&mut self, viewer: &mut Viewer) {
+    fn delete_line(&mut self, hl: &Highlighter, vp: &mut Viewport) {
         let (line, _) = self.cursor;
         if line + 1 < self.buffer.line_count() {
             self.buffer.delete((line, 0), (line + 1, 0));
@@ -264,10 +282,10 @@ impl EditState {
             return;
         }
         self.cursor = (line.min(self.buffer.line_count() - 1), 0);
-        self.after_edit(viewer);
+        self.after_edit(hl, vp);
     }
 
-    fn move_left(&mut self, viewer: &mut Viewer) {
+    fn move_left(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         let target = if col > 0 {
             (line, col - 1)
@@ -276,10 +294,10 @@ impl EditState {
         } else {
             return;
         };
-        self.move_to(target, viewer);
+        self.move_to(target, vp);
     }
 
-    fn move_right(&mut self, viewer: &mut Viewer) {
+    fn move_right(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         let target = if col < self.buffer.line_len(line) {
             (line, col + 1)
@@ -288,25 +306,25 @@ impl EditState {
         } else {
             return;
         };
-        self.move_to(target, viewer);
+        self.move_to(target, vp);
     }
 
     // 上下移動は desired_col を保つため move_to を通さない
-    fn move_vertical(&mut self, delta: isize, viewer: &mut Viewer) {
+    fn move_vertical(&mut self, delta: isize, vp: &mut Viewport) {
         let last = (self.buffer.line_count() - 1) as isize;
         let line = (self.cursor.0 as isize + delta).clamp(0, last) as usize;
         self.cursor = (line, self.desired_col.min(self.buffer.line_len(line)));
         self.buffer.seal();
-        self.ensure_visible(viewer);
+        self.ensure_visible(vp);
     }
 
     /// WORD (非空白の連なり) 単位で次の語頭へ。行末からは次行頭へ
-    fn word_right(&mut self, viewer: &mut Viewer) {
+    fn word_right(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         let chars: Vec<char> = self.buffer.line(line).chars().collect();
         if col >= chars.len() {
             if line + 1 < self.buffer.line_count() {
-                self.move_to((line + 1, 0), viewer);
+                self.move_to((line + 1, 0), vp);
             }
             return;
         }
@@ -317,14 +335,14 @@ impl EditState {
         while c < chars.len() && chars[c].is_whitespace() {
             c += 1;
         }
-        self.move_to((line, c), viewer);
+        self.move_to((line, c), vp);
     }
 
-    fn word_left(&mut self, viewer: &mut Viewer) {
+    fn word_left(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         if col == 0 {
             if line > 0 {
-                self.move_to((line - 1, self.buffer.line_len(line - 1)), viewer);
+                self.move_to((line - 1, self.buffer.line_len(line - 1)), vp);
             }
             return;
         }
@@ -336,26 +354,26 @@ impl EditState {
         while c > 0 && !chars[c - 1].is_whitespace() {
             c -= 1;
         }
-        self.move_to((line, c), viewer);
+        self.move_to((line, c), vp);
     }
 
-    fn move_to(&mut self, cursor: (usize, usize), viewer: &mut Viewer) {
+    fn move_to(&mut self, cursor: (usize, usize), vp: &mut Viewport) {
         self.cursor = cursor;
         self.desired_col = cursor.1;
         self.buffer.seal();
-        self.ensure_visible(viewer);
+        self.ensure_visible(vp);
     }
 
     // 編集操作の後始末: 目標列の同期・描画キャッシュ再生成・カーソル追従
-    fn after_edit(&mut self, viewer: &mut Viewer) {
+    fn after_edit(&mut self, hl: &Highlighter, vp: &mut Viewport) {
         self.desired_col = self.cursor.1;
-        self.rebuild(viewer);
-        self.ensure_visible(viewer);
+        self.rebuild(hl);
+        self.ensure_visible(vp);
     }
 
-    fn rebuild(&mut self, viewer: &Viewer) {
-        self.lines = viewer.highlight_text(&self.path, &self.buffer.display_text());
-        self.gutter_width = self.buffer.line_count().to_string().len() + 1;
+    fn rebuild(&mut self, hl: &Highlighter) {
+        self.lines = hl.highlight_text(&self.path, &self.buffer.display_text());
+        self.gutter_width = text::gutter_width(self.buffer.line_count());
         // 保存を待たず、未保存バッファの状態で変更行マークを更新する
         self.changed_lines = self
             .baseline
@@ -363,78 +381,40 @@ impl EditState {
             .map(|baseline| diff::changed_lines(baseline, self.buffer.lines()));
     }
 
-    // カーソルが viewport に収まるよう viewer の scroll/hscroll を動かす
-    fn ensure_visible(&self, viewer: &mut Viewer) {
+    // カーソルが viewport に収まるよう scroll/hscroll を動かす
+    fn ensure_visible(&self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
-        let height = viewer.viewport_height.max(1);
-        if line < viewer.scroll {
-            viewer.scroll = line;
-        }
-        if viewer.wrap {
+        if vp.wrap {
             // wrap 中に水平スクロールは存在しない。縦は視覚行数で収まりを判定する
-            viewer.hscroll = 0;
-            let width = self.content_width(viewer);
-            let cursor_row = display_col(self.buffer.line(line), col) / width;
+            vp.hscroll = 0;
+            if line < vp.scroll {
+                vp.scroll = line;
+            }
+            let width = self.content_width(vp);
+            let cursor_row = text::display_col(self.buffer.line(line), col) / width;
             let mut rows = cursor_row + 1;
-            for i in viewer.scroll..line {
-                rows += wrap_rows(self.display_len(i), width);
+            for i in vp.scroll..line {
+                rows += text::wrap_rows(self.display_len(i), width);
             }
             // カーソル行自体が viewport より背が高い場合は先頭合わせが限界 (閲覧時と同じ制約)
-            while rows > height && viewer.scroll < line {
-                rows -= wrap_rows(self.display_len(viewer.scroll), width);
-                viewer.scroll += 1;
+            let height = vp.height.max(1);
+            while rows > height && vp.scroll < line {
+                rows -= text::wrap_rows(self.display_len(vp.scroll), width);
+                vp.scroll += 1;
             }
             return;
         }
-        if line >= viewer.scroll + height {
-            viewer.scroll = line + 1 - height;
-        }
-        let display = display_col(self.buffer.line(line), col);
-        let width = self.content_width(viewer);
-        if display < viewer.hscroll {
-            viewer.hscroll = display;
-        } else if display >= viewer.hscroll + width {
-            viewer.hscroll = display + 1 - width;
-        }
+        vp.ensure_row_visible(line);
+        let display = text::display_col(self.buffer.line(line), col);
+        vp.ensure_col_visible(display, self.content_width(vp));
     }
 
     // gutter を除いたコンテンツ部の桁数。wrap の折返し幅と hscroll のクランプ幅を兼ねる
-    fn content_width(&self, viewer: &Viewer) -> usize {
-        viewer
-            .viewport_width
-            .saturating_sub(self.gutter_width)
-            .max(1)
+    fn content_width(&self, vp: &Viewport) -> usize {
+        vp.width.saturating_sub(self.gutter_width).max(1)
     }
 
     fn display_len(&self, line: usize) -> usize {
-        display_col(self.buffer.line(line), self.buffer.line_len(line))
+        text::display_col(self.buffer.line(line), self.buffer.line_len(line))
     }
-}
-
-/// 論理行が占める視覚行数 (wrap 時)。空行も 1 行を占める
-pub fn wrap_rows(display_len: usize, width: usize) -> usize {
-    display_len.div_ceil(width).max(1)
-}
-
-/// バッファ char 座標 → 表示桁 (タブ = 4 桁。content.rs の normalize と揃える)
-pub fn display_col(line: &str, char_col: usize) -> usize {
-    line.chars()
-        .take(char_col)
-        .map(|c| if c == '\t' { 4 } else { 1 })
-        .sum()
-}
-
-// 表示桁 → バッファ char 座標。タブの展開幅の途中はそのタブ自身に丸める
-fn char_col_at(line: &str, display: usize) -> usize {
-    let mut acc = 0;
-    for (i, c) in line.chars().enumerate() {
-        if acc >= display {
-            return i;
-        }
-        acc += if c == '\t' { 4 } else { 1 };
-        if acc > display {
-            return i;
-        }
-    }
-    line.chars().count()
 }

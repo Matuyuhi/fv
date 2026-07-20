@@ -152,15 +152,10 @@ impl App {
         let Mode::Edit(state) = &mut self.mode else {
             return;
         };
+        // 「wrap 中は hscroll = 0」は Viewport のメソッドと EditState::ensure_visible が
+        // 維持するため、閲覧へ戻る際の後始末は不要
         match state.handle_key(key, &mut self.viewer) {
-            EditOutcome::Exit => {
-                // 編集中は wrap を無視して hscroll を動かしているため、
-                // wrap 閲覧に戻る時は「wrap 中は hscroll 0」の前提を復元する
-                if self.viewer.wrap {
-                    self.viewer.hscroll = 0;
-                }
-                self.mode = Mode::Normal;
-            }
+            EditOutcome::Exit => self.mode = Mode::Normal,
             EditOutcome::Continue => {}
         }
     }
@@ -290,7 +285,7 @@ impl App {
                 return;
             }
         }
-        let half_page = (self.viewer.viewport_height / 2).max(1) as isize;
+        let half_page = (self.viewer.viewport.height / 2).max(1) as isize;
         match key.code {
             KeyCode::Char('d') if ctrl => self.viewer.scroll_by(half_page),
             KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
@@ -315,8 +310,12 @@ impl App {
             KeyCode::Char('e') if self.viewer.is_text() => {
                 // 巨大ファイル・非 UTF-8・読込失敗は open が None を返し no-op になる
                 if let Some(open) = &self.viewer.current
-                    && let Some(state) =
-                        EditState::open(&open.path, &self.viewer, self.viewer.scroll, &self.root)
+                    && let Some(state) = EditState::open(
+                        &open.path,
+                        &self.viewer.highlighter,
+                        self.viewer.viewport.scroll,
+                        &self.root,
+                    )
                 {
                     self.mode = Mode::Edit(state);
                 }

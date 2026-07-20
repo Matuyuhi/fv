@@ -38,7 +38,7 @@ impl Viewer {
         if search.matches.is_empty() {
             return;
         }
-        let scroll = self.scroll;
+        let scroll = self.viewport.scroll;
         let idx = search
             .matches
             .iter()
@@ -85,8 +85,7 @@ impl Viewer {
     // マッチ行が viewport の中央付近に来るようスクロールする。goto_line (mod.rs) からも呼ばれる
     pub(super) fn center_on(&mut self, line: usize) {
         let last = self.line_count().saturating_sub(1);
-        let half = self.viewport_height / 2;
-        self.scroll = line.saturating_sub(half).min(last);
+        self.viewport.center_on(line, last);
     }
 
     fn compute_matches(&self, query: &str) -> Vec<Match> {
