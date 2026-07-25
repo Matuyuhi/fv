@@ -24,6 +24,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         &[
             ("Ctrl+c", "終了"),
             ("q", "終了"),
+            ("Shift+Tab", "モード切替 (VIEW → EDIT → GIT)"),
             ("Tab", "フォーカス切替 (Tree/Viewer)"),
             ("Ctrl+p", "ファインダーを開く"),
             ("?", "このヘルプを開く"),
@@ -65,7 +66,28 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
     );
     push_help_section(
         &mut lines,
-        "Edit (e)",
+        "Git (Shift+Tab)",
+        &[
+            (
+                "左ペイン",
+                "変更ファイルのみを階層付きで表示 (入った時点で全展開)",
+            ),
+            ("j/k ↑/↓", "変更ファイル間を移動"),
+            ("l →", "展開 / diff を表示"),
+            ("h ←", "折りたたみ / 親へ"),
+            ("H", "親を選択して折りたたむ"),
+            ("Enter", "diff を表示 / 展開切替"),
+            ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
+            ("Ctrl+d/u", "半ページスクロール"),
+            ("gg / G", "先頭 / 末尾へ"),
+            ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
+            ("h/l ←/→", "水平スクロール (diff ペイン)"),
+            ("r", "再走査 (git status も取り直す)"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
+        "Edit (e / Shift+Tab)",
         &[
             ("文字入力", "挿入 (クリックでカーソル移動)"),
             ("↑/↓/←/→", "カーソル移動"),

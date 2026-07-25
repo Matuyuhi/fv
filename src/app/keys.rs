@@ -1,11 +1,12 @@
+use std::path::PathBuf;
 use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::editor::{EditOutcome, EditState};
+use crate::editor::EditOutcome;
 use crate::finder::Finder;
 
-use super::{App, Focus, InputKind, Mode, SETTINGS_ROWS, SettingsState};
+use super::{App, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState};
 
 impl App {
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -15,6 +16,8 @@ impl App {
             self.should_quit = true;
             return;
         }
+        // オーバーレイ (Mode) はレーンより先に処理する。ここで Shift+Tab を通さないことで、
+        // 入力中にレーンが切り替わって文脈が壊れるのを防ぐ
         if let Mode::Help = &self.mode {
             self.on_help_key(key);
             return;
@@ -32,9 +35,18 @@ impl App {
             self.on_input_key(kind, key);
             return;
         }
+        // Shift+Tab は Edit レーンより前に処理する。印字キーではないので
+        // 「編集中は印字キーを全て文字入力にする」ポリシーとは衝突しない。
+        // 端末によっては Tab + SHIFT で届くため両方を受ける
+        if key.code == KeyCode::BackTab
+            || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT))
+        {
+            self.cycle_lane();
+            return;
+        }
         // 編集中は q/s/Tab 等のグローバルキーも全て文字入力として扱うため、
-        // ここより先のディスパッチには流さない (Ctrl+c だけが上で強制終了として残る)
-        if let Mode::Edit(_) = &self.mode {
+        // ここより先のディスパッチには流さない (Ctrl+c と Shift+Tab だけが上に残る)
+        if let Lane::Edit(_) = &self.lane {
             self.on_edit_key(key);
             return;
         }
@@ -74,8 +86,16 @@ impl App {
             _ => {}
         }
         match self.focus {
-            Focus::Tree => self.on_tree_key(key),
-            Focus::Viewer => self.on_viewer_key(key, ctrl),
+            // ツリーのキー操作は VIEW / GIT で共通。開く先だけレーンで振り分ける
+            Focus::Tree => {
+                if let Some(path) = self.on_tree_key(key) {
+                    self.open_selected(&path);
+                }
+            }
+            Focus::Viewer => match &self.lane {
+                Lane::Git(_) => self.on_git_key(key, ctrl),
+                _ => self.on_viewer_key(key, ctrl),
+            },
         }
     }
 
@@ -148,14 +168,14 @@ impl App {
     }
 
     fn on_edit_key(&mut self, key: KeyEvent) {
-        // self.mode (EditState) と self.viewer は別フィールドなので同時に借りられる
-        let Mode::Edit(state) = &mut self.mode else {
+        // self.lane (EditState) と self.viewer は別フィールドなので同時に借りられる
+        let Lane::Edit(state) = &mut self.lane else {
             return;
         };
         // 「wrap 中は hscroll = 0」は Viewport のメソッドと EditState::ensure_visible が
         // 維持するため、閲覧へ戻る際の後始末は不要
         match state.handle_key(key, &mut self.viewer) {
-            EditOutcome::Exit => self.mode = Mode::Normal,
+            EditOutcome::Exit => self.lane = Lane::View,
             EditOutcome::Continue => {}
         }
     }
@@ -222,11 +242,11 @@ impl App {
             KeyCode::Enter => {
                 // finder (self.mode の借用) を使い切ってから self.mode へ書き戻す
                 let path = finder.selected_path().map(|rel| self.root.join(rel));
+                self.mode = Mode::Normal;
                 if let Some(path) = path {
-                    self.viewer.open(&path, &self.root);
+                    self.open_selected(&path);
                     self.focus = Focus::Viewer;
                 }
-                self.mode = Mode::Normal;
             }
             KeyCode::Backspace => finder.backspace(),
             KeyCode::Down => finder.move_selection(1),
@@ -239,28 +259,22 @@ impl App {
         }
     }
 
-    fn on_tree_key(&mut self, key: KeyEvent) {
+    /// ツリーから「開く」操作が来たときのファイルパスを返す。開く先はレーンで変わるため
+    /// ここでは viewer を直接触らず、呼び出し側 (open_selected) に委ねる
+    fn on_tree_key(&mut self, key: KeyEvent) -> Option<PathBuf> {
         // g 待ち状態は viewer と同じフラグを共用する (Tab を跨ぐと on_key 側で破棄される)
         if self.pending_g {
             self.pending_g = false;
             if key.code == KeyCode::Char('g') {
                 self.tree.select_top();
-                return;
+                return None;
             }
         }
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.tree.move_selection(1),
             KeyCode::Char('k') | KeyCode::Up => self.tree.move_selection(-1),
-            KeyCode::Enter => {
-                if let Some(path) = self.tree.toggle_or_open() {
-                    self.viewer.open(&path, &self.root);
-                }
-            }
-            KeyCode::Char('l') | KeyCode::Right => {
-                if let Some(path) = self.tree.expand_or_enter() {
-                    self.viewer.open(&path, &self.root);
-                }
-            }
+            KeyCode::Enter => return self.tree.toggle_or_open(),
+            KeyCode::Char('l') | KeyCode::Right => return self.tree.expand_or_enter(),
             KeyCode::Char('h') | KeyCode::Left => self.tree.collapse_or_parent(),
             KeyCode::Char('H') => self.tree.select_parent_and_collapse(),
             KeyCode::Char('g') => self.pending_g = true,
@@ -274,6 +288,7 @@ impl App {
             }
             _ => {}
         }
+        None
     }
 
     fn on_viewer_key(&mut self, key: KeyEvent, ctrl: bool) {
@@ -307,18 +322,9 @@ impl App {
                 self.viewer.hscroll_by(6)
             }
             KeyCode::Char('0') if self.viewer.is_text() => self.viewer.hscroll_reset(),
+            // e は Shift+Tab と別の直接入口。入れない条件は enter_edit が吸収する
             KeyCode::Char('e') if self.viewer.is_text() => {
-                // 巨大ファイル・非 UTF-8・読込失敗は open が None を返し no-op になる
-                if let Some(open) = &self.viewer.current
-                    && let Some(state) = EditState::open(
-                        &open.path,
-                        &self.viewer.highlighter,
-                        self.viewer.viewport.scroll,
-                        &self.root,
-                    )
-                {
-                    self.mode = Mode::Edit(state);
-                }
+                self.enter_edit();
             }
             KeyCode::Char('g') if self.viewer.is_text() => self.pending_g = true,
             KeyCode::Char('G') if self.viewer.is_text() => self.viewer.jump_to_bottom(),
@@ -337,6 +343,39 @@ impl App {
             // 未確定 (Enter していない) 状態では no-op。Viewer::next_match/prev_match が保証する
             KeyCode::Char('n') => self.viewer.next_match(),
             KeyCode::Char('N') => self.viewer.prev_match(),
+            _ => {}
+        }
+    }
+
+    // GIT レーンの diff ペイン。検索・履歴・編集は持たないぶん、n/N は hunk ジャンプに使う
+    fn on_git_key(&mut self, key: KeyEvent, ctrl: bool) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                if let Lane::Git(git) = &mut self.lane {
+                    git.jump_to_top();
+                }
+                return;
+            }
+        }
+        let Lane::Git(git) = &mut self.lane else {
+            return;
+        };
+        let half_page = (git.viewport.height / 2).max(1) as isize;
+        match key.code {
+            KeyCode::Char('d') if ctrl => git.scroll_by(half_page),
+            KeyCode::Char('u') if ctrl => git.scroll_by(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => git.scroll_by(1),
+            KeyCode::Char('k') | KeyCode::Up => git.scroll_by(-1),
+            // diff は VIEW とは別ドキュメントなので折返しも独立させる (config には保存しない)
+            KeyCode::Char('w') => git.viewport.toggle_wrap(),
+            KeyCode::Char('h') | KeyCode::Left => git.hscroll_by(-6),
+            KeyCode::Char('l') | KeyCode::Right => git.hscroll_by(6),
+            KeyCode::Char('0') => git.hscroll_reset(),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => git.jump_to_bottom(),
+            KeyCode::Char('n') | KeyCode::Char(']') => git.next_hunk(),
+            KeyCode::Char('N') | KeyCode::Char('[') => git.prev_hunk(),
             _ => {}
         }
     }

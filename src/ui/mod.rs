@@ -1,5 +1,6 @@
 mod editor_pane;
 mod finder_panel;
+mod git_pane;
 mod help;
 mod icons;
 mod settings_panel;
@@ -13,7 +14,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders};
 
-use crate::app::{App, Mode};
+use crate::app::{App, Focus, Lane, Mode};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let full = frame.area();
@@ -24,8 +25,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     app.tree_area = left;
     app.viewer_area = right;
     tree_pane::draw_tree(frame, app, left);
-    if matches!(app.mode, Mode::Edit(_)) {
+    // 右ペインの中身はレーンで決まる (VIEW: ファイル / EDIT: 編集バッファ / GIT: diff)
+    if matches!(app.lane, Lane::Edit(_)) {
         editor_pane::draw_editor(frame, app, right);
+    } else if matches!(app.lane, Lane::Git(_)) {
+        // GitState は app.lane の中にあるので、先に必要な値を取り出してから借りる
+        let focused = app.focus == Focus::Viewer;
+        let background = app.viewer.background();
+        if let Lane::Git(git) = &mut app.lane {
+            git_pane::draw_git(frame, git, focused, background, right);
+        }
     } else {
         viewer_pane::draw_viewer(frame, app, right);
     }

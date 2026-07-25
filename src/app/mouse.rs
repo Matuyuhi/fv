@@ -1,12 +1,12 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
-use super::{App, Focus, Mode};
+use super::{App, Focus, Lane, Mode};
 
 impl App {
     /// マウス操作。Input/Finder 中はクリック位置の意味が入力欄と衝突するため無視する
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
-        if let Mode::Edit(_) = self.mode {
+        if let Lane::Edit(_) = self.lane {
             self.on_edit_mouse(mouse);
             return;
         }
@@ -29,17 +29,25 @@ impl App {
                 if self.tree_area.contains(pos) {
                     self.tree.move_selection(-3);
                 } else if self.viewer_area.contains(pos) {
-                    self.viewer.scroll_by(-3);
+                    self.scroll_right_pane(-3);
                 }
             }
             MouseEventKind::ScrollDown => {
                 if self.tree_area.contains(pos) {
                     self.tree.move_selection(3);
                 } else if self.viewer_area.contains(pos) {
-                    self.viewer.scroll_by(3);
+                    self.scroll_right_pane(3);
                 }
             }
             _ => {}
+        }
+    }
+
+    // 右ペインの中身はレーンで変わる (VIEW はファイル、GIT は diff)
+    fn scroll_right_pane(&mut self, delta: isize) {
+        match &mut self.lane {
+            Lane::Git(git) => git.scroll_by(delta),
+            _ => self.viewer.scroll_by(delta),
         }
     }
 
@@ -48,7 +56,7 @@ impl App {
     fn on_edit_mouse(&mut self, mouse: MouseEvent) {
         let pos = Position::new(mouse.column, mouse.row);
         let area = self.viewer_area;
-        let Mode::Edit(state) = &mut self.mode else {
+        let Lane::Edit(state) = &mut self.lane else {
             return;
         };
         match mouse.kind {
@@ -79,7 +87,7 @@ impl App {
         }
         self.tree.selected = row as usize;
         if let Some(path) = self.tree.toggle_or_open() {
-            self.viewer.open(&path, &self.root);
+            self.open_selected(&path);
         }
     }
 }

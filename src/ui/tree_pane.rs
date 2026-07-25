@@ -9,11 +9,15 @@ use crate::git::FileStatus;
 use super::pane_block;
 
 pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
-    let title = app
-        .root
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| app.root.display().to_string());
+    // GIT レーンでは絞り込み中であることをタイトルで示す (行が減った理由が分かるように)
+    let title = if app.tree.is_filtered() {
+        format!("changes ({})", app.tree.visible_files())
+    } else {
+        app.root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| app.root.display().to_string())
+    };
     let git = app.git.as_ref();
     let items: Vec<ListItem> = app
         .tree

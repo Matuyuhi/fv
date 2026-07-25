@@ -3,6 +3,7 @@ mod scan;
 
 pub use node::Row;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ratatui::widgets::ListState;
@@ -12,6 +13,12 @@ use node::{Node, NodeKind};
 pub struct Tree {
     nodes: Vec<Node>,
     show_hidden: bool,
+    // 表示を絞り込むパス集合 (対象ファイル + その祖先ディレクトリ)。None なら全表示。
+    // GIT レーンの出入りで App が付け外しする
+    filter: Option<HashSet<PathBuf>>,
+    // 絞り込み開始時の展開状態。絞り込み中は対象を開いたり畳んだりできるので、
+    // 解除時にここへ厳密に戻して VIEW 側の見え方を元通りにする
+    saved_expanded: Option<HashSet<PathBuf>>,
     pub visible: Vec<Row>,
     pub selected: usize,
     pub list_state: ListState,
@@ -23,12 +30,67 @@ impl Tree {
         let mut tree = Self {
             nodes,
             show_hidden,
+            filter: None,
+            saved_expanded: None,
             visible: Vec::new(),
             selected: 0,
             list_state: ListState::default(),
         };
         tree.rebuild_visible();
         tree
+    }
+
+    /// 表示を絞り込むパス集合を差し替える (None で解除)。
+    /// 選択は絞り込み前後で同じファイルに留まるよう path で引き継ぐ
+    pub fn set_filter(&mut self, filter: Option<HashSet<PathBuf>>) {
+        match (&self.filter, &filter) {
+            // 絞り込み開始: 元の展開状態を退避してから対象を全部開く
+            (None, Some(paths)) => {
+                self.saved_expanded = Some(scan::collect_expanded(&self.nodes));
+                let paths = paths.clone();
+                scan::expand_all(&mut self.nodes, &paths);
+            }
+            // 絞り込み中の張り替え (再走査): 新しく対象になったディレクトリだけ開く。
+            // 既存のものに触らないので、ユーザーが畳んだ状態が保存のたびに開き直されない
+            (Some(previous), Some(paths)) => {
+                let added: HashSet<PathBuf> = paths.difference(previous).cloned().collect();
+                scan::expand_all(&mut self.nodes, &added);
+            }
+            // 絞り込み解除: 退避しておいた状態へ厳密に戻す (絞り込み中の開閉は持ち越さない)
+            (Some(_), None) => {
+                if let Some(saved) = self.saved_expanded.take() {
+                    scan::set_expanded(&mut self.nodes, &saved);
+                }
+            }
+            (None, None) => {}
+        }
+        self.filter = filter;
+        let selected = self.selected_path();
+        self.rebuild_visible();
+        self.restore_selection(selected);
+    }
+
+    pub fn is_filtered(&self) -> bool {
+        self.filter.is_some()
+    }
+
+    /// 現在の visible 行数。フィルタ中は「変更ファイル + ディレクトリ」の件数になる
+    pub fn visible_files(&self) -> usize {
+        self.visible.iter().filter(|row| !row.is_dir).count()
+    }
+
+    /// 選択行がファイルならそのパス。ディレクトリ行なら先頭のファイルにフォールバックする
+    /// (GIT レーンに入った直後、何かしらの diff を出すため)
+    pub fn selected_or_first_file(&self) -> Option<PathBuf> {
+        if let Some(row) = self.visible.get(self.selected)
+            && !row.is_dir
+        {
+            return Some(row.path.clone());
+        }
+        self.visible
+            .iter()
+            .find(|row| !row.is_dir)
+            .map(|row| row.path.clone())
     }
 
     pub fn show_hidden(&self) -> bool {
@@ -141,23 +203,29 @@ impl Tree {
     /// (走査順が変わりうるため index_path はそのまま使い回せない)。
     pub fn rescan(&mut self, root: &Path) {
         let expanded = scan::collect_expanded(&self.nodes);
-        let selected_path = self
-            .visible
-            .get(self.selected)
-            .and_then(|row| scan::node(&self.nodes, &row.index_path))
-            .map(|n| n.path.clone());
+        let selected = self.selected_path();
 
         self.nodes = scan::build_nodes(root, self.show_hidden);
-        scan::apply_expanded(&mut self.nodes, &expanded);
+        scan::expand_all(&mut self.nodes, &expanded);
         self.rebuild_visible();
+        self.restore_selection(selected);
+    }
 
-        if let Some(path) = selected_path
-            && let Some(pos) = self.visible.iter().position(|row| {
-                scan::node(&self.nodes, &row.index_path).is_some_and(|n| n.path == path)
-            })
+    /// 選択中の行が指すノードの絶対パス。rebuild を挟んで選択を引き継ぐために使う
+    /// (index_path は走査・絞り込みのたびに無効になる)
+    fn selected_path(&self) -> Option<PathBuf> {
+        self.visible
+            .get(self.selected)
+            .and_then(|row| scan::node(&self.nodes, &row.index_path))
+            .map(|n| n.path.clone())
+    }
+
+    // 消えていた場合は rebuild_visible が既に selected を範囲内にクランプ済み
+    fn restore_selection(&mut self, path: Option<PathBuf>) {
+        if let Some(path) = path
+            && let Some(pos) = self.visible.iter().position(|row| row.path == path)
         {
             self.selected = pos;
-            // 消えていた場合は rebuild_visible が既に selected を範囲内にクランプ済み
         }
     }
 
@@ -178,7 +246,13 @@ impl Tree {
 
     fn rebuild_visible(&mut self) {
         let mut rows = Vec::new();
-        scan::flatten(&self.nodes, 0, &mut Vec::new(), &mut rows);
+        scan::flatten(
+            &self.nodes,
+            0,
+            &mut Vec::new(),
+            &mut rows,
+            self.filter.as_ref(),
+        );
         self.visible = rows;
         self.selected = self.selected.min(self.visible.len().saturating_sub(1));
     }

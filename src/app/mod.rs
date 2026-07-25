@@ -2,15 +2,18 @@ mod keys;
 mod mode;
 mod mouse;
 
-pub use mode::{Focus, InputKind, Mode, SETTINGS_ROWS, SettingsState};
+pub use mode::{Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState};
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
 
 use crate::config::Config;
+use crate::editor::EditState;
 use crate::git::{self, GitStatus};
+use crate::gitview::GitState;
 use crate::tree::Tree;
 use crate::viewer::{self, Viewer};
 use crate::watch::FsWatcher;
@@ -21,6 +24,9 @@ const RESCAN_DEBOUNCE: Duration = Duration::from_millis(500);
 pub struct App {
     pub root: PathBuf,
     pub focus: Focus,
+    /// 持続する作業レーン (VIEW/EDIT/GIT)。Shift+Tab で循環する
+    pub lane: Lane,
+    /// レーンの上に重なる一時オーバーレイ。閉じてもレーンは変わらない
     pub mode: Mode,
     pub tree: Tree,
     pub viewer: Viewer,
@@ -53,6 +59,7 @@ impl App {
         Self {
             root,
             focus: Focus::Tree,
+            lane: Lane::View,
             mode: Mode::Normal,
             tree,
             viewer,
@@ -85,6 +92,12 @@ impl App {
             }
         }
 
+        // GIT レーンでは絞り込みと diff も古くなるので、専用タイマーを作らず
+        // 同じ 500ms デバウンス (rescan) に相乗りさせる
+        if !changed.is_empty() && matches!(self.lane, Lane::Git(_)) {
+            self.rescan_pending = true;
+        }
+
         if self.rescan_pending && self.last_rescan.elapsed() >= RESCAN_DEBOUNCE {
             self.rescan();
             self.last_rescan = Instant::now();
@@ -97,16 +110,123 @@ impl App {
     fn rescan(&mut self) {
         self.tree.rescan(&self.root);
         self.git = git::file_statuses(&self.root);
+        if !matches!(self.lane, Lane::Git(_)) {
+            return;
+        }
+        // 絞り込みも表示中 diff も新しい git status に追従させる
+        self.tree.set_filter(Some(self.changed_paths()));
+        let root = self.root.clone();
+        if let Lane::Git(git) = &mut self.lane {
+            git.refresh(&root);
+        }
+    }
+
+    /// Shift+Tab: VIEW → EDIT → GIT → VIEW と循環する。入れないレーン
+    /// (非テキストの EDIT、非 git repo の GIT) は飛ばし、一周して戻れなければ現状維持。
+    pub(super) fn cycle_lane(&mut self) {
+        // 未保存の編集を Shift+Tab で取りこぼさない (Esc の discard 確認と同じ理由)
+        if let Lane::Edit(state) = &mut self.lane
+            && state.buffer.dirty()
+        {
+            state.notice = Some("未保存の変更があります (Ctrl+s: 保存 / Esc: 破棄)".to_string());
+            return;
+        }
+        self.pending_g = false;
+        let mut index = self.lane.index();
+        for _ in 0..Lane::LABELS.len() {
+            index = (index + 1) % Lane::LABELS.len();
+            if self.enter_lane(index) {
+                return;
+            }
+        }
+    }
+
+    // Lane::LABELS の index に対応するレーンへ入る。入れなければ false を返して呼び出し側で次へ送る
+    fn enter_lane(&mut self, index: usize) -> bool {
+        let entered = match index {
+            1 => self.enter_edit(),
+            2 => self.enter_git(),
+            _ => {
+                self.lane = Lane::View;
+                true
+            }
+        };
+        // GIT を離れたらツリーの絞り込みを解除する。実 expanded フラグは触っていないので
+        // 元の展開状態がそのまま戻る
+        if entered && !matches!(self.lane, Lane::Git(_)) {
+            self.tree.set_filter(None);
+        }
+        entered
+    }
+
+    /// EDIT レーンへ入る。非テキスト・巨大ファイル・非 UTF-8 は false (Shift+Tab では飛ばされ、
+    /// e キーからは no-op になる)
+    pub(super) fn enter_edit(&mut self) -> bool {
+        if !self.viewer.is_text() {
+            return false;
+        }
+        let Some(open) = &self.viewer.current else {
+            return false;
+        };
+        let Some(state) = EditState::open(
+            &open.path.clone(),
+            &self.viewer.highlighter,
+            self.viewer.viewport.scroll,
+            &self.root,
+        ) else {
+            return false;
+        };
+        self.lane = Lane::Edit(state);
+        true
+    }
+
+    // GIT レーンへ入る。非 git repo (git 未インストール含む) では false
+    fn enter_git(&mut self) -> bool {
+        if self.git.is_none() {
+            return false;
+        }
+        self.tree.set_filter(Some(self.changed_paths()));
+        let mut git = GitState::new(self.viewer.viewport.wrap);
+        if let Some(path) = self.tree.selected_or_first_file() {
+            git.open(&self.root, &path);
+        }
+        self.lane = Lane::Git(git);
+        // 入った直後は「どのファイルを見るか」の選択が主操作なのでツリー側にフォーカスを寄せる
+        self.focus = Focus::Tree;
+        true
+    }
+
+    /// ツリー・ファインダーからの「開く」の振り分け。VIEW/EDIT は viewer、GIT は diff を差し替える
+    pub(super) fn open_selected(&mut self, path: &Path) {
+        match &mut self.lane {
+            Lane::Git(git) => git.open(&self.root, path),
+            _ => self.viewer.open(path, &self.root),
+        }
+    }
+
+    // 変更ファイルとその祖先ディレクトリ。どちらも git status 取得時に組んだ集合を使い回すだけで、
+    // ツリーの再走査は要らない
+    fn changed_paths(&self) -> HashSet<PathBuf> {
+        match &self.git {
+            Some(status) => status
+                .files
+                .keys()
+                .cloned()
+                .chain(status.changed_dirs.iter().cloned())
+                .collect(),
+            None => HashSet::new(),
+        }
     }
 
     /// bracketed paste (main のイベントループから)。編集バッファへは複数行のまま、
     /// Search/Goto/Finder の 1 行入力へは制御文字を落として流す
     /// (paste 有効化前は生キー入力として届いていた挙動の維持)
     pub fn on_paste(&mut self, text: &str) {
+        if let Lane::Edit(state) = &mut self.lane {
+            state.paste(text, &self.viewer.highlighter, &mut self.viewer.viewport);
+            return;
+        }
         match &mut self.mode {
-            Mode::Edit(state) => {
-                state.paste(text, &self.viewer.highlighter, &mut self.viewer.viewport)
-            }
             Mode::Input { kind, buffer } => {
                 let kind = *kind;
                 for c in text.chars().filter(|c| !c.is_control()) {

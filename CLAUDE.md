@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 概要
 
-fv は TUI コードビューア + インライン編集（ratatui + crossterm + syntect + ignore + notify）。当初は読み取り専用方針だったが、「AI が書いたコードをその場で手直しする」用途のため編集機能を段階導入中（Stage 1: 挿入・削除・undo/redo・ペースト・保存 済み / 将来: 選択・yank、vim 風モーダル）。VSCode 級の完全なエディタは目指さない。新規依存の追加は原則しない方針（ファジーマッチ・git 連携・編集バッファは依存を足さず自前実装 / git CLI 呼び出しで済ませている）。
+fv は TUI コードビューア + インライン編集 + 変更レビュー（ratatui + crossterm + syntect + ignore + notify）。当初は読み取り専用方針だったが、「AI が書いたコードをその場で手直しする」用途のため編集機能を段階導入中（Stage 1: 挿入・削除・undo/redo・ペースト・保存 済み / 将来: 選択・yank、vim 風モーダル）。git は GIT レーン（変更ファイル絞り込み + diff 閲覧）まで実装済みで、stage/commit 等の書き込み系は未実装。VSCode 級の完全なエディタは目指さない。新規依存の追加は原則しない方針（ファジーマッチ・git 連携・編集バッファは依存を足さず自前実装 / git CLI 呼び出しで済ませている）。
 
 ## コマンド
 
@@ -36,12 +36,21 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - 修飾付き文字キーは端末により大文字で届くことがある。修飾キーバインドのマッチは `to_ascii_lowercase` で畳んでから行う（editor/mod.rs handle_key 参照）
 
 ### モジュール構成（1 型 1 責務 1 ファイル方針）
-- `app/` — mod.rs(App 状態・on_tick), keys.rs(全キールーティング), mouse.rs, mode.rs(Focus/Mode/InputKind)
+- `app/` — mod.rs(App 状態・on_tick・レーン遷移), keys.rs(全キールーティング), mouse.rs, mode.rs(Focus/Lane/Mode/InputKind)
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(走査・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo)
-- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集共通の描画コア), viewer_pane.rs, editor_pane.rs, status_bar.rs, finder_panel.rs, help.rs
-- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー) / `watch.rs`(notify)
+- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, status_bar.rs, finder_panel.rs, help.rs
+- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー) / `gitview.rs`(GIT レーンの diff 表示状態) / `watch.rs`(notify)
+
+### レーン（Lane）とオーバーレイ（Mode）の2軸
+キーマップ飽和を避けるため、状態を2軸に分けている。**新しい機能を足す時はどちらの軸かをまず決める**。
+- `Lane`（app/mode.rs）= 持続する作業レーン。`View` / `Edit(EditState)` / `Git(GitState)` の3つで、**Shift+Tab で循環**（`App::cycle_lane`）。Edit・Git は自分の状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
+- `Mode` = レーンの上に重なる一時オーバーレイ（Input/Finder/Help/Settings）。閉じると `Mode::Normal` に戻るが**レーンは変わらない**（GIT でヘルプを開いて閉じても GIT に戻る）。この分離のために `Mode::Edit` を `Lane::Edit` へ移した経緯がある
+- 入れないレーンは循環時にスキップする（非テキスト → EDIT、非 git repo → GIT）。判定は `enter_edit` / `enter_git` が false を返す形に閉じ込め、呼び出し側で条件を二重に書かない
+- **Shift+Tab は Edit レーンより前に処理する**（keys.rs）。印字キーではないので「編集中は印字キーを全て文字入力にする」ポリシーとは衝突しない。ただし未保存バッファがある間はレーンを変えず notice を出す
+- `Focus`（Tree/Viewer）はレーンと直交する。GIT でも Tab で左右を行き来する
+- 右ペインの中身はレーンで決まる（VIEW: ファイル / EDIT: 編集バッファ / GIT: diff）。`ui::draw` の振り分けがその唯一の場所
 
 ### 閲覧と編集の関係（後付けにしない）
 - `Viewport`（scroll/hscroll/wrap/実測サイズ）は閲覧・編集で**同じ実体を共有**する。モード遷移で位置が飛ばない根拠はここ。「wrap 中は hscroll = 0」のインバリアントは Viewport のメソッドと EditState::ensure_visible が守る（モード出口での手当てはしない）
@@ -50,7 +59,8 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - wrap は閲覧・編集とも **char 単位の自前分割**（`Paragraph::wrap` は単語境界 wrap で折返し位置が外から計算できないため全面的に不使用）。視覚行数は描画（text_pane）・カーソル追従（ensure_visible）・クリック座標（click_at）の 3 者が `text::wrap_rows` を共有し、ズレると即カーソル位置バグになる
 
 ### キールーティングの優先順位（app/keys.rs on_key）
-Ctrl+c → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → Mode::Edit → Normal(q/Tab → focus 別ディスパッチ)。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c だけは強制終了として残る）。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。
+Ctrl+c → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → **Shift+Tab(レーン循環)** → Lane::Edit → Ctrl+p → q/?/a/s/Tab → focus 別ディスパッチ。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。
+ツリーのキー処理（`on_tree_key`）は VIEW/GIT で共通で、**「開く」対象のパスを返すだけ**にしてある。viewer に開くか diff に開くかの振り分けは `App::open_selected` 1 箇所に閉じている（ツリー操作をレーンごとに複製しない）。
 
 ### 桁位置の整合インバリアント（複数ファイルに跨る前提）
 - 各行 `Line` の **span[0] は行番号 gutter**。検索ハイライト・水平スクロールは span[1..] を char 単位で走査する
@@ -68,8 +78,16 @@ Ctrl+c → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search
 - `rescan` は展開状態と選択を **path で**保存・復元する（index_path は再走査で無効になる）
 - watch.rs のイベントフィルタは「`.` 始まり成分の除外 + root .gitignore の `matched_path_or_any_parents`」（`matched` だと `target/` が配下パスに効かない）。ツリー再走査は 500ms デバウンスで、git status の再取得もこれに相乗りする（別タイマーを作らない）
 
+### GIT レーン（gitview.rs + ui/git_pane.rs）
+- 左ペインは `Tree::set_filter` による**表示フィルタ**（変更ファイル + その祖先ディレクトリ）。集合は `GitStatus.files` と `changed_dirs` の和で、新しい走査はしない
+- 絞り込み中も `expanded` フラグを尊重するので h/l/H の開閉がそのまま効く。代わりに `set_filter` が**絞り込み開始時に元の展開状態を退避 → 対象を全展開**し、解除時に `scan::set_expanded` で厳密に戻す（GIT 内での開閉は VIEW に持ち越さない）。絞り込み中の再走査では「新しく対象になったディレクトリ」だけを開き、ユーザーが畳んだものは保存のたびに開き直さない
+- 右ペインは `git diff HEAD -- <file>` を `TextPane` の行形式（span[0] = gutter、gutter は新側行番号・削除行は空欄）に組み替えたもの。untracked は `--no-index` で全行追加として出す
+- **diff は VIEW/EDIT が共有する Viewport とは別の Viewport を持つ**（GitState 内）。別ドキュメントなのでスクロール位置を共有する意味がなく、VIEW に戻った時の読み位置も壊さない。`w`（折返し）も GIT 内だけの独立トグルで config には保存しない
+- ツリーの j/k で diff は追従しない（Enter/l/クリックで開く）。キーリピートで git プロセスを連打しないため
+- 絞り込みと diff の再取得は FS 監視の 500ms デバウンス（`App::rescan`）に相乗りさせる。専用タイマーを作らない
+
 ### インライン編集（editor/ + ui/editor_pane.rs）
-- `Mode::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）
+- `Lane::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）
 - `EditBuffer` は disk から**生テキストを独立ロード**する。viewer の `plain` はタブ展開済みで保存に使えない。CRLF・末尾改行を記憶し `to_text()` で復元（保存でファイルを壊さないための核）。undo/redo は Insert/Delete 2 種の op の逆適用で、連続タイピングは coalesce（カーソル移動・改行・保存・ペーストで区切る）
 - カーソルは端末カーソルでなく REVERSED スタイル重ね（全角・タブの画面幅計算を回避）。検索ハイライトと同時には使わない（TextPane の search と cursor は排他）
 - 編集の度に `Highlighter::highlight_text` で全再ハイライト（256KB 超はプレーン行に切替）。キー入力起因の 1 回きりの再生成であり「再描画毎の再ハイライト禁止」には反しない。`Content` cache は編集中は使わず、保存時の `viewer.reload()` で更新する

@@ -120,6 +120,41 @@ pub fn baseline_lines(root: &Path, file: &Path) -> Option<Vec<String>> {
     Some(lines)
 }
 
+/// GIT レーンの diff 表示用に `git diff HEAD -- <file>` の unified diff を行で返す。
+/// 基準は changed_lines / baseline_lines と同じ (HEAD → 初期 repo は index)。
+/// untracked で差分が空になる場合だけ --no-index で全行を追加として出す。
+pub fn file_diff(root: &Path, file: &Path) -> Option<Vec<String>> {
+    let mut output = run_git(root, diff_args(&["diff", "HEAD", "--no-color"], file));
+    if !output.as_ref().is_some_and(|o| o.status.success()) {
+        output = run_git(root, diff_args(&["diff", "--no-color"], file));
+    }
+    let text = match output {
+        Some(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => String::new(),
+    };
+    if !text.trim().is_empty() {
+        return Some(text.lines().map(str::to_string).collect());
+    }
+    // untracked は index にもエントリが無いため上の diff では何も出ない。
+    // --no-index は差分ありを exit code 1 で返すので status は見ずに stdout だけ拾う
+    let output = run_git(
+        root,
+        [
+            OsString::from("diff"),
+            OsString::from("--no-color"),
+            OsString::from("--no-index"),
+            OsString::from("--"),
+            OsString::from("/dev/null"),
+            file.as_os_str().to_os_string(),
+        ],
+    )?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(text.lines().map(str::to_string).collect())
+}
+
 fn diff_args(base: &[&str], file: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = base.iter().map(OsString::from).collect();
     args.push("--".into());
