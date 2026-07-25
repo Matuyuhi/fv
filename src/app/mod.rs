@@ -113,6 +113,13 @@ impl App {
         if !matches!(self.lane, Lane::Git(_)) {
             return;
         }
+        // 滞在中に変更が全部無くなった場合 (別端末での commit / stash 等)。
+        // 空のツリーに取り残さず VIEW へ戻す
+        if !self.git_available() {
+            self.tree.set_filter(None);
+            self.lane = Lane::View;
+            return;
+        }
         // 絞り込みも表示中 diff も新しい git status に追従させる
         self.tree.set_filter(Some(self.changed_paths()));
         let root = self.root.clone();
@@ -180,9 +187,17 @@ impl App {
         true
     }
 
-    // GIT レーンへ入る。非 git repo (git 未インストール含む) では false
+    /// GIT レーンに入れるか。非 git repo (git 未インストール含む) と、変更が 1 件も無いときは
+    /// 入れない (空のツリーと空の diff を見せても意味がない)。ステータスバーの活性表示も
+    /// 同じ判定を参照するので、見た目と実際の可否がずれない
+    pub fn git_available(&self) -> bool {
+        self.git
+            .as_ref()
+            .is_some_and(|status| !status.files.is_empty())
+    }
+
     fn enter_git(&mut self) -> bool {
-        if self.git.is_none() {
+        if !self.git_available() {
             return false;
         }
         self.tree.set_filter(Some(self.changed_paths()));

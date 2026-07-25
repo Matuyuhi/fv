@@ -20,7 +20,7 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 // 現在レーンは [ ] 付きの反転、入れないレーン (非テキストの EDIT / 非 git repo の GIT) は暗く出す
 fn lane_segments(app: &App) -> Vec<Span<'static>> {
     let current = app.lane.index();
-    let available = [true, app.viewer.is_text(), app.git.is_some()];
+    let available = [true, app.viewer.is_text(), app.git_available()];
     let mut spans = Vec::with_capacity(Lane::LABELS.len() + 1);
     for (i, label) in Lane::LABELS.iter().enumerate() {
         let style = if i == current {
