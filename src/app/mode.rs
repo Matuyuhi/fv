@@ -1,5 +1,6 @@
 use crate::editor::EditState;
 use crate::finder::Finder;
+use crate::gitview::GitState;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -23,6 +24,31 @@ pub struct SettingsState {
     pub selected: usize,
 }
 
+/// 持続する作業レーン。Shift+Tab で View → Edit → Git → View と循環する。
+/// Edit / Git はそれぞれの状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
+/// (Finder と同じパターン)。オーバーレイ (Mode) を挟んでもレーンは保持されるので、
+/// GIT でヘルプを開いて閉じても GIT に戻る
+pub enum Lane {
+    View,
+    Edit(EditState),
+    Git(GitState),
+}
+
+impl Lane {
+    /// ステータスバーのセグメント表示。並び順は Shift+Tab の循環順と同じ
+    pub const LABELS: [&'static str; 3] = ["VIEW", "EDIT", "GIT"];
+
+    pub fn index(&self) -> usize {
+        match self {
+            Lane::View => 0,
+            Lane::Edit(_) => 1,
+            Lane::Git(_) => 2,
+        }
+    }
+}
+
+/// レーンの上に重なる一時状態。閉じると Normal に戻り、レーンはそのまま残る。
+/// Shift+Tab の循環対象には含めない (キーの意味が入力欄と衝突するため)
 pub enum Mode {
     Normal,
     Input { kind: InputKind, buffer: String },
@@ -32,7 +58,4 @@ pub enum Mode {
     Help,
     // 設定画面のオーバーレイ (s キー)
     Settings(SettingsState),
-    // viewer フォーカスの e で入るインライン編集。バッファ等の編集状態は
-    // この variant が所有し、「編集中なのに状態がない」を型で表現不能にする
-    Edit(EditState),
 }

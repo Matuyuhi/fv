@@ -5,8 +5,20 @@ use ignore::WalkBuilder;
 
 use super::node::{Node, NodeKind, Row};
 
-pub(super) fn flatten(nodes: &[Node], depth: usize, prefix: &mut Vec<usize>, rows: &mut Vec<Row>) {
+/// filter が Some のときは集合に含まれるノードだけを出す。展開状態は絞り込み中も
+/// expanded フラグをそのまま尊重する (h/l の折りたたみを効かせるため)。
+/// 「絞り込み開始時に対象を全部開く」のは Tree::set_filter の役割
+pub(super) fn flatten(
+    nodes: &[Node],
+    depth: usize,
+    prefix: &mut Vec<usize>,
+    rows: &mut Vec<Row>,
+    filter: Option<&HashSet<PathBuf>>,
+) {
     for (i, node) in nodes.iter().enumerate() {
+        if filter.is_some_and(|f| !f.contains(&node.path)) {
+            continue;
+        }
         prefix.push(i);
         match &node.kind {
             NodeKind::File => rows.push(Row {
@@ -27,7 +39,7 @@ pub(super) fn flatten(nodes: &[Node], depth: usize, prefix: &mut Vec<usize>, row
                     expanded: *expanded,
                 });
                 if *expanded {
-                    flatten(children, depth + 1, prefix, rows);
+                    flatten(children, depth + 1, prefix, rows, filter);
                 }
             }
         }
@@ -76,7 +88,9 @@ pub(super) fn collect_expanded(nodes: &[Node]) -> HashSet<PathBuf> {
     set
 }
 
-pub(super) fn apply_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>) {
+/// 集合に含まれるディレクトリを開く (含まれないものは今の状態のまま)。
+/// 再走査後の復元と、絞り込み開始時の一括展開の両方で使う
+pub(super) fn expand_all(nodes: &mut [Node], expanded: &HashSet<PathBuf>) {
     for node in nodes {
         if let NodeKind::Dir {
             expanded: is_expanded,
@@ -86,7 +100,22 @@ pub(super) fn apply_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>) {
             if expanded.contains(&node.path) {
                 *is_expanded = true;
             }
-            apply_expanded(children, expanded);
+            expand_all(children, expanded);
+        }
+    }
+}
+
+/// 展開状態を集合そのものに揃える (集合に無いディレクトリは閉じる)。
+/// 絞り込み解除時に「絞り込み前の状態」へ厳密に戻すために使う
+pub(super) fn set_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>) {
+    for node in nodes {
+        if let NodeKind::Dir {
+            expanded: is_expanded,
+            children,
+        } = &mut node.kind
+        {
+            *is_expanded = expanded.contains(&node.path);
+            set_expanded(children, expanded);
         }
     }
 }

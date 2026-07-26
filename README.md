@@ -5,13 +5,15 @@
 
 TUI code viewer with syntax highlighting, git status, and inline editing.
 
-Browse a directory tree, open files with syntax highlighting, search, see git changes at a glance, and edit files in-place without leaving the terminal. Files reload automatically when they change on disk.
+Browse a directory tree, open files with syntax highlighting, search, see git changes at a glance, review diffs, and edit files in-place without leaving the terminal. Files reload automatically when they change on disk.
 
 ## Features
 
+- **Modes** (`Shift+Tab` to cycle) — VIEW / EDIT / GIT, so each mode keeps its own key map
 - File tree with `.gitignore`-aware scanning and git status markers
 - Syntax highlighting (syntect)
 - **Inline editing** (`e`) — insert, delete, undo/redo, paste, save
+- **Git mode** — tree filtered to changed files only (hierarchy preserved), unified diff with hunk jumping
 - Live changed-line markers (`▎`) in the gutter while editing (LCS diff against git HEAD, no per-keystroke git calls)
 - Fuzzy file finder (`Ctrl+p`)
 - In-file search (`/`, `n`/`N`) and line jump (`:N`)
@@ -47,6 +49,7 @@ Press `?` inside fv for the full list.
 | Key | Action |
 | --- | --- |
 | `q` / `Ctrl+c` | Quit |
+| `Shift+Tab` | Switch mode (VIEW → EDIT → GIT) |
 | `Tab` | Switch focus (tree / viewer) |
 | `Ctrl+p` | Fuzzy finder |
 | `j`/`k`, `↑`/`↓` | Move / scroll |
@@ -74,6 +77,21 @@ Press `?` inside fv for the full list.
 | `Ctrl+z` / `Ctrl+y` | Undo / redo |
 | `Ctrl+k` | Delete line |
 | `Esc` | Exit edit mode (prompts if unsaved; press `s` at prompt to save) |
+
+### Git mode (`Shift+Tab`)
+
+The tree is filtered down to changed files with the directory hierarchy preserved, and the right pane shows the unified diff of the selected file. Leaving the mode restores the tree exactly as it was.
+
+| Key | Action |
+| --- | --- |
+| `j`/`k`, `↑`/`↓` | Move between changed files / scroll the diff |
+| `h`/`l`, `←`/`→` | Collapse/expand (tree), horizontal scroll (diff) |
+| `Enter` | Show the diff of the selected file |
+| `n`/`N` (`]`/`[`) | Next / previous hunk |
+| `w` | Toggle wrap (diff only, not persisted) |
+| `r` | Rescan (also refreshes git status) |
+
+Only files present on disk are listed, so deleted files do not show up. Changes under hidden directories (for example `.github/`) need `a` or `--hidden`.
 
 ## License
 

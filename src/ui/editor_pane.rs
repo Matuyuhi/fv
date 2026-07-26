@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::Paragraph;
 
-use crate::app::{App, Mode};
+use crate::app::{App, Lane};
 use crate::text;
 
 use super::pane_block;
@@ -15,7 +15,7 @@ pub(super) fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
     app.viewer.viewport.height = area.height.saturating_sub(2) as usize;
     app.viewer.viewport.width = area.width.saturating_sub(2) as usize;
 
-    let Mode::Edit(state) = &app.mode else {
+    let Lane::Edit(state) = &app.lane else {
         return;
     };
     let name = app
