@@ -1,6 +1,6 @@
 [package]
 name = "fv"
-version = "0.5.0"
+version = "1.0.0"
 edition = "2024"
 description = "Read-only TUI code viewer with syntax highlighting and git status"
 license = "Apache-2.0"
