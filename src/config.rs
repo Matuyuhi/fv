@@ -11,6 +11,9 @@ pub struct Config {
     pub icons: bool,
     pub wrap_default: bool,
     pub theme: String,
+    /// 左ペイン (ツリー) が画面幅に占める割合。桁数でなく割合で持つのは
+    /// 端末サイズが変わっても見た目の配分を保つため
+    pub split_ratio: f32,
 }
 
 impl Default for Config {
@@ -20,6 +23,7 @@ impl Default for Config {
             icons: false,
             wrap_default: false,
             theme: "base16-ocean.dark".to_string(),
+            split_ratio: 0.30,
         }
     }
 }
@@ -41,6 +45,14 @@ impl Config {
                 "icons" => config.icons = value == "true",
                 "wrap_default" => config.wrap_default = value == "true",
                 "theme" => config.theme = value.to_string(),
+                // 壊れた値は既定のまま無視する (割合の妥当な範囲への丸めは App 側の clamp に任せる)
+                "split_ratio" => {
+                    if let Ok(ratio) = value.parse::<f32>()
+                        && ratio.is_finite()
+                    {
+                        config.split_ratio = ratio;
+                    }
+                }
                 _ => {}
             }
         }
@@ -56,8 +68,8 @@ impl Config {
             fs::create_dir_all(dir)?;
         }
         let body = format!(
-            "show_hidden = {}\nicons = {}\nwrap_default = {}\ntheme = {}\n",
-            self.show_hidden, self.icons, self.wrap_default, self.theme
+            "show_hidden = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\n",
+            self.show_hidden, self.icons, self.wrap_default, self.theme, self.split_ratio
         );
         fs::write(path, body)
     }
