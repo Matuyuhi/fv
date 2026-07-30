@@ -101,6 +101,15 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
     );
     push_help_section(
         &mut lines,
+        "Mouse",
+        &[
+            ("クリック", "ツリーの行を選択して開く / ペインをフォーカス"),
+            ("ホイール", "ツリー移動 / スクロール"),
+            ("境界をドラッグ", "左右ペインの幅を変更 (離した時点で保存)"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
         "Finder (Ctrl+p)",
         &[
             ("文字入力", "クエリを絞り込み"),

@@ -6,6 +6,10 @@ use super::{App, Focus, Lane, Mode};
 impl App {
     /// マウス操作。Input/Finder 中はクリック位置の意味が入力欄と衝突するため無視する
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
+        // 幅の変更はレーン・フォーカスと直交する操作なので、編集中でも効くよう最初に見る
+        if self.on_split_mouse(&mouse) {
+            return;
+        }
         if let Lane::Edit(_) = self.lane {
             self.on_edit_mouse(mouse);
             return;
@@ -40,6 +44,38 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    // ペイン境界のドラッグ。消費したら true を返し、通常のクリック処理には渡さない。
+    // 掴んだ後は境界の外に出ても追従させる (下限幅までは張り付き、戻せば再び追従する)
+    fn on_split_mouse(&mut self, mouse: &MouseEvent) -> bool {
+        let pos = Position::new(mouse.column, mouse.row);
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if matches!(self.mode, Mode::Normal) && self.splitter_area.contains(pos) =>
+            {
+                self.pending_g = false;
+                self.dragging_split = Some(mouse.column.saturating_sub(self.splitter_area.x));
+                true
+            }
+            // ボタン状態を報告しない端末では Drag でなく Moved で届くため両方受ける
+            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Moved => {
+                match self.dragging_split {
+                    Some(grab) => {
+                        self.set_split_at(mouse.column, grab);
+                        true
+                    }
+                    None => false,
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) if self.dragging_split.is_some() => {
+                self.dragging_split = None;
+                // ドラッグ中は毎フレーム書き込まないよう、離した時だけ永続化する
+                self.persist_config();
+                true
+            }
+            _ => false,
         }
     }
 

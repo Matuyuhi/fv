@@ -19,11 +19,22 @@ use crate::app::{App, Focus, Lane, Mode};
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let full = frame.area();
     let [main, status] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(full);
-    let [left, right] =
-        Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)]).areas(main);
+    // 幅はドラッグで変わるので、割合ではなく App が持つ実桁数で切る
+    let [left, right] = Layout::horizontal([
+        Constraint::Length(app.tree_width(main.width)),
+        Constraint::Min(1),
+    ])
+    .areas(main);
     // マウスのヒットテスト用に、次の on_mouse で使えるよう書き戻す (viewport の実測値と同じパターン)
     app.tree_area = left;
     app.viewer_area = right;
+    // 掴み代を確保するため、隣接する枠線 2 桁 (左ペインの右枠 + 右ペインの左枠) を境界とする
+    app.splitter_area = Rect {
+        x: left.right().saturating_sub(1),
+        y: main.y,
+        width: 2.min(main.width),
+        height: main.height,
+    };
     tree_pane::draw_tree(frame, app, left);
     // 右ペインの中身はレーンで決まる (VIEW: ファイル / EDIT: 編集バッファ / GIT: diff)
     if matches!(app.lane, Lane::Edit(_)) {

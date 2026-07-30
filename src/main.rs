@@ -139,6 +139,10 @@ fn resolve_config(cli_hidden: bool, cli_icons: Option<bool>) -> Config {
             .or_else(|| saved.as_ref().map(|c| c.icons))
             .unwrap_or_else(icons_default),
         wrap_default: saved.as_ref().is_some_and(|c| c.wrap_default),
+        split_ratio: saved
+            .as_ref()
+            .map(|c| c.split_ratio)
+            .unwrap_or(Config::default().split_ratio),
         theme: saved
             .map(|c| c.theme)
             .unwrap_or_else(|| "base16-ocean.dark".to_string()),

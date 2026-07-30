@@ -21,6 +21,11 @@ use crate::watch::FsWatcher;
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
 const RESCAN_DEBOUNCE: Duration = Duration::from_millis(500);
 
+// ペイン分割の下限幅 (枠線 2 桁を含む)。左はツリーの階層インデントが、
+// 右は gutter + 数十桁のコードが最低限読める幅
+const MIN_TREE_WIDTH: u16 = 12;
+const MIN_VIEWER_WIDTH: u16 = 24;
+
 pub struct App {
     pub root: PathBuf,
     pub focus: Focus,
@@ -40,6 +45,13 @@ pub struct App {
     // マウスのヒットテスト用。ui::draw が毎フレーム書き戻す (viewport の実測値と同じパターン)
     pub tree_area: Rect,
     pub viewer_area: Rect,
+    // 左右ペインの境界 (両ペインの枠線 2 桁)。ドラッグの掴み判定用に ui::draw が書き戻す
+    pub splitter_area: Rect,
+    /// スプリッタのドラッグ中はその掴んだ桁のオフセット (0 or 1) を保持する。
+    /// 掴み位置を覚えることで Down の瞬間に境界が 1 桁飛ばない
+    dragging_split: Option<u16>,
+    // 左ペインが画面幅に占める割合 (config に永続化)
+    split_ratio: f32,
     watcher: Option<FsWatcher>,
     last_rescan: Instant,
     rescan_pending: bool,
@@ -69,10 +81,34 @@ impl App {
             pending_g: false,
             tree_area: Rect::default(),
             viewer_area: Rect::default(),
+            splitter_area: Rect::default(),
+            dragging_split: None,
+            split_ratio: config.split_ratio,
             watcher,
             last_rescan: Instant::now(),
             rescan_pending: false,
         }
+    }
+
+    /// 保存された割合から左ペインの実桁数を求める。ui::draw と
+    /// ドラッグ時の clamp が同じ定義を通るよう、換算はここ 1 箇所に閉じる
+    pub fn tree_width(&self, total: u16) -> u16 {
+        clamp_tree_width((self.split_ratio * total as f32).round() as u16, total)
+    }
+
+    /// ドラッグ中: 掴んだ桁が column に来るよう割合を更新する。
+    /// 桁数で clamp してから割合に戻すので、下限幅に張り付いた後も割合が暴れない
+    pub(super) fn set_split_at(&mut self, column: u16, grab: u16) {
+        let total = self.tree_area.width + self.viewer_area.width;
+        if total == 0 {
+            return;
+        }
+        // 境界の桁 = 左ペインの右枠線なので、そこまでの桁数がそのまま左ペイン幅になる
+        let target = column
+            .saturating_sub(grab)
+            .saturating_sub(self.tree_area.x)
+            .saturating_add(1);
+        self.split_ratio = clamp_tree_width(target, total) as f32 / total as f32;
     }
 
     /// watcher に溜まったファイル変更を取り込む。キー入力の有無に関わらず、
@@ -298,6 +334,7 @@ impl App {
             icons: self.icons,
             wrap_default: self.viewer.viewport.wrap,
             theme: self.viewer.theme_name().to_string(),
+            split_ratio: self.split_ratio,
         }
     }
 
@@ -306,4 +343,13 @@ impl App {
     fn persist_config(&self) {
         let _ = self.current_config().save();
     }
+}
+
+// 最小幅を満たせない極端に狭い端末では下限を諦めて半分ずつにする
+// (clamp の lo > hi でパニックさせない)
+fn clamp_tree_width(width: u16, total: u16) -> u16 {
+    if total < MIN_TREE_WIDTH + MIN_VIEWER_WIDTH {
+        return total / 2;
+    }
+    width.clamp(MIN_TREE_WIDTH, total - MIN_VIEWER_WIDTH)
 }
