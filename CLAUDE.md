@@ -40,8 +40,8 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(走査・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
-- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, help.rs, confirm.rs(確認オーバーレイ)
-- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `watch.rs`(notify)
+- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
+- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `watch.rs`(notify)
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
 キーマップ飽和を避けるため、状態を3軸に分けている。**新しい機能を足す時はどの軸かをまず決める**。
@@ -54,7 +54,8 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - 右ペインの中身はレーンで決まる（VIEW: ファイル / EDIT: 編集バッファ / GIT: diff / LOG: 選択コミットの diff）。`ui::draw` の振り分けがその唯一の場所。**LOG は左ペインもツリーから差し替わる**唯一のレーンなので、`draw_viewer_workspace` は他レーンより先に分岐して `tree_pane` 自体を呼ばない
 - **未保存の編集バッファがあっても Workspace の切替は拒否しない**（`Lane::Edit` の状態はタブを跨いでも保持され、Viewer タブへ戻れば復元される）。Shift+Tab のレーン循環がバッファ dirty 中に拒否するのとは対照的で、その代わりタブ側に未保存マーク（`viewer ●`）を出す
 - GitHub モードの有効化は起動オプション `--github` / 設定オーバーレイのトグル / config ファイル `github = true` の3経路が同じ `Config.github` に集約される。`--github` はその起動限りの上乗せで config には書かない（`App::github_enabled` と永続化用の `github_persisted` を分けて持つのはこのため）。`gh` の有無・認証・GitHub リモートかどうかの判定（`github::check_available`）は起動時（または初回有効化時）に1度だけ行い、描画のたびには叩かない
-- `Mode::Confirm { prompt, action }`（破壊的・書き込み系操作の確認）も Lane と直交する。これまでの Mode（Input/Finder/Help/Settings）は編集中は開けない制約があったが、Confirm だけは EDIT レーン中でも出す必要があるため、キールーティング上は Shift+Tab と同じ位置（`Lane::Edit` の文字入力ディスパッチより前）に置く。`action` はクロージャではなく enum（`ConfirmAction`）にする — クロージャだと App を借りたまま呼べず、確認後に App のメソッドを呼ぶ形にできないため。書き込み系の子 issue が増えるたびに variant を足していく想定。確認中は y/Enter 以外の全キーで中止し、他のキーがレーンへ漏れないことをキールーティングの順序で保証する（型ではなく手続きで守っている点は他の Mode と同じ）
+- `Mode::Confirm { prompt, action }`（破壊的・書き込み系操作の確認）も Lane と直交する。これまでの Mode（Input/Finder/Help/Settings）は編集中は開けない制約があったが、Confirm だけは EDIT レーン中でも出す必要があるため、キールーティング上は Shift+Tab と同じ位置（`Lane::Edit` の文字入力ディスパッチより前）に置く。`action` はクロージャではなく enum（`ConfirmAction`）にする — クロージャだと App を借りたまま呼べず、確認後に App のメソッドを呼ぶ形にできないため。書き込み系の子 issue が増えるたびに variant を足していく想定（最初の実装が `ConfirmAction::Amend`）。確認中は y/Enter 以外の全キーで中止し、他のキーがレーンへ漏れないことをキールーティングの順序で保証する（型ではなく手続きで守っている点は他の Mode と同じ）
+- `Mode::Commit { buffer, cursor, amend, error }`（コミットメッセージ入力、`c`/`C`）も Lane と直交する独立オーバーレイ。`Mode::Input` は 1 行入力専用で複数行のコミットメッセージを表現できないため分けた。`buffer` は改行込みの生テキスト、`cursor` はバイトではなく **char インデックス**（日本語等の複数バイト文字でカーソル位置がずれないため）。`c`/`C` はキールーティング上グローバルキー（q/s 等）と同じ位置に置き、GIT レーンにいることを要求しない（変更を見て回ってからそのままコミットしたい時に Shift+Tab を挟ませたくないため）。可否は `App::has_staged_changes` 等で都度判定する
 
 ### 閲覧と編集の関係（後付けにしない）
 - `Viewport`（scroll/hscroll/wrap/実測サイズ）は閲覧・編集で**同じ実体を共有**する。モード遷移で位置が飛ばない根拠はここ。「wrap 中は hscroll = 0」のインバリアントは Viewport のメソッドと EditState::ensure_visible が守る（モード出口での手当てはしない）
@@ -103,6 +104,18 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - 実行後は既存の `App::rescan`（r キーと同じ入口）にそのまま乗せる。`Tree::rescan`／`Tree::set_filter` の path ベース選択復元がそのまま「選択位置を飛ばさない」「絞り込みから外れたら近い残存行に寄せる」を満たすので、stage/unstage 専用の位置合わせロジックは書いていない
 - **word-level ハイライト（#29）**: `render` が行の Vec を作る前に、hunk 内で「連続する削除ブロック → 直後の連続する追加ブロック」を検出し、**行数が一致する時だけ**先頭から 1 対 1 で対応付ける（ズレたペアより「対応付けない」方が読みやすいため、行数不一致・打ち切り超過は何もせず従来の全行色のまま）。文字単位の差分は `editor::diff::word_diff`（editor/diff.rs の LCS を `T: PartialEq` で汎用化し、行の LCS と共有）で計算し、双方の行で「共通部分に含まれない char range」を求める。gutter (span[0]) は不変のまま、content 側 (span[1] 以降) だけをその range で複数 span に割り、前景色はそのまま背景だけ濃くする。diff 行の先頭 1 文字は `+`/`-` マーカーなので char 単位比較の対象から外し、range をマーカー分 (+1) ずらして戻す。計算量は行の char 数（500 超で `word_diff` が None）と 1 hunk あたりの対応ペア数（200 超で以降のペアをスキップ）の 2 段で打ち切る。打ち切られた行は元々の単一 span のまま描画され、span[1..] を連結すると本文に戻る前提は崩れない
 
+### コミット（app/keys.rs の commit 系メソッド + ui/commit.rs）
+- `c`（通常コミット）/ `C`（amend）は `Mode::Commit` を開く。開けるかどうかは都度判定するだけで、GIT レーンに滞在している必要はない（キールーティングは前節参照）
+- **Esc は内容を破棄しない**。`App.commit_draft` / `App.amend_draft`（ともに `Option<String>`）に退避し、次に `c`/`C` を押した時に復元する。長文の途中の誤操作で消えるのが一番痛いという issue の要求そのもの。amend は既存メッセージのプリフィル（`git log -1 --format=%B`）があるため通常コミットとは別の下書きフィールドにする — 同じフィールドにすると「amend の下書き」を開いたつもりが直前の通常コミットの下書きで上書きされる、といった取り違えが起きる
+- amend の確認 (`ConfirmAction::Amend`) を開く直前にも `amend_draft` へ退避する。確認をキャンセルしても Mode::Commit には戻らず `Mode::Normal` になる (`on_confirm_key` の設計) ため、退避しておかないとキャンセルで書きかけを失う。通常コミットは確認を経由しないのでこの退避は不要
+- staged が空なら通常コミットは開かず notice を出す（`--allow-empty` は使わない）。amend は staged 空でも許可する（メッセージ修正の用途）。判定は `App::has_staged_changes`（`FileStatus.index` が `Some` のファイルが 1 つでもあるか）
+- 未保存の EDIT バッファがある間はコミットしない、という issue の要求はガードとして明示的に書いてある（`open_commit` 冒頭）が、実際には `Lane::Edit` は印字キーを全て文字入力にして `c`/`C` をこの分岐まで届かせないため、現在のキールーティングでは到達しない防御的コードである
+- pre-commit hook 失敗時、通常コミットは `Mode::Commit` に留まったままオーバーレイ内 (`error` フィールド) にエラーを出し、書きかけのメッセージを保って再試行できるようにする。amend は確認オーバーレイ経由で実行され、失敗時点で `mode` は既に `Mode::Normal` に戻っているため `App.notice` でエラーを出す（下書きは確認前の退避で既に保持済み）
+- 成功後の再取得は stage/unstage と同じ `App::rescan`（r キーと同じ入口）に相乗りさせる。新しいタイマーは作らない
+- **`git log --format=%B` の末尾改行は 2 個並ぶ**（git がコミット保存時にメッセージ末尾を改行 1 個に正規化し、`log --format` がさらにエントリ区切りの改行を足すため）。amend プリフィルで 1 個だけ剥がすと空行が編集バッファに残ってしまうバグを踏んだので、`git::last_commit_message` は末尾の改行を `trim_end_matches('\n')` で全部落とす
+- ルーラー行（50/72 桁の目安）は `ui/commit.rs::ruler_line` が区切り線として出すだけで、入力を強制しない（issue の要求通り）
+- カーソルは EditState と同じ発想で REVERSED スタイルの重ね書き。`ui/commit.rs` は `Paragraph::wrap` を使う数少ない例外 — TextPane が禁じているのはカーソル位置を外部 (click_at 等) から計算する必要があるためで、ここはカーソルが文字に貼り付いたスタイルとして流れるだけなので外部座標計算が要らず問題にならない
+
 ### LOG レーン（logview.rs + ui/log_pane.rs）
 - 一覧は `git log --format=%H%x00%h%x00%an%x00%ar%x00%s -z -n <limit> --skip=<skip>` を `git.rs::log` で自前パース（porcelain -z と同じ流儀）。初回 200 件、選択が末尾に到達したら同じ関数を `--skip` を進めて呼び直す（ページング）。取得件数が要求件数未満だった時点で `exhausted` を立て、以後は呼ばない（held-key で連打しても追加の `git log` は末尾到達時に高々 1 回）
 - コミットが1件も無い repo は `git log` 自体が失敗するが、`git.rs::log` はこれを空 Vec に潰して返す（エラーではなく「0 件」という正常系）。`LogState`/一覧描画のどちらも空を前提に組んであるので panic しない
@@ -133,6 +146,7 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
 - 読み取り (`run_git`) と書き込み (`run_git_write`) は別関数。`run_git` の `GIT_OPTIONAL_LOCKS=0` は読み取り専用が前提の意図的な設定で、書き込みにそのまま使うと `git add` 等が index lock を取れず壊れうるため統一しない。`run_git_write` は `GIT_TERMINAL_PROMPT=0` を付け、認証待ちで TUI がハングするのを防ぐ（fetch/push 等のリモート操作で効いてくる）。結果は `GitOutcome { ok, message }` で返し、失敗を `Option` にせず `ok: false` に潰すのは `run_git` と同じ「呼び出し側を単純にする」方針を書き込み側にも踏襲したもの
 - 書き込み成功後の再取得は専用パスを新設せず `App::rescan`（r キーと同じ入口）に相乗りさせる。GIT の 500ms デバウンスと同じ考え方を書き込み後の同期にも適用している
 - `unstage_path` は `git restore --staged` が失敗したら理由を判別せず `git rm --cached` にフォールバックする。`changed_lines`/`baseline_lines`/`diff_text` の「まず試す → だめなら別コマンド」という既存方針をそのまま書き込み系にも踏襲したもので、失敗理由を HEAD の有無で個別判定していない
+- `commit` はメッセージを引数ではなく **stdin から `-F -` で渡す**（エスケープ・コマンドライン長の問題を避けるため）。`run_git_write` は `Command::output()` で完結できるが、stdin を渡すには `spawn` → `stdin.take()` に書き込んで drop（EOF 送出）→ `wait_with_output` という別の実行経路が要るため `run_git_write` は流用せず専用関数にした。成功時の短縮 SHA は commit の stdout（amend やルートコミットで書式が揺れる）ではなく `rev-parse --short HEAD` を別途叩いて確実な形を取る。stderr は pre-commit hook が複数行出すことがあるので、先頭の非空行 + 複数行あれば "…" を付ける専用の要約関数 (`stderr_summary`) を使う（`run_git_write` 共通の `first_line` とは仕様が違うため分けた）
 
 ## スタイル
 

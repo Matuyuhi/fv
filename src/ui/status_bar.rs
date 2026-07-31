@@ -63,6 +63,7 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Help => Line::from("?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
         Mode::Confirm { prompt, .. } => confirm_line(prompt),
+        Mode::Commit { amend, error, .. } => commit_line(*amend, error.as_deref()),
         Mode::Normal => {
             // App 全体の一時通知はどのタブ・レーンでも他のヒントより優先して見せる
             // (EditState.notice は EDIT レーン専用なので edit_status_line 側に残す)
@@ -89,6 +90,19 @@ fn workspace_status_line(_app: &App) -> Line<'static> {
 
 fn confirm_line(prompt: &str) -> Line<'static> {
     Line::from(format!("{prompt}  y/Enter: 実行  n/Esc: 中止"))
+}
+
+// エラー (pre-commit hook 失敗など) は本文中の同じオーバーレイにも出るが、
+// ステータスバー側にも要約を出して見落としを防ぐ
+fn commit_line(amend: bool, error: Option<&str>) -> Line<'static> {
+    if let Some(error) = error {
+        return Line::from(Span::styled(
+            format!("commit failed: {error}"),
+            Style::default().fg(Color::Red),
+        ));
+    }
+    let title = if amend { "amend commit" } else { "commit" };
+    Line::from(format!("{title}  Enter: 改行  Ctrl+s: 確定  Esc: 閉じる"))
 }
 
 fn notice_line(message: &str, is_error: bool) -> Line<'static> {

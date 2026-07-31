@@ -94,6 +94,8 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ),
             ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
             ("t", "diff 基準を切替 (HEAD → staged → unstaged)"),
+            ("c", "コミット (staged が空だと開かない)"),
+            ("C", "amend コミット (既存メッセージをプリフィル・確認あり)"),
             ("Ctrl+d/u", "半ページスクロール"),
             ("gg / G", "先頭 / 末尾へ"),
             ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
@@ -149,6 +151,20 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         &mut lines,
         "Confirm (破壊的・書き込み系操作の確認)",
         &[("y / Enter", "実行"), ("n / Esc / それ以外", "中止")],
+    );
+    push_help_section(
+        &mut lines,
+        "Commit (c / C、GIT レーンに限らず開ける)",
+        &[
+            ("文字入力", "挿入"),
+            ("Enter", "改行"),
+            ("↑/↓/←/→ Home/End", "カーソル移動"),
+            ("Ctrl+s", "確定 (amend は確認オーバーレイを経由)"),
+            (
+                "Esc",
+                "閉じる (書きかけは下書きとして残り、再度 c/C で復元)",
+            ),
+        ],
     );
     push_help_section(
         &mut lines,
