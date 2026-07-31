@@ -1,3 +1,4 @@
+mod confirm;
 mod editor_pane;
 mod finder_panel;
 mod git_pane;
@@ -58,6 +59,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     if matches!(app.mode, Mode::Settings(_)) {
         settings_panel::draw_settings(frame, app, full);
+    }
+    if matches!(app.mode, Mode::Confirm { .. }) {
+        confirm::draw_confirm(frame, app, full);
     }
 }
 

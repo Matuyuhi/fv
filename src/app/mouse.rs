@@ -10,11 +10,13 @@ impl App {
         if self.on_split_mouse(&mouse) {
             return;
         }
-        if let Lane::Edit(_) = self.lane {
-            self.on_edit_mouse(mouse);
+        // オーバーレイ (Finder 等に加え Mode::Confirm) が開いている間はクリック位置の意味が
+        // 入力欄・確認ダイアログと衝突するため、Edit レーンのカーソル移動より先に弾く
+        if !matches!(self.mode, Mode::Normal) {
             return;
         }
-        if !matches!(self.mode, Mode::Normal) {
+        if let Lane::Edit(_) = self.lane {
+            self.on_edit_mouse(mouse);
             return;
         }
         // クリック/スクロールはどちらも文脈を切り替えうるので、キー入力の g 待ちと同様に破棄する

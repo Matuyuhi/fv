@@ -30,6 +30,10 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("?", "このヘルプを開く"),
             ("s", "設定画面を開く"),
             ("a", "隠し項目の表示を切替"),
+            (
+                "Ctrl+r",
+                "(#21 動作確認用) git update-index --refresh を確認して実行",
+            ),
             ("-a, --hidden", "起動時に隠し項目を表示"),
         ],
     );
@@ -108,6 +112,11 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("ホイール", "ツリー移動 / スクロール"),
             ("境界をドラッグ", "左右ペインの幅を変更 (離した時点で保存)"),
         ],
+    );
+    push_help_section(
+        &mut lines,
+        "Confirm (破壊的・書き込み系操作の確認)",
+        &[("y / Enter", "実行"), ("n / Esc / それ以外", "中止")],
     );
     push_help_section(
         &mut lines,

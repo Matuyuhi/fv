@@ -54,12 +54,32 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Help => Line::from("?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
-        Mode::Normal => match &app.lane {
-            Lane::Edit(state) => edit_status_line(state),
-            Lane::Git(_) => git_status_line(app),
-            Lane::View => normal_status_line(app),
-        },
+        Mode::Confirm { prompt, .. } => confirm_line(prompt),
+        Mode::Normal => {
+            // App 全体の一時通知はどのレーンでも他のヒントより優先して見せる
+            // (EditState.notice は EDIT レーン専用なので edit_status_line 側に残す)
+            if let Some((message, _, is_error)) = &app.notice {
+                return notice_line(message, *is_error);
+            }
+            match &app.lane {
+                Lane::Edit(state) => edit_status_line(state),
+                Lane::Git(_) => git_status_line(app),
+                Lane::View => normal_status_line(app),
+            }
+        }
     }
+}
+
+fn confirm_line(prompt: &str) -> Line<'static> {
+    Line::from(format!("{prompt}  y/Enter: 実行  n/Esc: 中止"))
+}
+
+fn notice_line(message: &str, is_error: bool) -> Line<'static> {
+    let color = if is_error { Color::Red } else { Color::Green };
+    Line::from(Span::styled(
+        message.to_string(),
+        Style::default().fg(color),
+    ))
 }
 
 fn input_line(prefix: char, buffer: &str) -> Line<'static> {
