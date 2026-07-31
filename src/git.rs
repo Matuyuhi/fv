@@ -119,10 +119,10 @@ pub fn file_statuses(root: &Path) -> Option<GitStatus> {
 pub fn changed_lines(root: &Path, file: &Path) -> Option<HashSet<usize>> {
     let mut output = run_git(
         root,
-        diff_args(&["diff", "HEAD", "-U0", "--no-color"], file),
+        diff_args(&["diff", "HEAD", "-U0", "--no-color"], Some(file)),
     );
     if !output.as_ref().is_some_and(|o| o.status.success()) {
-        output = run_git(root, diff_args(&["diff", "-U0", "--no-color"], file));
+        output = run_git(root, diff_args(&["diff", "-U0", "--no-color"], Some(file)));
     }
     let output = output?;
     if !output.status.success() {
@@ -169,15 +169,74 @@ pub fn baseline_lines(root: &Path, file: &Path) -> Option<Vec<String>> {
 /// untracked で差分が空になる場合の --no-index フォールバックは Head/Unstaged のみ
 /// (Staged では「index にまだ無い」が正しい状態なので --no-index を出さない)。
 pub fn file_diff(root: &Path, file: &Path, base: DiffBase) -> Option<Vec<String>> {
-    let text = diff_text(root, file, base);
+    let text = diff_text(root, Some(file), base);
     if !text.trim().is_empty() {
         return Some(text.lines().map(str::to_string).collect());
     }
     if base == DiffBase::Staged {
         return None;
     }
-    // untracked は index にもエントリが無いため上の diff では何も出ない。
-    // --no-index は差分ありを exit code 1 で返すので status は見ずに stdout だけ拾う
+    let text = untracked_diff_text(root, file)?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(text.lines().map(str::to_string).collect())
+}
+
+// 上限を超える行数/バイト数の diff は打ち切る。GIT レーンでの単発の `A` 操作とはいえ、
+// 巨大なリポジトリでの一括変更 (依存更新等) を丸ごと Line 化すると描画・スクロールが
+// 固まりうるため、行単位で打ち切りを判定する (提案値どおり 20000 行 / 2MB)
+const DIFF_ALL_LINE_LIMIT: usize = 20_000;
+const DIFF_ALL_BYTE_LIMIT: usize = 2 * 1024 * 1024;
+
+/// GIT レーンの `A` (全変更ファイルをまとめた diff、#31) 用。ファイル指定なしの 1 回の
+/// `git diff` で tracked 分をまとめて取り、untracked 分 (index に無く上の diff には出ない)
+/// は呼び出し側が渡すパス一覧を使って `--no-index` で個別に取ってから連結する。
+/// 戻り値の bool は行数/バイト数上限による打ち切りが発生したかどうか (呼び出し側で notice に出す)
+pub fn diff_all(root: &Path, base: DiffBase, untracked: &[PathBuf]) -> (Vec<String>, bool) {
+    let mut text = diff_text(root, None, base);
+    // Staged では「index にまだ無い」が正しい状態なので untracked を連結しない
+    // (file_diff の --no-index フォールバックと同じ方針)
+    if base != DiffBase::Staged {
+        for file in untracked {
+            // --no-index は repo を経由せず与えたパスをそのままヘッダに出す。絶対パスのまま
+            // 渡すと「全ファイルまとめ diff」のファイル境界見出し (segment_label が
+            // "+++ b/<path>" から抜き出す) が長い絶対パスになってしまうため、
+            // -C root で cwd が root な間にリポジトリ相対へ変換してから渡す
+            let rel = file.strip_prefix(root).unwrap_or(file);
+            let Some(chunk) = untracked_diff_text(root, rel) else {
+                continue;
+            };
+            if chunk.trim().is_empty() {
+                continue;
+            }
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(&chunk);
+        }
+    }
+    truncate_diff(text)
+}
+
+fn truncate_diff(text: String) -> (Vec<String>, bool) {
+    let mut lines = Vec::new();
+    let mut bytes = 0usize;
+    let mut truncated = false;
+    for line in text.lines() {
+        if lines.len() >= DIFF_ALL_LINE_LIMIT || bytes + line.len() > DIFF_ALL_BYTE_LIMIT {
+            truncated = true;
+            break;
+        }
+        bytes += line.len() + 1;
+        lines.push(line.to_string());
+    }
+    (lines, truncated)
+}
+
+// untracked (index に相当するものが無い) ファイル 1 件分の diff。--no-index は差分ありを
+// exit code 1 で返すので status は見ずに stdout だけ拾う
+fn untracked_diff_text(root: &Path, file: &Path) -> Option<String> {
     let output = run_git(
         root,
         [
@@ -189,14 +248,10 @@ pub fn file_diff(root: &Path, file: &Path, base: DiffBase) -> Option<Vec<String>
             file.as_os_str().to_os_string(),
         ],
     )?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    if text.trim().is_empty() {
-        return None;
-    }
-    Some(text.lines().map(str::to_string).collect())
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn diff_text(root: &Path, file: &Path, base: DiffBase) -> String {
+fn diff_text(root: &Path, file: Option<&Path>, base: DiffBase) -> String {
     let output = match base {
         DiffBase::Head => {
             let mut output = run_git(root, diff_args(&["diff", "HEAD", "--no-color"], file));
@@ -216,10 +271,13 @@ fn diff_text(root: &Path, file: &Path, base: DiffBase) -> String {
     }
 }
 
-fn diff_args(base: &[&str], file: &Path) -> Vec<OsString> {
+// file が None ならファイル指定なし (リポジトリ全体) の diff になる (`A` まとめ diff 用)
+fn diff_args(base: &[&str], file: Option<&Path>) -> Vec<OsString> {
     let mut args: Vec<OsString> = base.iter().map(OsString::from).collect();
-    args.push("--".into());
-    args.push(file.as_os_str().to_os_string());
+    if let Some(file) = file {
+        args.push("--".into());
+        args.push(file.as_os_str().to_os_string());
+    }
     args
 }
 

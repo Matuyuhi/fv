@@ -6,6 +6,7 @@ mod viewport;
 pub use content::{Content, Open};
 pub use highlight::Highlighter;
 pub use search::SearchState;
+pub(crate) use search::{Match, search_matches};
 pub use viewport::Viewport;
 
 use std::collections::HashMap;

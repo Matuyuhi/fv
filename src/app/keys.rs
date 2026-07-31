@@ -257,9 +257,14 @@ impl App {
         }
     }
 
+    // Search の確定先は Lane で振り分ける (#31: GIT レーンの diff 内検索は GitState 側に持つ)。
+    // Goto は View レーンの `:` からしか届かないので lane 分岐は要らない
     fn cancel_input(&mut self, kind: InputKind) {
         match kind {
-            InputKind::Search => self.viewer.cancel_search(),
+            InputKind::Search => match &mut self.lane {
+                Lane::Git(git) => git.cancel_search(),
+                _ => self.viewer.cancel_search(),
+            },
             // Goto は確定時にしか状態を変えないので、キャンセル時に戻すものがない
             InputKind::Goto => {}
         }
@@ -267,7 +272,10 @@ impl App {
 
     fn confirm_input(&mut self, kind: InputKind) {
         match kind {
-            InputKind::Search => self.viewer.confirm_search(),
+            InputKind::Search => match &mut self.lane {
+                Lane::Git(git) => git.confirm_search(),
+                _ => self.viewer.confirm_search(),
+            },
             InputKind::Goto => {
                 // buffer は数字のみ。空文字列や "0" は parse/goto_line 側で no-op になる
                 if let Mode::Input { buffer, .. } = &self.mode
@@ -285,7 +293,10 @@ impl App {
             InputKind::Search => {
                 if let Mode::Input { buffer, .. } = &self.mode {
                     let query = buffer.clone();
-                    self.viewer.update_search(&query);
+                    match &mut self.lane {
+                        Lane::Git(git) => git.update_search(&query),
+                        _ => self.viewer.update_search(&query),
+                    }
                 }
             }
             // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
@@ -508,7 +519,8 @@ impl App {
         }
     }
 
-    // GIT レーンの diff ペイン。検索・履歴・編集は持たないぶん、n/N は hunk ジャンプに使う
+    // GIT レーンの diff ペイン。hunk ジャンプは ]/[ に一本化し (#31)、n/N は検索の
+    // 次候補/前候補に譲る (現状 VIEW の検索と同じキー配置)
     fn on_git_key(&mut self, key: KeyEvent, ctrl: bool) {
         if self.pending_g {
             self.pending_g = false;
@@ -519,9 +531,30 @@ impl App {
                 return;
             }
         }
-        // cycle_base は root を必要とするが、Lane::Git 経由の可変借用と
-        // self.root の借用が衝突しないよう rescan() と同じく先に clone しておく
-        let root = self.root.clone();
+        // A (まとめ diff トグル) / t (基準循環) は git diff の取り直しを伴いうるため、untracked
+        // 一覧を Lane::Git の可変借用より前に集めておく (self.git と self.lane は別フィールドだが
+        // メソッド呼び出し越しの借用はここで済ませないと両立しない。rescan() の root.clone() と同じ理由)
+        if matches!(key.code, KeyCode::Char('A') | KeyCode::Char('t')) {
+            let root = self.root.clone();
+            let untracked = self.untracked_paths();
+            let mut truncated = false;
+            if let Lane::Git(git) = &mut self.lane {
+                truncated = match key.code {
+                    KeyCode::Char('A') => git.toggle_all(&root, &untracked),
+                    KeyCode::Char('t') => git.cycle_base(&root, &untracked),
+                    _ => unreachable!(),
+                };
+            }
+            // 打ち切りは明示操作 (A/t) の直後だけ notice で知らせる。rescan 経由の背景更新は
+            // 500ms デバウンス毎にスパムしないよう黙って再取得するだけにしてある (GitState::refresh)
+            if truncated {
+                self.set_notice(
+                    "diff が大きいため表示を打ち切りました (20000 行 / 2MB)",
+                    true,
+                );
+            }
+            return;
+        }
         let Lane::Git(git) = &mut self.lane else {
             return;
         };
@@ -538,10 +571,22 @@ impl App {
             KeyCode::Char('0') => git.hscroll_reset(),
             KeyCode::Char('g') => self.pending_g = true,
             KeyCode::Char('G') => git.jump_to_bottom(),
-            KeyCode::Char('n') | KeyCode::Char(']') => git.next_hunk(),
-            KeyCode::Char('N') | KeyCode::Char('[') => git.prev_hunk(),
-            // diff 基準の循環 (HEAD → staged → unstaged)。config には保存しない
-            KeyCode::Char('t') => git.cycle_base(&root),
+            // hunk ジャンプは ]/[ に一本化 (#31)
+            KeyCode::Char(']') => git.next_hunk(),
+            KeyCode::Char('[') => git.prev_hunk(),
+            // 未確定 (Enter していない) 状態では no-op。next_match/prev_match が保証する
+            KeyCode::Char('n') => git.next_match(),
+            KeyCode::Char('N') => git.prev_match(),
+            // まとめ diff 中のファイル境界ジャンプ。単一ファイル表示中は boundaries が空なので no-op
+            KeyCode::Char('}') => git.next_file(),
+            KeyCode::Char('{') => git.prev_file(),
+            // side-by-side 中は左右が独立ドキュメントで一意な行位置を持たないため検索を出さない
+            KeyCode::Char('/') if !git.side_by_side_active() => {
+                self.mode = Mode::Input {
+                    kind: InputKind::Search,
+                    buffer: String::new(),
+                };
+            }
             // inline ⇔ side-by-side (#30)。w と同じく config には保存しない
             KeyCode::Char('v') => git.toggle_side_by_side(),
             _ => {}

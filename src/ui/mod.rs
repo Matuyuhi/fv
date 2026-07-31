@@ -1,6 +1,7 @@
 mod branch_panel;
 mod commit;
 mod confirm;
+mod diff_boundary;
 mod editor_pane;
 mod finder_panel;
 mod git_pane;

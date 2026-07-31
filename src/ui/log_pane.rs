@@ -1,18 +1,13 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, Paragraph};
 
 use crate::logview::LogState;
 
+use super::diff_boundary::{sticky_line, widen_boundary_bands};
 use super::pane_block;
 use super::text_pane::TextPane;
-
-// sticky header・全幅バンド化した通常のファイル境界行の固定色 (#40)。端末テーマに
-// 依存させないのは word-level ハイライトの ADDED_WORD_BG 等と同じ方針
-const BOUNDARY_BG: Color = Color::Cyan;
-const BOUNDARY_FG: Color = Color::Black;
 
 // 左ペイン: コミット一覧。ツリーではなく LogState が持つ commits を直接描く
 pub(super) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool, area: Rect) {
@@ -104,60 +99,4 @@ pub(super) fn draw_log_diff(
         .block(block)
         .style(Style::default().bg(background));
     frame.render_widget(paragraph, area);
-}
-
-// sticky 行 (常にペイン上端に固定するファイル名バー) を組み立てる。gutter は持たせず
-// (diff 本文ではなくメタ情報のため) 全幅を同じ背景色で埋めて「本文ではない」ことを示す
-fn sticky_line(label: &str, width: usize) -> Line<'static> {
-    let style = Style::default()
-        .fg(BOUNDARY_FG)
-        .bg(BOUNDARY_BG)
-        .add_modifier(Modifier::BOLD);
-    let text = truncate_label(label, width.max(1));
-    let pad = width.saturating_sub(text.chars().count());
-    Span::styled(format!("{text}{}", " ".repeat(pad)), style).into()
-}
-
-// 流れる側 (スクロールで消えていく通常のファイル境界行) も見た目を強化する。
-// render_commit がヘッダ行に付けた固定背景色を目印に、右側をペイン幅まで同じ背景で
-// 埋めて全幅の帯にする。gitview 側の行組み立てには触れず、描画側だけの加工に留める
-// (#40: 複数ファイル diff のレンダラ自体は #23/#30 と衝突を避けるため変更しない方針)
-fn widen_boundary_bands(rows: &mut [Line<'static>], width: usize) {
-    for row in rows.iter_mut() {
-        let Some(style) = row
-            .spans
-            .iter()
-            .find(|s| s.style.bg == Some(BOUNDARY_BG))
-            .map(|s| s.style)
-        else {
-            continue;
-        };
-        let used: usize = row.spans.iter().map(|s| s.content.chars().count()).sum();
-        if used < width {
-            row.spans
-                .push(Span::styled(" ".repeat(width - used), style));
-        }
-    }
-}
-
-// 長いパスは先頭を省略する。末尾のファイル名が最も情報量が多いため、区切り文字境界で
-// 前方のディレクトリ階層から落としていき、それでも収まらなければファイル名自体を
-// 末尾優先で char 単位に切る
-fn truncate_label(label: &str, max_width: usize) -> String {
-    if label.chars().count() <= max_width {
-        return label.to_string();
-    }
-    let mut parts: Vec<&str> = label.split('/').collect();
-    while parts.len() > 1 {
-        parts.remove(0);
-        let candidate = format!("…/{}", parts.join("/"));
-        if candidate.chars().count() <= max_width {
-            return candidate;
-        }
-    }
-    let budget = max_width.saturating_sub(1);
-    let mut tail: Vec<char> = label.chars().rev().take(budget).collect();
-    tail.reverse();
-    let tail: String = tail.into_iter().collect();
-    format!("…{tail}")
 }

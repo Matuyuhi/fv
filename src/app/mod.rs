@@ -272,9 +272,30 @@ impl App {
         // 絞り込みも表示中 diff も新しい git status に追従させる
         self.tree.set_filter(Some(self.changed_paths()));
         let root = self.root.clone();
+        let untracked = self.untracked_paths();
         if let Lane::Git(git) = &mut self.lane {
-            git.refresh(&root);
+            // 背景の自動再取得 (500ms デバウンス) では打ち切りを notice に出さない
+            // (毎回スパムしないため)。明示操作である A/t (on_git_key) だけが通知する
+            git.refresh(&root, &untracked);
         }
+    }
+
+    // A (まとめ diff) / t (基準循環時の再取得) が使う untracked ファイル一覧。
+    // status.files を毎回線形走査するだけで、頻繁な連打を想定しないため専用のキャッシュは持たない
+    // (Space の STAGE_DEBOUNCE のような対策が要るキーではない)。HashMap 由来の順序は非決定的
+    // なので diff の連結順が毎回揺れないようソートしておく
+    fn untracked_paths(&self) -> Vec<PathBuf> {
+        let Some(status) = &self.git else {
+            return Vec::new();
+        };
+        let mut paths: Vec<PathBuf> = status
+            .files
+            .iter()
+            .filter(|(_, s)| s.worktree == Some(StatusKind::Untracked))
+            .map(|(p, _)| p.clone())
+            .collect();
+        paths.sort();
+        paths
     }
 
     /// Shift+Tab: VIEW → EDIT → GIT → LOG → VIEW と循環する。入れないレーン
@@ -447,7 +468,11 @@ impl App {
     /// ツリー・ファインダーからの「開く」の振り分け。VIEW/EDIT は viewer、GIT は diff を差し替える
     pub(super) fn open_selected(&mut self, path: &Path) {
         match &mut self.lane {
-            Lane::Git(git) => git.open(&self.root, path),
+            Lane::Git(git) => {
+                // ツリーでファイルを選び直したら「全ファイルまとめ」表示 (#31) は解除する
+                git.exit_all();
+                git.open(&self.root, path);
+            }
             _ => self.viewer.open(path, &self.root),
         }
     }
