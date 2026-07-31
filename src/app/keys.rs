@@ -358,6 +358,9 @@ impl App {
                 return;
             }
         }
+        // cycle_base は root を必要とするが、Lane::Git 経由の可変借用と
+        // self.root の借用が衝突しないよう rescan() と同じく先に clone しておく
+        let root = self.root.clone();
         let Lane::Git(git) = &mut self.lane else {
             return;
         };
@@ -376,6 +379,8 @@ impl App {
             KeyCode::Char('G') => git.jump_to_bottom(),
             KeyCode::Char('n') | KeyCode::Char(']') => git.next_hunk(),
             KeyCode::Char('N') | KeyCode::Char('[') => git.prev_hunk(),
+            // diff 基準の循環 (HEAD → staged → unstaged)。config には保存しない
+            KeyCode::Char('t') => git.cycle_base(&root),
             _ => {}
         }
     }
