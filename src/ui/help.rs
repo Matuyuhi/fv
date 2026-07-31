@@ -30,7 +30,22 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("?", "このヘルプを開く"),
             ("s", "設定画面を開く"),
             ("a", "隠し項目の表示を切替"),
+            (
+                "Ctrl+r",
+                "(#21 動作確認用) git update-index --refresh を確認して実行",
+            ),
             ("-a, --hidden", "起動時に隠し項目を表示"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
+        "Workspace (GitHub モード、既定は無効)",
+        &[
+            ("Ctrl+t", "次のタブへ (viewer → issues → pull requests)"),
+            ("Alt+1/2/3", "viewer / issues / pull requests へ直接切替"),
+            ("タブをクリック", "そのタブへ切替"),
+            ("--github", "起動時だけ有効化 (config には保存しない)"),
+            ("設定画面の github tabs", "トグルで有効化・config に永続化"),
         ],
     );
     push_help_section(
@@ -78,6 +93,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("H", "親を選択して折りたたむ"),
             ("Enter", "diff を表示 / 展開切替"),
             ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
+            ("t", "diff 基準を切替 (HEAD → staged → unstaged)"),
             ("Ctrl+d/u", "半ページスクロール"),
             ("gg / G", "先頭 / 末尾へ"),
             ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
@@ -107,6 +123,11 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("ホイール", "ツリー移動 / スクロール"),
             ("境界をドラッグ", "左右ペインの幅を変更 (離した時点で保存)"),
         ],
+    );
+    push_help_section(
+        &mut lines,
+        "Confirm (破壊的・書き込み系操作の確認)",
+        &[("y / Enter", "実行"), ("n / Esc / それ以外", "中止")],
     );
     push_help_section(
         &mut lines,

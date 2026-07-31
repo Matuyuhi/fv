@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::app::{App, Focus, InputKind, Lane, Mode};
+use crate::app::{App, Focus, InputKind, Lane, Mode, Workspace};
 use crate::editor::EditState;
 
 pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
@@ -17,20 +17,22 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-// 現在レーンは [ ] 付きの反転、入れないレーン (非テキストの EDIT / 非 git repo の GIT) は暗く出す
+// 現在レーンは [ ] 付きの反転、入れないレーン (非テキストの EDIT / 非 git repo の GIT) は暗く出す。
+// Issues/PR タブ滞在中は Lane の概念が無い (Shift+Tab も無効) ので全セグメントを暗くする
 fn lane_segments(app: &App) -> Vec<Span<'static>> {
+    let in_viewer_workspace = matches!(app.workspace, Workspace::Viewer);
     let current = app.lane.index();
     let available = [true, app.viewer.is_text(), app.git_available()];
     let mut spans = Vec::with_capacity(Lane::LABELS.len() + 1);
     for (i, label) in Lane::LABELS.iter().enumerate() {
-        let style = if i == current {
+        let style = if i == current && in_viewer_workspace {
             Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-        } else if available[i] {
+        } else if available[i] && in_viewer_workspace {
             Style::default().fg(Color::White)
         } else {
             Style::default().fg(Color::Gray).add_modifier(Modifier::DIM)
         };
-        let text = if i == current {
+        let text = if i == current && in_viewer_workspace {
             format!("[{label}]")
         } else {
             format!(" {label} ")
@@ -54,12 +56,40 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Help => Line::from("?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
-        Mode::Normal => match &app.lane {
-            Lane::Edit(state) => edit_status_line(state),
-            Lane::Git(_) => git_status_line(app),
-            Lane::View => normal_status_line(app),
-        },
+        Mode::Confirm { prompt, .. } => confirm_line(prompt),
+        Mode::Normal => {
+            // App 全体の一時通知はどのタブ・レーンでも他のヒントより優先して見せる
+            // (EditState.notice は EDIT レーン専用なので edit_status_line 側に残す)
+            if let Some((message, _, is_error)) = &app.notice {
+                return notice_line(message, *is_error);
+            }
+            if !matches!(app.workspace, Workspace::Viewer) {
+                return workspace_status_line(app);
+            }
+            match &app.lane {
+                Lane::Edit(state) => edit_status_line(state),
+                Lane::Git(_) => git_status_line(app),
+                Lane::View => normal_status_line(app),
+            }
+        }
     }
+}
+
+// Issues/PR タブ滞在中のヒント。中身はまだプレースホルダなので出せるキーだけを示す
+fn workspace_status_line(_app: &App) -> Line<'static> {
+    Line::from("Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help")
+}
+
+fn confirm_line(prompt: &str) -> Line<'static> {
+    Line::from(format!("{prompt}  y/Enter: 実行  n/Esc: 中止"))
+}
+
+fn notice_line(message: &str, is_error: bool) -> Line<'static> {
+    let color = if is_error { Color::Red } else { Color::Green };
+    Line::from(Span::styled(
+        message.to_string(),
+        Style::default().fg(color),
+    ))
 }
 
 fn input_line(prefix: char, buffer: &str) -> Line<'static> {
