@@ -484,6 +484,8 @@ impl App {
             KeyCode::Char('N') | KeyCode::Char('[') => git.prev_hunk(),
             // diff 基準の循環 (HEAD → staged → unstaged)。config には保存しない
             KeyCode::Char('t') => git.cycle_base(&root),
+            // inline ⇔ side-by-side (#30)。w と同じく config には保存しない
+            KeyCode::Char('v') => git.toggle_side_by_side(),
             _ => {}
         }
     }
