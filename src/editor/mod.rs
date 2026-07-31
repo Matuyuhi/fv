@@ -1,5 +1,6 @@
 mod buffer;
-mod diff;
+// word-level diff (#29) が LCS 実装を再利用するため gitview からも見える必要がある
+pub(crate) mod diff;
 
 pub use buffer::EditBuffer;
 
