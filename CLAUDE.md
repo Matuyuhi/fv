@@ -111,6 +111,7 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - Viewport は VIEW/EDIT・GIT の diff のどちらとも別に持つ（`LogState.viewport`）。別ドキュメントなので位置を共有する意味が無く、他レーンの読み位置も壊さないのは GIT の diff Viewport と同じ理由
 - `.git` 配下は watch.rs のフィルタで最初から監視対象外（`.` 始まり成分は除外）なので、コミット追加を検知して一覧を自動更新する経路は無い。GIT のような 500ms デバウンス再取得への相乗りはしていない（コミット履歴の閲覧は「その時点のスナップショットを読む」用途と割り切り、動くリポジトリで追従させたい場合は一旦 LOG を出入りし直す想定）。repo 自体が消えた場合だけは `App::rescan` が VIEW へフォールバックさせる
 - 絞り込み（Ctrl+f 等でファイル単位のログに切り替える機能）は本 issue のスコープ外として見送った。実装するなら `git log -- <path>` を `git.rs::log` に path 引数を足す形で追加できる
+- **複数ファイル diff の sticky header（#40）**: `render_commit` の戻り値に「ファイル見出し行の index → ラベル」の `Vec<(usize, String)>` を追加で持たせている（既存 4 要素の意味・生成ロジックには手を入れない。#23/#30 と `gitview.rs` を共有するための衝突回避）。`LogState::sticky_label` が `viewport.scroll` 以下で最大の index を `partition_point` で二分探索し、該当ファイルのラベルを返す（scroll は wrap 中でも常に論理行 index なので、折返し・hunk ジャンプのどちらでも別扱いが要らない）。描画は `ui/log_pane.rs::draw_log_diff` が担当し、`TextPane` には sticky 用の分岐を足さない。sticky 行 1 行分は `TextPane` に渡す高さを事前に減らして確保する。**減らすかどうかは scroll ではなく「このコミットの diff にファイル境界が 1 つでもあるか」で決める** — scroll 依存にすると commit メッセージ部分と本文とで高さが変わり、`Ctrl+d`/`Ctrl+u` のページ送り量がスクロール中に変化してしまう（`viewport.height` の書き戻しは減らした後の値を使う、という他レーンと同じ制約）。長いパスは先頭のディレクトリ階層から `…/` 付きで落としていき、それでも収まらなければファイル名側を char 単位で切る（末尾優先）。流れる側の境界強化は `render_commit` のヘッダ行が付ける固定背景色を目印に、描画側で右側をペイン幅まで同じ色で埋めて全幅の帯にするだけに留めている（gitview 側の行組み立てには触れない）
 
 ### インライン編集（editor/ + ui/editor_pane.rs）
 - `Lane::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）

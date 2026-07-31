@@ -38,6 +38,17 @@ enum Kind {
     Note,
 }
 
+/// render_commit の戻り値: (行, hunk header index 一覧, gutter 幅, 最長行幅, ファイル境界)。
+/// clippy::type_complexity 回避のための alias で、意味は呼び出し側 (logview.rs) のタプル
+/// destructure と 1:1 対応させたまま
+type CommitRender = (
+    Vec<Line<'static>>,
+    Vec<usize>,
+    usize,
+    usize,
+    Vec<(usize, String)>,
+);
+
 struct GitDiff {
     title: String,
     lines: Vec<Line<'static>>,
@@ -195,7 +206,11 @@ fn render(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, usize) {
 /// 組み立て (classify・number_gutter 等) はそのまま共有する。gutter 幅は全ファイル共通の
 /// 1 つに揃える (TextPane の wrap 幅計算はパネル単位で単一の gutter_width を前提にしており、
 /// ファイルごとに違う幅を使うと折返し位置がずれるため)
-pub fn render_commit(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, usize) {
+///
+/// 戻り値の最後の `Vec<(usize, String)>` はファイル境界 (#40 sticky header 用):
+/// ファイル見出し行の index → 表示ラベル。既存の 4 要素の意味・生成ロジックはそのまま
+/// (呼び出し側で追加的に使うだけの情報なので、行の組み立て自体には手を入れない)
+pub fn render_commit(raw: &[String]) -> CommitRender {
     let diff_start = raw
         .iter()
         .position(|l| l.starts_with("diff --git "))
@@ -213,6 +228,8 @@ pub fn render_commit(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, 
     let mut lines = Vec::new();
     let mut hunks = Vec::new();
     let mut max_width = 0usize;
+    // ファイル境界: 見出し行を push する直前の index がその行番号 (#40)
+    let mut boundaries = Vec::new();
 
     for raw_line in header {
         let content = text::normalize(raw_line);
@@ -228,6 +245,7 @@ pub fn render_commit(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, 
 
     for (segment, body) in segments.iter().zip(bodies) {
         let label = segment_label(segment);
+        boundaries.push((lines.len(), label.clone()));
         max_width = max_width.max(label.chars().count() + 3);
         lines.push(Line::from(vec![
             blank_gutter(gutter_width),
@@ -246,7 +264,7 @@ pub fn render_commit(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, 
         lines.extend(body_lines);
     }
 
-    (lines, hunks, gutter_width, max_width)
+    (lines, hunks, gutter_width, max_width, boundaries)
 }
 
 // classify 済みの行を Line 列へ組み立てる。gutter_width は呼び出し側が (単一ファイルなら

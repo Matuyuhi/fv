@@ -20,6 +20,9 @@ struct CommitDiff {
     hunks: Vec<usize>,
     gutter_width: usize,
     max_width: usize,
+    /// ファイル境界: 見出し行の index → 表示ラベル (#40 sticky header)。
+    /// index 昇順で入っている前提 (render_commit がファイル出現順に push するため)
+    boundaries: Vec<(usize, String)>,
 }
 
 pub struct LogState {
@@ -110,12 +113,13 @@ impl LogState {
             return;
         };
         let raw = git::show_commit(root, &commit.hash).unwrap_or_default();
-        let (lines, hunks, gutter_width, max_width) = gitview::render_commit(&raw);
+        let (lines, hunks, gutter_width, max_width, boundaries) = gitview::render_commit(&raw);
         self.current = Some(CommitDiff {
             lines,
             hunks,
             gutter_width,
             max_width,
+            boundaries,
         });
         self.open_index = Some(self.selected);
         self.viewport.scroll = 0;
@@ -145,6 +149,27 @@ impl LogState {
 
     pub fn line_count(&self) -> usize {
         self.lines().len()
+    }
+
+    /// #40: sticky header 用のファイル境界一覧。空ならコミットに複数ファイル diff が無い
+    /// (diff 未オープン・0 ファイルの空コミットなど)
+    pub fn boundaries(&self) -> &[(usize, String)] {
+        self.current.as_ref().map_or(&[], |d| &d.boundaries)
+    }
+
+    /// sticky 行 1 行分の描画領域を確保すべきか。scroll に依らずコミット単位で固定なので、
+    /// ここを scroll 依存にすると Ctrl+d/Ctrl+u のページ送り量が位置によってズレる
+    pub fn has_file_boundary(&self) -> bool {
+        !self.boundaries().is_empty()
+    }
+
+    /// viewport.scroll 以下で最大の境界 index を二分探索で引き、そのファイルのラベルを返す。
+    /// scroll がまだ最初のファイルに届いていない (コミットメッセージ部分) 場合は None
+    pub fn sticky_label(&self) -> Option<&str> {
+        let boundaries = self.boundaries();
+        let scroll = self.viewport.scroll;
+        let idx = boundaries.partition_point(|&(line, _)| line <= scroll);
+        (idx > 0).then(|| boundaries[idx - 1].1.as_str())
     }
 
     pub fn scroll_by(&mut self, delta: isize) {
