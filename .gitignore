@@ -6,3 +6,6 @@
 # bin
 .DS_Store
 
+# エージェントが並行作業に使う一時 worktree
+/.claude/worktrees
+

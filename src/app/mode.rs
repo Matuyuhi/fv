@@ -57,13 +57,31 @@ impl Lane {
 /// Shift+Tab の循環対象には含めない (キーの意味が入力欄と衝突するため)
 pub enum Mode {
     Normal,
-    Input { kind: InputKind, buffer: String },
+    Input {
+        kind: InputKind,
+        buffer: String,
+    },
     // Ctrl+p ファジーファインダー。Input に押し込むと Search/Goto と挙動が絡み合うため独立させる
     Finder(Finder),
     // キーバインド一覧のオーバーレイ。状態を持たないので unit variant で十分
     Help,
     // 設定画面のオーバーレイ (s キー)
     Settings(SettingsState),
+    // 破壊的・書き込み系操作の確認オーバーレイ。Lane と直交する (GIT で出しても EDIT で出しても
+    // 同じ挙動)。y/Enter でのみ action を実行し、それ以外の全キーは中止として扱う
+    Confirm {
+        prompt: String,
+        action: ConfirmAction,
+    },
+}
+
+/// Mode::Confirm が実行する操作。クロージャは App を借りたまま呼べず持たせられないため
+/// enum にする。書き込み系の子 issue (stage / commit / discard / stash 等) が実装されるたびに
+/// ここへ variant を足していく想定
+pub enum ConfirmAction {
+    /// 書き込み経路 (run_git_write) と確認オーバーレイの動作確認用。実際の書き込み機能
+    /// (#23 以降) が入り次第、この variant は役目を終える
+    DemoGitRefresh,
 }
 
 /// トップレベルのタブ ("Workspace")。Lane / Mode に続く 3 本目の軸で、GitHub モード

@@ -5,8 +5,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::editor::EditOutcome;
 use crate::finder::Finder;
+use crate::git;
 
-use super::{App, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace};
+use super::{
+    App, ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace,
+};
 
 impl App {
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -16,11 +19,12 @@ impl App {
             self.should_quit = true;
             return;
         }
-        // 直前のフレームで出した一過性の notice はここで消す (トースト的表示)。
-        // このキー入力自身が新しい notice を出すなら、この後の分岐で再度 Some になる
-        self.notice = None;
         // オーバーレイ (Mode) はレーンより先に処理する。ここで Shift+Tab を通さないことで、
         // 入力中にレーンが切り替わって文脈が壊れるのを防ぐ
+        if let Mode::Confirm { .. } = &self.mode {
+            self.on_confirm_key(key);
+            return;
+        }
         if let Mode::Help = &self.mode {
             self.on_help_key(key);
             return;
@@ -72,6 +76,16 @@ impl App {
             || (key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT))
         {
             self.cycle_lane();
+            return;
+        }
+        // 動作確認用デモ (#21): Confirm オーバーレイと run_git_write の経路を EDIT レーンからでも
+        // 確認できるよう、Edit レーンの文字入力より前に置く。実際の書き込み機能 (#23 以降) が
+        // 入り次第、このキーは役目を終える想定
+        if ctrl && key.code == KeyCode::Char('r') && self.git.is_some() {
+            self.mode = Mode::Confirm {
+                prompt: "git update-index --refresh を実行しますか?".to_string(),
+                action: ConfirmAction::DemoGitRefresh,
+            };
             return;
         }
         // Issues/PR タブは #33/#34 までプレースホルダ。Lane/ツリー/ビューアの概念を持たないので
@@ -224,6 +238,48 @@ impl App {
         match state.handle_key(key, &mut self.viewer) {
             EditOutcome::Exit => self.lane = Lane::View,
             EditOutcome::Continue => {}
+        }
+    }
+
+    // 確認中は y/Enter でのみ action を実行する。n/Esc/それ以外の全キーは中止として扱い、
+    // どのレーンにも流さない (キー入力による事故実行を防ぐのが目的なので誤操作は必ず中止側に倒す)
+    fn on_confirm_key(&mut self, key: KeyEvent) {
+        if !matches!(key.code, KeyCode::Char('y') | KeyCode::Enter) {
+            self.mode = Mode::Normal;
+            return;
+        }
+        let Mode::Confirm { action, .. } = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return;
+        };
+        self.run_confirm_action(action);
+    }
+
+    // ConfirmAction は今は動作確認用の 1 種類のみ。書き込み系の子 issue が実装されるたびに
+    // ここへ match 枝を足していく想定 (mode.rs 側の variant 追加と対で増える)
+    fn run_confirm_action(&mut self, action: ConfirmAction) {
+        match action {
+            ConfirmAction::DemoGitRefresh => {
+                let outcome = git::run_git_write(&self.root, ["update-index", "-q", "--refresh"]);
+                if outcome.ok {
+                    // 専用の再取得パスは新設せず、r キーと同じ入口 (rescan) に相乗りさせる
+                    self.rescan();
+                    self.last_rescan = Instant::now();
+                    self.rescan_pending = false;
+                    let message = if outcome.message.is_empty() {
+                        "done".to_string()
+                    } else {
+                        outcome.message
+                    };
+                    self.set_notice(message, false);
+                } else {
+                    let message = if outcome.message.is_empty() {
+                        "git update-index に失敗しました".to_string()
+                    } else {
+                        outcome.message
+                    };
+                    self.set_notice(message, true);
+                }
+            }
         }
     }
 
@@ -406,6 +462,9 @@ impl App {
                 return;
             }
         }
+        // cycle_base は root を必要とするが、Lane::Git 経由の可変借用と
+        // self.root の借用が衝突しないよう rescan() と同じく先に clone しておく
+        let root = self.root.clone();
         let Lane::Git(git) = &mut self.lane else {
             return;
         };
@@ -424,6 +483,8 @@ impl App {
             KeyCode::Char('G') => git.jump_to_bottom(),
             KeyCode::Char('n') | KeyCode::Char(']') => git.next_hunk(),
             KeyCode::Char('N') | KeyCode::Char('[') => git.prev_hunk(),
+            // diff 基準の循環 (HEAD → staged → unstaged)。config には保存しない
+            KeyCode::Char('t') => git.cycle_base(&root),
             _ => {}
         }
     }

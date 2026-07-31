@@ -10,6 +10,12 @@ impl App {
         if self.on_split_mouse(&mouse) {
             return;
         }
+        // オーバーレイ (Finder 等に加え Mode::Confirm) が開いている間はクリック位置の意味が
+        // 入力欄・確認ダイアログと衝突するため、タブクリックより先に弾く
+        // (キー側で Ctrl+t をオーバーレイ判定の後ろに置いているのと同じ優先順位)
+        if !matches!(self.mode, Mode::Normal) {
+            return;
+        }
         if self.on_tab_mouse(&mouse) {
             return;
         }
@@ -19,9 +25,6 @@ impl App {
         }
         if let Lane::Edit(_) = self.lane {
             self.on_edit_mouse(mouse);
-            return;
-        }
-        if !matches!(self.mode, Mode::Normal) {
             return;
         }
         // クリック/スクロールはどちらも文脈を切り替えうるので、キー入力の g 待ちと同様に破棄する

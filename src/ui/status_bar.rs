@@ -56,21 +56,40 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Help => Line::from("?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
-        // App::notice (GitHub 有効化不可の理由など) は次のキー入力まで残るトースト表示。
-        // 通常のヒントより優先して見せる (edit_status_line が自分の notice を優先するのと同じ理由)
-        Mode::Normal if app.notice.is_some() => Line::from(app.notice.clone().unwrap_or_default()),
-        Mode::Normal if !matches!(app.workspace, Workspace::Viewer) => workspace_status_line(app),
-        Mode::Normal => match &app.lane {
-            Lane::Edit(state) => edit_status_line(state),
-            Lane::Git(_) => git_status_line(app),
-            Lane::View => normal_status_line(app),
-        },
+        Mode::Confirm { prompt, .. } => confirm_line(prompt),
+        Mode::Normal => {
+            // App 全体の一時通知はどのタブ・レーンでも他のヒントより優先して見せる
+            // (EditState.notice は EDIT レーン専用なので edit_status_line 側に残す)
+            if let Some((message, _, is_error)) = &app.notice {
+                return notice_line(message, *is_error);
+            }
+            if !matches!(app.workspace, Workspace::Viewer) {
+                return workspace_status_line(app);
+            }
+            match &app.lane {
+                Lane::Edit(state) => edit_status_line(state),
+                Lane::Git(_) => git_status_line(app),
+                Lane::View => normal_status_line(app),
+            }
+        }
     }
 }
 
 // Issues/PR タブ滞在中のヒント。中身はまだプレースホルダなので出せるキーだけを示す
 fn workspace_status_line(_app: &App) -> Line<'static> {
     Line::from("Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help")
+}
+
+fn confirm_line(prompt: &str) -> Line<'static> {
+    Line::from(format!("{prompt}  y/Enter: 実行  n/Esc: 中止"))
+}
+
+fn notice_line(message: &str, is_error: bool) -> Line<'static> {
+    let color = if is_error { Color::Red } else { Color::Green };
+    Line::from(Span::styled(
+        message.to_string(),
+        Style::default().fg(color),
+    ))
 }
 
 fn input_line(prefix: char, buffer: &str) -> Line<'static> {
