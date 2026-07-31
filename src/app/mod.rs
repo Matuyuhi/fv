@@ -2,7 +2,7 @@ mod keys;
 mod mode;
 mod mouse;
 
-pub use mode::{Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState};
+pub use mode::{ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,9 @@ use crate::watch::FsWatcher;
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
 const RESCAN_DEBOUNCE: Duration = Duration::from_millis(500);
 
+// App 全体の一時通知 (notice) が自動で消えるまでの表示時間
+const NOTICE_DURATION: Duration = Duration::from_secs(4);
+
 // ペイン分割の下限幅 (枠線 2 桁を含む)。左はツリーの階層インデントが、
 // 右は gutter + 数十桁のコードが最低限読める幅
 const MIN_TREE_WIDTH: u16 = 12;
@@ -37,6 +40,10 @@ pub struct App {
     pub viewer: Viewer,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
     pub git: Option<GitStatus>,
+    /// レーンをまたぐ一時通知 (message, 表示開始時刻, is_error)。EditState.notice は EDIT レーン
+    /// 専用の表示なのでそのまま残し、こちらは GIT の書き込み結果等レーン非依存のメッセージに使う。
+    /// on_tick で期限切れにし、再描画のたびにタイマーは触らない
+    pub notice: Option<(String, Instant, bool)>,
     // Nerd Font アイコン表示。起動時に確定し実行中は変わらない (判定は main 側)
     pub icons: bool,
     pub should_quit: bool,
@@ -76,6 +83,7 @@ impl App {
             tree,
             viewer,
             git,
+            notice: None,
             icons: config.icons,
             should_quit: false,
             pending_g: false,
@@ -114,6 +122,14 @@ impl App {
     /// watcher に溜まったファイル変更を取り込む。キー入力の有無に関わらず、
     /// イベントループの毎 tick (poll タイムアウト時も含む) で呼ばれる。
     pub fn on_tick(&mut self) {
+        // watcher の有無に関わらず毎 tick 見る (watcher 初期化失敗時に notice が消えなくなるのを防ぐ)
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|(_, at, _)| at.elapsed() >= NOTICE_DURATION)
+        {
+            self.notice = None;
+        }
         let Some(watcher) = &self.watcher else {
             return;
         };
@@ -326,6 +342,12 @@ impl App {
         let next = (idx + delta).rem_euclid(len) as usize;
         self.viewer.set_theme(names[next]);
         self.persist_config();
+    }
+
+    /// 全レーン共通の一時通知をセットする。書き込み系操作 (run_git_write) の結果表示など、
+    /// GIT レーンを離れても見せたいメッセージから呼ぶ
+    pub(super) fn set_notice(&mut self, message: impl Into<String>, is_error: bool) {
+        self.notice = Some((message.into(), Instant::now(), is_error));
     }
 
     fn current_config(&self) -> Config {
