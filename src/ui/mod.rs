@@ -7,6 +7,7 @@ mod finder_panel;
 mod git_pane;
 mod help;
 mod icons;
+mod issues_pane;
 mod log_pane;
 mod settings_panel;
 mod status_bar;
@@ -46,15 +47,17 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         app.tab_areas = Default::default();
     }
 
-    if matches!(app.workspace, Workspace::Viewer) {
-        draw_viewer_workspace(frame, app, main);
-    } else {
-        // Issues/PR は #33/#34 までプレースホルダ。ツリー/ビューアのクリック対象を
-        // 残すと誤ヒットするので空にしておく
-        app.tree_area = Rect::default();
-        app.viewer_area = Rect::default();
-        app.splitter_area = Rect::default();
-        draw_workspace_placeholder(frame, app, main);
+    match app.workspace {
+        Workspace::Viewer => draw_viewer_workspace(frame, app, main),
+        Workspace::Issues => draw_issues_workspace(frame, app, main),
+        Workspace::PullRequests => {
+            // PR タブは #34 までプレースホルダ。ツリー/ビューアのクリック対象を
+            // 残すと誤ヒットするので空にしておく
+            app.tree_area = Rect::default();
+            app.viewer_area = Rect::default();
+            app.splitter_area = Rect::default();
+            draw_workspace_placeholder(frame, app, main);
+        }
     }
 
     status_bar::draw_status_bar(frame, app, status);
@@ -125,7 +128,30 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     }
 }
 
-// Issues/PullRequests タブの中身。#33/#34 まで空のプレースホルダで良い (issue #32 のスコープ)
+// issues タブ (#33) の中身。左 = 一覧、右 = 詳細で、幅・ドラッグリサイズは Viewer タブと
+// 同じ App::tree_width / split_ratio を共有する (tree_area 等の書き戻しも同じパターン)
+fn draw_issues_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
+    let [left, right] = Layout::horizontal([
+        Constraint::Length(app.tree_width(main.width)),
+        Constraint::Min(1),
+    ])
+    .areas(main);
+    app.tree_area = left;
+    app.viewer_area = right;
+    app.splitter_area = Rect {
+        x: left.right().saturating_sub(1),
+        y: main.y,
+        width: 2.min(main.width),
+        height: main.height,
+    };
+    let list_focused = app.focus == Focus::Tree;
+    let detail_focused = app.focus == Focus::Viewer;
+    let background = app.viewer.background();
+    issues_pane::draw_issues_list(frame, &mut app.issues, list_focused, left);
+    issues_pane::draw_issues_detail(frame, &mut app.issues, detail_focused, background, right);
+}
+
+// PullRequests タブの中身。#34 まで空のプレースホルダで良い (issue #32 のスコープ)
 fn draw_workspace_placeholder(frame: &mut Frame, app: &App, area: Rect) {
     let title = Workspace::LABELS[app.workspace.index()].to_string();
     let paragraph = Paragraph::new("準備中 (#33 / #34 で実装予定)")

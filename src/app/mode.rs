@@ -12,11 +12,14 @@ pub enum Focus {
     Viewer,
 }
 
-// Search と Goto (:N 行ジャンプ) の入力を kind で分ける
+// Search と Goto (:N 行ジャンプ) の入力を kind で分ける。Filter は issues/PR タブ (#33/#34) の
+// 一覧絞り込み用で、Search と違い「常設のフィルタ状態を編集する」ものなので Esc の意味が違う
+// (Search は cancel で全消去、Filter は編集前のクエリへ復元。issuesview::IssuesState 参照)
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InputKind {
     Search,
     Goto,
+    Filter,
 }
 
 // 設定画面の行ラベル。行の並び・件数はこの配列が唯一の情報源で、

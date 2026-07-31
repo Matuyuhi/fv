@@ -76,8 +76,9 @@ fn lane_segments(app: &App) -> Vec<Span<'static>> {
 
 fn hint_line(app: &App) -> Line<'static> {
     match &app.mode {
+        // Filter (issues/PR 一覧の絞り込み) も Search と同じ `/` プレフィックスで見せる
         Mode::Input {
-            kind: InputKind::Search,
+            kind: InputKind::Search | InputKind::Filter,
             buffer,
         } => input_line('/', buffer),
         Mode::Input {
@@ -114,9 +115,39 @@ fn hint_line(app: &App) -> Line<'static> {
     }
 }
 
-// Issues/PR タブ滞在中のヒント。中身はまだプレースホルダなので出せるキーだけを示す
-fn workspace_status_line(_app: &App) -> Line<'static> {
+// Issues/PR タブ滞在中のヒント。issues (#33) だけ中身があり、PR (#34) はまだプレースホルダ
+fn workspace_status_line(app: &App) -> Line<'static> {
+    if matches!(app.workspace, Workspace::Issues) {
+        return issues_status_line(app);
+    }
     Line::from("Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help")
+}
+
+fn issues_status_line(app: &App) -> Line<'static> {
+    if app.pending_g {
+        return Line::from("g");
+    }
+    if app.issues.list_loading() && !app.issues.fetched() {
+        return Line::from("issues 取得中…");
+    }
+    if let Some(err) = app.issues.list_error() {
+        return Line::from(Span::styled(
+            format!("issues 取得失敗: {err}  (r: 再取得)"),
+            Style::default().fg(Color::Red),
+        ));
+    }
+    let hint = match app.focus {
+        Focus::Tree => {
+            "j/k: move  Enter/l: open  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
+        }
+        Focus::Viewer => "j/k: scroll  o: web  Tab: focus  ?: help",
+    };
+    Line::from(format!(
+        "{}/{} issues [{}]  {hint}",
+        app.issues.visible_count(),
+        app.issues.total(),
+        app.issues.state_filter.label()
+    ))
 }
 
 fn confirm_line(prompt: &str) -> Line<'static> {
