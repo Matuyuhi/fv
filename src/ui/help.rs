@@ -30,10 +30,6 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("?", "このヘルプを開く"),
             ("s", "設定画面を開く"),
             ("a", "隠し項目の表示を切替"),
-            (
-                "Ctrl+r",
-                "(#21 動作確認用) git update-index --refresh を確認して実行",
-            ),
             ("-a, --hidden", "起動時に隠し項目を表示"),
         ],
     );
@@ -92,6 +88,10 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("h ←", "折りたたみ / 親へ"),
             ("H", "親を選択して折りたたむ"),
             ("Enter", "diff を表示 / 展開切替"),
+            (
+                "Space",
+                "選択中のファイル/ディレクトリを stage/unstage トグル",
+            ),
             ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
             ("t", "diff 基準を切替 (HEAD → staged → unstaged)"),
             ("Ctrl+d/u", "半ページスクロール"),

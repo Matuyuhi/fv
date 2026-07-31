@@ -120,6 +120,87 @@ pub(super) fn set_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>) {
     }
 }
 
+// 実パスでの検索 (index_path ではなく path で探す)。合成ノードが既に追加済みかどうかの
+// 重複チェックに使う
+fn node_by_path<'a>(nodes: &'a [Node], path: &Path) -> Option<&'a Node> {
+    for node in nodes {
+        if node.path == path {
+            return Some(node);
+        }
+        if let NodeKind::Dir { children, .. } = &node.kind
+            && let Some(found) = node_by_path(children, path)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// git worktree/index 側で削除された (実ファイルが既に無い) パスを合成ノードとして追加する。
+/// WalkBuilder は実ファイルしか見ないため、削除だけはこの経路で橋渡ししないと GIT レーンで
+/// 選択も stage/unstage もできない。1件でも追加したら true (呼び出し側の rebuild_visible 要否判定用)
+pub(super) fn sync_deleted(nodes: &mut Vec<Node>, root: &Path, deleted: &HashSet<PathBuf>) -> bool {
+    let mut changed = false;
+    for path in deleted {
+        if node_by_path(nodes, path).is_none() {
+            insert_missing(nodes, root, path);
+            changed = true;
+        }
+    }
+    if changed {
+        sort_nodes(nodes);
+    }
+    changed
+}
+
+// insert() と違い、削除ファイルの合成先で親ディレクトリ自体が (ひきずられて) 存在しない
+// 場合もその場で作る。通常の insert() が「親は必ず既存」を前提にできるのは深さ優先走査の
+// 順序があるからで、合成挿入にはその前提が無い
+fn insert_missing(top: &mut Vec<Node>, root: &Path, path: &Path) {
+    let Ok(rel) = path.strip_prefix(root) else {
+        return;
+    };
+    let mut components: Vec<String> = rel
+        .iter()
+        .map(|c| c.to_string_lossy().into_owned())
+        .collect();
+    let Some(name) = components.pop() else {
+        return;
+    };
+    let mut children = top;
+    let mut acc = root.to_path_buf();
+    for comp in &components {
+        acc.push(comp);
+        let pos = match children.iter().position(|n| n.name == *comp) {
+            Some(pos) => pos,
+            None => {
+                children.push(Node {
+                    name: comp.clone(),
+                    path: acc.clone(),
+                    kind: NodeKind::Dir {
+                        expanded: false,
+                        children: Vec::new(),
+                    },
+                });
+                children.len() - 1
+            }
+        };
+        match &mut children[pos].kind {
+            NodeKind::Dir { children: c, .. } => children = c,
+            // 経路上に同名ファイルがある異常系。合成は諦める
+            NodeKind::File => return,
+        }
+    }
+    if children.iter().any(|n| n.name == name) {
+        return;
+    }
+    children.push(Node {
+        name,
+        path: path.to_path_buf(),
+        kind: NodeKind::File,
+    });
+}
+
 pub(super) fn node_mut<'a>(nodes: &'a mut [Node], index_path: &[usize]) -> Option<&'a mut Node> {
     let (&first, rest) = index_path.split_first()?;
     let mut node = nodes.get_mut(first)?;
