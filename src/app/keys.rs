@@ -7,7 +7,9 @@ use crate::editor::EditOutcome;
 use crate::finder::Finder;
 use crate::git;
 
-use super::{App, ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState};
+use super::{
+    App, ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace,
+};
 
 impl App {
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -40,6 +42,33 @@ impl App {
             self.on_input_key(kind, key);
             return;
         }
+        // Ctrl+t / Alt+1..3: Workspace タブ切替。Shift+Tab と同じ位置 (オーバーレイ判定の後・
+        // Lane::Edit の前) でルーティングする。印字キーではないので編集中の文字入力ポリシーと
+        // 衝突しない。使えない間 (workspace_available が false) は無効時の挙動を一切変えないため
+        // ここで素通りさせる
+        if self.workspace_available() {
+            if ctrl && key.code == KeyCode::Char('t') {
+                self.cycle_workspace();
+                return;
+            }
+            if key.modifiers.contains(KeyModifiers::ALT) {
+                match key.code {
+                    KeyCode::Char('1') => {
+                        self.set_workspace(Workspace::Viewer);
+                        return;
+                    }
+                    KeyCode::Char('2') => {
+                        self.set_workspace(Workspace::Issues);
+                        return;
+                    }
+                    KeyCode::Char('3') => {
+                        self.set_workspace(Workspace::PullRequests);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
         // Shift+Tab は Edit レーンより前に処理する。印字キーではないので
         // 「編集中は印字キーを全て文字入力にする」ポリシーとは衝突しない。
         // 端末によっては Tab + SHIFT で届くため両方を受ける
@@ -57,6 +86,12 @@ impl App {
                 prompt: "git update-index --refresh を実行しますか?".to_string(),
                 action: ConfirmAction::DemoGitRefresh,
             };
+            return;
+        }
+        // Issues/PR タブは #33/#34 までプレースホルダ。Lane/ツリー/ビューアの概念を持たないので
+        // 以降のディスパッチには流さず、共通のグローバルキーだけをここで拾う
+        if !matches!(self.workspace, Workspace::Viewer) {
+            self.on_workspace_key(key);
             return;
         }
         // 編集中は q/s/Tab 等のグローバルキーも全て文字入力として扱うため、
@@ -182,6 +217,17 @@ impl App {
         }
     }
 
+    // Issues/PR タブ (プレースホルダ) 中に拾うグローバルキー。ツリー・ビューア相当の操作は
+    // まだ中身が無いので受けない (#33/#34 で個別のハンドラに置き換わる)
+    fn on_workspace_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('?') => self.mode = Mode::Help,
+            KeyCode::Char('s') => self.mode = Mode::Settings(SettingsState::default()),
+            _ => {}
+        }
+    }
+
     fn on_edit_key(&mut self, key: KeyEvent) {
         // self.lane (EditState) と self.viewer は別フィールドなので同時に借りられる
         let Lane::Edit(state) = &mut self.lane else {
@@ -275,6 +321,7 @@ impl App {
             1 => self.toggle_icons(),
             2 => self.toggle_wrap(),
             3 => self.cycle_theme(delta),
+            4 => self.toggle_github(),
             _ => {}
         }
     }
