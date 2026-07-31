@@ -136,14 +136,19 @@ impl App {
             _ => {}
         }
         match self.focus {
-            // ツリーのキー操作は VIEW / GIT で共通。開く先だけレーンで振り分ける
-            Focus::Tree => {
-                if let Some(path) = self.on_tree_key(key) {
-                    self.open_selected(&path);
+            // ツリーのキー操作は VIEW / GIT で共通。開く先だけレーンで振り分ける。
+            // LOG は左ペインがツリーではなくコミット一覧なので専用ハンドラに分ける
+            Focus::Tree => match &self.lane {
+                Lane::Log(_) => self.on_log_list_key(key),
+                _ => {
+                    if let Some(path) = self.on_tree_key(key) {
+                        self.open_selected(&path);
+                    }
                 }
-            }
+            },
             Focus::Viewer => match &self.lane {
                 Lane::Git(_) => self.on_git_key(key, ctrl),
+                Lane::Log(_) => self.on_log_diff_key(key, ctrl),
                 _ => self.on_viewer_key(key, ctrl),
             },
         }
@@ -485,6 +490,65 @@ impl App {
             KeyCode::Char('N') | KeyCode::Char('[') => git.prev_hunk(),
             // diff 基準の循環 (HEAD → staged → unstaged)。config には保存しない
             KeyCode::Char('t') => git.cycle_base(&root),
+            _ => {}
+        }
+    }
+
+    // LOG レーンの左ペイン (コミット一覧)。j/k は移動のみで diff は開かない
+    // (GIT のツリーと同じ理由でキーリピート時に git show を連打しないため)
+    fn on_log_list_key(&mut self, key: KeyEvent) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                if let Lane::Log(log) = &mut self.lane {
+                    log.select_top();
+                }
+                return;
+            }
+        }
+        let root = self.root.clone();
+        let Lane::Log(log) = &mut self.lane else {
+            return;
+        };
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => log.move_selection(&root, 1),
+            KeyCode::Char('k') | KeyCode::Up => log.move_selection(&root, -1),
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => log.open_selected(&root),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => log.select_bottom(&root),
+            _ => {}
+        }
+    }
+
+    // LOG レーンの右ペイン (選択コミットの diff)。GIT の diff ペインと同じ操作感だが
+    // 基準の切替 (t) は無い (コミットの diff は HEAD/staged のような基準を持たない)
+    fn on_log_diff_key(&mut self, key: KeyEvent, ctrl: bool) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                if let Lane::Log(log) = &mut self.lane {
+                    log.jump_to_top();
+                }
+                return;
+            }
+        }
+        let Lane::Log(log) = &mut self.lane else {
+            return;
+        };
+        let half_page = (log.viewport.height / 2).max(1) as isize;
+        match key.code {
+            KeyCode::Char('d') if ctrl => log.scroll_by(half_page),
+            KeyCode::Char('u') if ctrl => log.scroll_by(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => log.scroll_by(1),
+            KeyCode::Char('k') | KeyCode::Up => log.scroll_by(-1),
+            KeyCode::Char('w') => log.viewport.toggle_wrap(),
+            KeyCode::Char('h') | KeyCode::Left => log.hscroll_by(-6),
+            KeyCode::Char('l') | KeyCode::Right => log.hscroll_by(6),
+            KeyCode::Char('0') => log.hscroll_reset(),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => log.jump_to_bottom(),
+            KeyCode::Char('n') | KeyCode::Char(']') => log.next_hunk(),
+            KeyCode::Char('N') | KeyCode::Char('[') => log.prev_hunk(),
             _ => {}
         }
     }

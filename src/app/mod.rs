@@ -17,6 +17,7 @@ use crate::editor::EditState;
 use crate::git::{self, GitStatus};
 use crate::github;
 use crate::gitview::GitState;
+use crate::logview::LogState;
 use crate::tree::Tree;
 use crate::viewer::{self, Viewer};
 use crate::watch::FsWatcher;
@@ -196,6 +197,12 @@ impl App {
     fn rescan(&mut self) {
         self.tree.rescan(&self.root);
         self.git = git::file_statuses(&self.root);
+        // LOG は FS 監視の対象外 (.git は watch.rs のフィルタで除外される) なので取り直しは
+        // しない。リポジトリ自体が消えた場合だけは滞在させず VIEW へ戻す
+        if matches!(self.lane, Lane::Log(_)) && self.git.is_none() {
+            self.lane = Lane::View;
+            return;
+        }
         if !matches!(self.lane, Lane::Git(_)) {
             return;
         }
@@ -214,8 +221,8 @@ impl App {
         }
     }
 
-    /// Shift+Tab: VIEW → EDIT → GIT → VIEW と循環する。入れないレーン
-    /// (非テキストの EDIT、非 git repo の GIT) は飛ばし、一周して戻れなければ現状維持。
+    /// Shift+Tab: VIEW → EDIT → GIT → LOG → VIEW と循環する。入れないレーン
+    /// (非テキストの EDIT、非 git repo の GIT/LOG) は飛ばし、一周して戻れなければ現状維持。
     pub(super) fn cycle_lane(&mut self) {
         // Issues/PR タブに Lane の概念は無いので、居る間は循環を無効にする
         // (ステータスバー側もこれに合わせてセグメントを暗くする)
@@ -244,6 +251,7 @@ impl App {
         let entered = match index {
             1 => self.enter_edit(),
             2 => self.enter_git(),
+            3 => self.enter_log(),
             _ => {
                 self.lane = Lane::View;
                 true
@@ -298,6 +306,23 @@ impl App {
         }
         self.lane = Lane::Git(git);
         // 入った直後は「どのファイルを見るか」の選択が主操作なのでツリー側にフォーカスを寄せる
+        self.focus = Focus::Tree;
+        true
+    }
+
+    /// LOG レーンに入れるか。GIT の git_available (変更が 1 件以上) と違い、コミット履歴の
+    /// 閲覧は変更の有無を問わない。git repo でありさえすれば良く、コミットが 0 件でも
+    /// 一覧側で「no commits」を出すだけで panic しない (LogState::new / git::log が空 Vec で吸収)
+    pub fn log_available(&self) -> bool {
+        self.git.is_some()
+    }
+
+    fn enter_log(&mut self) -> bool {
+        if !self.log_available() {
+            return false;
+        }
+        self.lane = Lane::Log(LogState::new(&self.root, self.viewer.viewport.wrap));
+        // GIT と同じ理由 (入った直後の主操作は一覧側の選択) でツリー相当のフォーカスに寄せる
         self.focus = Focus::Tree;
         true
     }

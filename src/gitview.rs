@@ -2,6 +2,10 @@
 //! git CLI の unified diff を TextPane が描ける Line 列に組み替えるところまでを持ち、
 //! Viewer の cache・履歴・検索には触らない (EditState が Highlighter と Viewport だけを
 //! 借りるのと同じ、依存範囲を広げないための制限)。
+//!
+//! `render_commit` は LOG レーン (logview.rs) の複数ファイル diff (`git show`) 用。
+//! 1 行単位の組み立てヘルパー (classify/build_body 等) を GitState の単一ファイル diff と
+//! 共有しつつ、ファイル境界ヘッダの挿入だけを上乗せする形にしてある。
 
 use std::path::{Path, PathBuf};
 
@@ -182,6 +186,78 @@ fn render(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, usize) {
     // gutter 幅は行番号の最大桁で決まるので、行番号を振る前に一度だけ走査して求める
     let max_lineno = max_new_lineno(&body);
     let gutter_width = text::gutter_width(max_lineno);
+    let (lines, hunks, max_width) = build_body(body, gutter_width);
+    (lines, hunks, gutter_width, max_width)
+}
+
+/// LOG レーンの複数ファイル diff (`git show`) 用。単一ファイルの `render` とはコミット
+/// メッセージ・ファイル境界ヘッダの組み立てが増える分だけ別ルートにするが、1 行単位の
+/// 組み立て (classify・number_gutter 等) はそのまま共有する。gutter 幅は全ファイル共通の
+/// 1 つに揃える (TextPane の wrap 幅計算はパネル単位で単一の gutter_width を前提にしており、
+/// ファイルごとに違う幅を使うと折返し位置がずれるため)
+pub fn render_commit(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, usize) {
+    let diff_start = raw
+        .iter()
+        .position(|l| l.starts_with("diff --git "))
+        .unwrap_or(raw.len());
+    let header = &raw[..diff_start];
+    let segments = split_segments(&raw[diff_start..]);
+
+    let bodies: Vec<Vec<(Kind, &str)>> = segments
+        .iter()
+        .map(|seg| seg.iter().filter_map(|l| classify(l)).collect())
+        .collect();
+    let max_lineno = bodies.iter().map(|b| max_new_lineno(b)).max().unwrap_or(0);
+    let gutter_width = text::gutter_width(max_lineno);
+
+    let mut lines = Vec::new();
+    let mut hunks = Vec::new();
+    let mut max_width = 0usize;
+
+    for raw_line in header {
+        let content = text::normalize(raw_line);
+        max_width = max_width.max(content.chars().count());
+        lines.push(Line::from(vec![
+            blank_gutter(gutter_width),
+            Span::styled(content, Style::default().fg(Color::Gray)),
+        ]));
+    }
+    if !header.is_empty() && !segments.is_empty() {
+        lines.push(Line::from(vec![blank_gutter(gutter_width)]));
+    }
+
+    for (segment, body) in segments.iter().zip(bodies) {
+        let label = segment_label(segment);
+        max_width = max_width.max(label.chars().count() + 3);
+        lines.push(Line::from(vec![
+            blank_gutter(gutter_width),
+            Span::styled(
+                format!("── {label} "),
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        let (body_lines, body_hunks, body_max_width) = build_body(body, gutter_width);
+        let offset = lines.len();
+        hunks.extend(body_hunks.into_iter().map(|h| h + offset));
+        max_width = max_width.max(body_max_width);
+        lines.extend(body_lines);
+    }
+
+    (lines, hunks, gutter_width, max_width)
+}
+
+// classify 済みの行を Line 列へ組み立てる。gutter_width は呼び出し側が (単一ファイルなら
+// その diff だけの、複数ファイルなら全体で揃えた) 幅を渡す。lineno は呼び出しごとにリセット
+// される (ファイルをまたいで行番号を通し番号にする意味がないため)
+fn build_body(
+    body: Vec<(Kind, &str)>,
+    gutter_width: usize,
+) -> (Vec<Line<'static>>, Vec<usize>, usize) {
+    // word-level の対応付けは hunk 内で閉じているので、単一ファイル (render) でも
+    // ファイル単位に分割済みの複数ファイル diff (render_commit) でも同じ扱いで済む
     let word_ranges = word_diff_ranges(&body);
 
     let mut lines = Vec::with_capacity(body.len());
@@ -231,7 +307,54 @@ fn render(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, usize) {
         }
         lines.push(Line::from(spans));
     }
-    (lines, hunks, gutter_width, max_width)
+    (lines, hunks, max_width)
+}
+
+// "diff --git " 行を境界に生行をファイルごとの区間へ分割する (先頭行は必ず "diff --git ")
+fn split_segments(raw: &[String]) -> Vec<&[String]> {
+    let mut segments = Vec::new();
+    let mut start = 0usize;
+    for (i, line) in raw.iter().enumerate() {
+        if i > start && line.starts_with("diff --git ") {
+            segments.push(&raw[start..i]);
+            start = i;
+        }
+    }
+    if start < raw.len() {
+        segments.push(&raw[start..]);
+    }
+    segments
+}
+
+// diff --git ヘッダ群からファイル境界の見出し文字列を作る。rename は "old → new"、
+// 新規/削除ファイルは git の一般的な表記に合わせて "(new)" / "(deleted)" を添える
+fn segment_label(segment: &[String]) -> String {
+    let rename_from = segment.iter().find_map(|l| l.strip_prefix("rename from "));
+    let rename_to = segment.iter().find_map(|l| l.strip_prefix("rename to "));
+    if let (Some(from), Some(to)) = (rename_from, rename_to) {
+        return format!("{from} → {to}");
+    }
+    let is_new = segment.iter().any(|l| l.starts_with("new file mode "));
+    let is_deleted = segment.iter().any(|l| l.starts_with("deleted file mode "));
+    let path = segment
+        .iter()
+        .find_map(|l| l.strip_prefix("+++ b/"))
+        .or_else(|| segment.iter().find_map(|l| l.strip_prefix("--- a/")))
+        .or_else(|| {
+            segment
+                .first()
+                .and_then(|l| l.strip_prefix("diff --git a/"))
+                .and_then(|s| s.split(" b/").nth(1))
+        })
+        .unwrap_or("?")
+        .to_string();
+    if is_new {
+        format!("{path} (new)")
+    } else if is_deleted {
+        format!("{path} (deleted)")
+    } else {
+        path
+    }
 }
 
 // content (gutter を除いた本文) を word-level 差分の char range で複数 span に割る。

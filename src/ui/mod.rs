@@ -4,6 +4,7 @@ mod finder_panel;
 mod git_pane;
 mod help;
 mod icons;
+mod log_pane;
 mod settings_panel;
 mod status_bar;
 mod tab_bar;
@@ -87,6 +88,18 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
         width: 2.min(main.width),
         height: main.height,
     };
+    // LOG は左ペインもツリーではなくコミット一覧に差し替わるため、他レーンより先に分岐して
+    // 左右まとめて専用の描画へ渡す (tree_pane は呼ばない)
+    if matches!(app.lane, Lane::Log(_)) {
+        let list_focused = app.focus == Focus::Tree;
+        let diff_focused = app.focus == Focus::Viewer;
+        let background = app.viewer.background();
+        if let Lane::Log(log) = &mut app.lane {
+            log_pane::draw_log_list(frame, log, list_focused, left);
+            log_pane::draw_log_diff(frame, log, diff_focused, background, right);
+        }
+        return;
+    }
     tree_pane::draw_tree(frame, app, left);
     // 右ペインの中身はレーンで決まる (VIEW: ファイル / EDIT: 編集バッファ / GIT: diff)
     if matches!(app.lane, Lane::Edit(_)) {

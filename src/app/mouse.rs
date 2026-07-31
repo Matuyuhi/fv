@@ -34,21 +34,25 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 if self.tree_area.contains(pos) {
                     self.focus = Focus::Tree;
-                    self.click_tree_row(mouse.row);
+                    if matches!(self.lane, Lane::Log(_)) {
+                        self.click_log_row(mouse.row);
+                    } else {
+                        self.click_tree_row(mouse.row);
+                    }
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
                 }
             }
             MouseEventKind::ScrollUp => {
                 if self.tree_area.contains(pos) {
-                    self.tree.move_selection(-3);
+                    self.scroll_left_pane(-3);
                 } else if self.viewer_area.contains(pos) {
                     self.scroll_right_pane(-3);
                 }
             }
             MouseEventKind::ScrollDown => {
                 if self.tree_area.contains(pos) {
-                    self.tree.move_selection(3);
+                    self.scroll_left_pane(3);
                 } else if self.viewer_area.contains(pos) {
                     self.scroll_right_pane(3);
                 }
@@ -108,10 +112,24 @@ impl App {
         true
     }
 
-    // 右ペインの中身はレーンで変わる (VIEW はファイル、GIT は diff)
+    // 左ペインの中身はレーンで変わる (VIEW/GIT はツリー、LOG はコミット一覧)。ホイールは
+    // j/k のスクロールと同じ扱いで、LOG でも diff の自動追従はしない (move_selection 参照)
+    fn scroll_left_pane(&mut self, delta: isize) {
+        if matches!(self.lane, Lane::Log(_)) {
+            let root = self.root.clone();
+            if let Lane::Log(log) = &mut self.lane {
+                log.move_selection(&root, delta);
+            }
+            return;
+        }
+        self.tree.move_selection(delta);
+    }
+
+    // 右ペインの中身はレーンで変わる (VIEW はファイル、GIT/LOG は diff)
     fn scroll_right_pane(&mut self, delta: isize) {
         match &mut self.lane {
             Lane::Git(git) => git.scroll_by(delta),
+            Lane::Log(log) => log.scroll_by(delta),
             _ => self.viewer.scroll_by(delta),
         }
     }
@@ -154,5 +172,22 @@ impl App {
         if let Some(path) = self.tree.toggle_or_open() {
             self.open_selected(&path);
         }
+    }
+
+    // click_tree_row と同じ座標変換で、コミット一覧の行をクリックしたら即 diff を開く
+    // (クリックは Enter/l と同じ明示操作なので、j/k と違い自動追従を避ける理由がない)
+    fn click_log_row(&mut self, row: u16) {
+        let root = self.root.clone();
+        let area_y = self.tree_area.y;
+        let Lane::Log(log) = &mut self.lane else {
+            return;
+        };
+        let row = row as isize - area_y as isize - 1 + log.list_state.offset() as isize;
+        if row < 0 || row as usize >= log.commits().len() {
+            return;
+        }
+        log.selected = row as usize;
+        log.list_state.select(Some(log.selected));
+        log.open_selected(&root);
     }
 }
