@@ -91,6 +91,11 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Confirm { prompt, .. } => confirm_line(prompt),
         Mode::Commit { amend, error, .. } => commit_line(*amend, error.as_deref()),
         Mode::Normal => {
+            // 実行中のリモート操作 (f/p/P) は「実行中である」こと自体を見落とさせないよう
+            // 一時通知よりさらに優先して見せる (終わるまで他のヒントより上に居座らせる)
+            if let Some(job) = app.running_remote_job() {
+                return remote_job_line(job);
+            }
             // App 全体の一時通知はどのタブ・レーンでも他のヒントより優先して見せる
             // (EditState.notice は EDIT レーン専用なので edit_status_line 側に残す)
             if let Some((message, _, is_error)) = &app.notice {
@@ -129,6 +134,14 @@ fn commit_line(amend: bool, error: Option<&str>) -> Line<'static> {
     }
     let title = if amend { "amend commit" } else { "commit" };
     Line::from(format!("{title}  Enter: 改行  Ctrl+s: 確定  Esc: 閉じる"))
+}
+
+// 実行中は他の操作 (スクロール等) を妨げない旨も添えて、固まったのではないと分かるようにする
+fn remote_job_line(job: &str) -> Line<'static> {
+    Line::from(Span::styled(
+        format!("{job} 実行中… (他の操作は続けられます)"),
+        Style::default().fg(Color::Yellow),
+    ))
 }
 
 fn notice_line(message: &str, is_error: bool) -> Line<'static> {

@@ -143,6 +143,23 @@ impl App {
                 self.open_branch();
                 return;
             }
+            // f/p/P (#27) もレーンを問わない。使えない文脈 (非 git repo・実行中の別ジョブ) は
+            // 各関数側 (branch_available / start_remote_job のガード) で no-op に倒す
+            KeyCode::Char('f') => {
+                self.pending_g = false;
+                self.start_fetch();
+                return;
+            }
+            KeyCode::Char('p') => {
+                self.pending_g = false;
+                self.start_pull();
+                return;
+            }
+            KeyCode::Char('P') => {
+                self.pending_g = false;
+                self.confirm_push();
+                return;
+            }
             KeyCode::Tab => {
                 // フォーカスを跨ぐと g 待ちの文脈は失われるので破棄する
                 self.pending_g = false;
@@ -319,6 +336,7 @@ impl App {
             ConfirmAction::Discard { path, is_dir } => self.execute_discard(path, is_dir),
             ConfirmAction::StashPush => self.execute_stash_push(),
             ConfirmAction::StashPop => self.execute_stash_pop(),
+            ConfirmAction::Push => self.execute_push(),
         }
     }
 
@@ -1259,6 +1277,69 @@ impl App {
             format!("{branch} に切り替えました")
         };
         self.set_notice(message, false);
+    }
+
+    /// f: リモートの更新を取得する。fetch はローカルを変更しないので確認は不要 (issue の要求通り)
+    fn start_fetch(&mut self) {
+        if !self.branch_available() {
+            return;
+        }
+        let root = self.root.clone();
+        self.start_remote_job(git::RemoteJobKind::Fetch, move || git::fetch(&root));
+    }
+
+    /// p: fast-forward のみで取り込む。マージ・リベースが必要な状況は fv が引き受けず、
+    /// fast-forward できないときの git のエラーをそのまま notice に出す (issue の要求通り)
+    fn start_pull(&mut self) {
+        if !self.branch_available() {
+            return;
+        }
+        let root = self.root.clone();
+        self.start_remote_job(git::RemoteJobKind::Pull, move || git::pull(&root));
+    }
+
+    /// P: push は確認オーバーレイを必須にする (issue の要求。fetch/pull と違いリモートの
+    /// 履歴・ブランチ構成を変えるため)。未保存の EDIT バッファは拒否まではせず、
+    /// prompt に警告を足すだけに留める (issue の要求通り)。既にジョブが実行中なら
+    /// 確認オーバーレイ自体を開かない (開いても実行時に start_remote_job が無視するだけで
+    /// ユーザーには何も起きなかったように見えてしまうため、ここで先に弾く)。
+    /// dirty チェックは open_commit/open_branch と同じ理由で型上ここへは実際には来ない
+    /// (Lane::Edit は印字キーを全て文字入力にするため 'P' はここまで届かない) が、
+    /// issue の要求通り明示的にガードしておく (belt and suspenders)
+    fn confirm_push(&mut self) {
+        if !self.branch_available() || self.pending_remote_job.is_some() {
+            return;
+        }
+        let Some(status) = &self.branch_status else {
+            return;
+        };
+        let target = if status.has_upstream {
+            format!("origin/{}", status.name)
+        } else {
+            format!("origin/{} (new upstream)", status.name)
+        };
+        let mut prompt = format!("push を実行しますか？\n{target}");
+        if let Lane::Edit(state) = &self.lane
+            && state.buffer.dirty()
+        {
+            prompt.push_str("\n(未保存の編集があります。保存を忘れずに)");
+        }
+        self.mode = Mode::Confirm {
+            prompt,
+            action: ConfirmAction::Push,
+        };
+    }
+
+    fn execute_push(&mut self) {
+        let Some(status) = &self.branch_status else {
+            return;
+        };
+        let branch = status.name.clone();
+        let has_upstream = status.has_upstream;
+        let root = self.root.clone();
+        self.start_remote_job(git::RemoteJobKind::Push, move || {
+            git::push(&root, &branch, has_upstream)
+        });
     }
 }
 

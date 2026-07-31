@@ -41,7 +41,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
 - `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
-- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit・branches/branch_status/switch 系) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `watch.rs`(notify)
+- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit・branches/branch_status/switch 系・fetch/pull/push) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
 キーマップ飽和を避けるため、状態を3軸に分けている。**新しい機能を足す時はどの軸かをまず決める**。
@@ -65,7 +65,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - wrap は閲覧・編集とも **char 単位の自前分割**（`Paragraph::wrap` は単語境界 wrap で折返し位置が外から計算できないため全面的に不使用）。視覚行数は描画（text_pane）・カーソル追従（ensure_visible）・クリック座標（click_at）の 3 者が `text::wrap_rows` を共有し、ズレると即カーソル位置バグになる
 
 ### キールーティングの優先順位（app/keys.rs on_key）
-Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → Mode::Commit → Mode::Branch → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップ** → Lane::Edit → Ctrl+p → q/?/a/s/c/C/b/Tab → **Z(stash pop、レーン不問)** → **X/z(discard・stash push、GIT レーン限定)** → focus 別ディスパッチ。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。Z (stash pop) だけレーンを問わず呼べる理由は「破棄 (discard) と stash」節を参照。
+Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → Mode::Commit → Mode::Branch → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップ** → Lane::Edit → Ctrl+p → q/?/a/s/c/C/b/f/p/P/Tab → **Z(stash pop、レーン不問)** → **X/z(discard・stash push、GIT レーン限定)** → focus 別ディスパッチ。f/p/P (#27 リモート操作) は c/C/b と同じ位置・同じ理由 (レーンを問わず開ける) でここに置く。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。Z (stash pop) だけレーンを問わず呼べる理由は「破棄 (discard) と stash」節を参照。
 ツリーのキー処理（`on_tree_key`）は VIEW/GIT で共通で、**「開く」対象のパスを返すだけ**にしてある。viewer に開くか diff に開くかの振り分けは `App::open_selected` 1 箇所に閉じている（ツリー操作をレーンごとに複製しない）。LOG は左ペインがツリーではないため `on_tree_key` には乗せず、`Focus::Tree` の分岐で `Lane::Log` だけ `on_log_list_key` へ振り分ける（`Focus::Viewer` 側も同様に `on_log_diff_key` を割り込ませる）。
 
 ### 桁位置の整合インバリアント（複数ファイルに跨る前提）
@@ -174,6 +174,16 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
 - 書き込み成功後の再取得は専用パスを新設せず `App::rescan`（r キーと同じ入口）に相乗りさせる。GIT の 500ms デバウンスと同じ考え方を書き込み後の同期にも適用している
 - `unstage_path` は `git restore --staged` が失敗したら理由を判別せず `git rm --cached` にフォールバックする。`changed_lines`/`baseline_lines`/`diff_text` の「まず試す → だめなら別コマンド」という既存方針をそのまま書き込み系にも踏襲したもので、失敗理由を HEAD の有無で個別判定していない
 - `commit` はメッセージを引数ではなく **stdin から `-F -` で渡す**（エスケープ・コマンドライン長の問題を避けるため）。`run_git_write` は `Command::output()` で完結できるが、stdin を渡すには `spawn` → `stdin.take()` に書き込んで drop（EOF 送出）→ `wait_with_output` という別の実行経路が要るため `run_git_write` は流用せず専用関数にした。成功時の短縮 SHA は commit の stdout（amend やルートコミットで書式が揺れる）ではなく `rev-parse --short HEAD` を別途叩いて確実な形を取る。stderr は pre-commit hook が複数行出すことがあるので、先頭の非空行 + 複数行あれば "…" を付ける専用の要約関数 (`stderr_summary`) を使う（`run_git_write` 共通の `first_line` とは仕様が違うため分けた）
+
+### 非同期ジョブの基盤（job.rs）とリモート操作（f/p/P、#27）
+- ネットワークを伴う fetch/pull/push は同期実行だと TUI が固まるため、`job.rs` に `std::thread::spawn` + `mpsc::channel` の薄いラッパー (`job::spawn`) を用意した。**git 専用にせず汎用にしてある**（GitHub 連携 (#33/#34) の issue/PR 取得も将来ここに乗る想定のため、git.rs には置かない）。結果の受け取りは専用タイマーを作らず既存の `App::on_tick`（`event::poll(100ms)` のたびに呼ばれる）で `try_recv` を drain するだけにし、イベントループの構造（main.rs 節）をそのまま使う
+- `Receiver` 側 (App) がアプリ終了で先に破棄されても `tx.send` は Err を返すだけで panic しない（mpsc の仕様通りで、`spawn` 側は戻り値を握り潰すだけで良い）。スレッドを待たずに終了できるので `main::restore_terminal` を遅らせない
+- 実行中のジョブは `App.pending_remote_job`（非 pub、`git::RemoteJobKind` + 開始時点の ahead/behind スナップショットを持つ）で表し、`App::start_remote_job` がジョブ起動の唯一の入口。**実行中は新しいジョブを一切受け付けない**（fetch/pull/push は全て `.git` を触るため、「同じジョブの二重起動防止」を「別ジョブとの直列化」に一般化した方が安全側で、実装も単純になる）。ステータスバーには `App::running_remote_job()` を通してのみ見せる
+- 完了メッセージ（例: `push → origin/main (2 commits)`）は完了時点の `branch_status`（rescan 後）ではなく**ジョブ開始時点のスナップショット**（ahead/behind/upstream 有無）を使って組み立てる。rescan で ahead/behind が上書きされた後だと push 前のコミット数が分からなくなるため
+- `git::run_git_remote`（fetch/pull/push 専用）は `run_git_write` の `GIT_TERMINAL_PROMPT=0` に加え、`GIT_ASKPASS`/`SSH_ASKPASS` を空文字にし `SSH_ASKPASS_REQUIRE=never` を付ける。認証プロンプトで裏のスレッドが無限に待つのが最悪の挙動なので、GUI askpass 起動経路も含めて確実に潰し、認証が必要なら即失敗させて notice に出す
+- 失敗時のメッセージ抽出は `run_git_write` 共通の `first_line`（stderr 先頭の非空行）ではなく専用の `remote_error_line` を使う。`git pull --ff-only` の失敗は stderr に fetch の進捗行 (`From ...`) や `hint:` 行が本当の失敗理由より先に出るため、先頭行だと `fatal: Not possible to fast-forward` が隠れてしまう。`fatal:`/`error:` で始まる行を優先して拾い、無ければ従来通り先頭の非空行にフォールバックする
+- `P`（push）だけ `Mode::Confirm`（`ConfirmAction::Push`）を経由させる。fetch/pull はローカルを (ff の範囲でしか) 変えないが push はリモートの履歴・ブランチ構成を変えるため。upstream が無ければ確認オーバーレイの時点で `--set-upstream origin <branch>` になることを prompt に出す。未保存の EDIT バッファは拒否まではせず prompt に警告行を足すだけ（issue の要求）だが、`open_commit`/`open_branch` と同じ理由で `Lane::Edit` が印字キーを全て文字入力にするため型上ここへは実際には来ない（belt and suspenders）
+- 完了後の反映は他の書き込み系操作と同じ `App::rescan` に相乗りさせる（専用の同期パスを作らない）。ahead/behind・GIT レーンの diff・ツリーの status 表示が一度に揃う
 
 ## スタイル
 
