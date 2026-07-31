@@ -15,8 +15,9 @@ pub struct FileIndex {
     files: Option<Vec<PathBuf>>,
     // 走査中のスレッドからの受け口。None なら走査していない
     pending: Option<Receiver<Vec<PathBuf>>>,
-    // FS 変更や隠しファイル設定の切り替えで files が古くなったことを示す。
-    // 古い一覧も「無いよりまし」なので捨てず、次に Finder を開いた時に走査し直す
+    // files が古くなったことを示す。古い一覧も「無いよりまし」なので捨てず、
+    // 次に Finder を開いた時に走査し直す。走査中に立った stale は完了時に消さない
+    // (その走査には載っていない変更なので、もう一度歩き直す必要がある)
     stale: bool,
 }
 
@@ -51,12 +52,15 @@ impl FileIndex {
             Ok(files) => {
                 self.files = Some(files);
                 self.pending = None;
-                self.stale = false;
+                // ここで stale を落とさない。走査開始後に来た invalidate は「この結果には
+                // 反映されていない変更」を意味するので、次に Finder を開いた時に歩き直させる
                 true
             }
-            // スレッドが送信前に落ちた場合 (走査失敗) も pending を畳んで再走査できるようにする
+            // スレッドが送信前に落ちた場合 (走査失敗) は pending を畳んだうえで、
+            // spawn 時に消した stale を戻して再走査できるようにする
             Err(TryRecvError::Disconnected) => {
                 self.pending = None;
+                self.stale = true;
                 false
             }
             Err(TryRecvError::Empty) => false,
@@ -94,6 +98,9 @@ impl FileIndex {
             .is_ok()
         {
             self.pending = Some(rx);
+            // 今の stale はこの走査が引き取る。以後に立つ stale だけが
+            // 「この走査に載っていない変更」として残る (走査開始に失敗したら消さない)
+            self.stale = false;
         }
     }
 }
