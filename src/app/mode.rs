@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::editor::EditState;
 use crate::finder::Finder;
 use crate::gitview::GitState;
@@ -72,7 +74,7 @@ pub enum Mode {
     Settings(SettingsState),
     // 破壊的・書き込み系操作の確認オーバーレイ。Lane と直交する (GIT で出しても EDIT で出しても
     // 同じ挙動)。y/Enter でのみ action を実行し、それ以外の全キーは中止として扱う。
-    // #23 (stage/unstage) は非破壊的なのでここを経由させず、構築元がまだ無い
+    // #23 (stage/unstage) は非破壊的なのでここを経由させない
     Confirm {
         prompt: String,
         action: ConfirmAction,
@@ -96,7 +98,19 @@ pub enum Mode {
 pub enum ConfirmAction {
     // amend は履歴を書き換える (push 済みの可能性がある) ので確認を必須にする。
     // 通常コミットは確認なしで直接実行する (issue #24 の要求通り)
-    Amend { message: String },
+    Amend {
+        message: String,
+    },
+    /// 選択ファイル/ディレクトリの変更破棄 (#25)。is_dir は tracked/untracked の扱いを
+    /// 分けるために確認時点の Row から引き継ぐ (実行時に fs へ問い合わせ直さない)
+    Discard {
+        path: PathBuf,
+        is_dir: bool,
+    },
+    /// `git stash push -u` (#25)。untracked も含めて退避する
+    StashPush,
+    /// `git stash pop` (#25)。コンフリクト時は stash entry を残したまま notice にエラーを出す
+    StashPop,
 }
 
 /// トップレベルのタブ ("Workspace")。Lane / Mode に続く 3 本目の軸で、GitHub モード
