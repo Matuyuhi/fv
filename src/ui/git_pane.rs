@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::gitview::{self, GitState};
 
+use super::diff_boundary::{sticky_line, widen_boundary_bands};
 use super::pane_block;
 use super::text_pane::TextPane;
 
@@ -17,10 +18,15 @@ pub(super) fn draw_git(
     background: Color,
     area: Rect,
 ) {
+    let inner_width = area.width.saturating_sub(2) as usize;
+    // まとめ diff (#31) の sticky header に 1 行使う分だけ TextPane へ渡す高さを削る。
+    // LOG レーンの draw_log_diff と同じく scroll ではなく「境界を持つか」だけで決める
+    // (scroll 依存にすると Ctrl+d/Ctrl+u のページ送り量がスクロール中に変わってしまう)
+    let sticky_reserved = usize::from(git.has_file_boundary());
     // キー・マウス処理が次のフレームで読む実測値の書き戻し (viewer_pane と同じパターン)。
     // side-by-side のカラム幅もここに書いた width から導出する (GitState::column_width)
-    git.viewport.height = area.height.saturating_sub(2) as usize;
-    git.viewport.width = area.width.saturating_sub(2) as usize;
+    git.viewport.height = (area.height.saturating_sub(2) as usize).saturating_sub(sticky_reserved);
+    git.viewport.width = inner_width;
 
     let Some(title) = git.title() else {
         let title = format!("diff [{}]", git.base_label());
@@ -60,13 +66,18 @@ pub(super) fn draw_git(
 
     let pane = TextPane {
         lines: git.lines(),
-        // diff 自体が変更の表示なので、閲覧側の変更行マーク・検索・カーソルは全て使わない
+        // diff 自体が変更の表示なので、閲覧側の変更行マークは使わない。カーソルも同様。
+        // 検索 (#31) は inline 表示 (単一ファイル/まとめ diff とも) でだけ有効にする
         changed_lines: &None,
-        search: None,
+        search: git.search(),
         cursor: None,
         gutter_width: git.gutter_width(),
     };
-    let visible = pane.visible(&git.viewport);
+    let mut visible = pane.visible(&git.viewport);
+    widen_boundary_bands(&mut visible, inner_width);
+    if let Some(label) = git.sticky_label() {
+        visible.insert(0, sticky_line(label, inner_width));
+    }
     let paragraph = Paragraph::new(visible)
         .block(pane_block(title, focused))
         .style(Style::default().bg(background));

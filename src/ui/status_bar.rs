@@ -163,11 +163,33 @@ fn git_status_line(app: &App) -> Line<'static> {
     if app.pending_g {
         return Line::from("g");
     }
+    let Lane::Git(git) = &app.lane else {
+        return Line::from("");
+    };
+    // 検索確定中は他のヒントより優先して出す (normal_status_line の VIEW 検索と同じ扱い)
+    if let Some(search) = git.search()
+        && let Some(current) = search.current
+    {
+        return Line::from(format!(
+            "「{}」 {}/{}  n: next  N: prev  Tab: focus  Shift+Tab: mode  ?: help",
+            search.query,
+            current + 1,
+            search.matches.len()
+        ));
+    }
     let hint = match app.focus {
         Focus::Tree => {
             "j/k: move  h/l: collapse/expand  Enter: diff  Tab: focus  Shift+Tab: mode  ?: help"
+                .to_string()
         }
-        Focus::Viewer => "j/k: scroll  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
+        Focus::Viewer => {
+            let mut hint = "j/k: scroll  ]/[: hunk  /: search  A: all files".to_string();
+            if git.showing_all() {
+                hint.push_str("  }/{: file");
+            }
+            hint.push_str("  w: wrap  Tab: focus  Shift+Tab: mode  ?: help");
+            hint
+        }
     };
     Line::from(format!("{} changes  {hint}", app.tree.visible_files()))
 }
