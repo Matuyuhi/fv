@@ -74,6 +74,21 @@ impl Tree {
         self.filter.is_some()
     }
 
+    /// git 側で削除された未コミットファイルを合成ノードとして反映する。Tree は本来
+    /// git を知らない設計だが、削除ファイルだけは WalkBuilder の実ファイル走査で拾えず、
+    /// この橋渡しが無いと GIT レーンで選択も stage/unstage もできない。rescan (App::rescan /
+    /// App::new / toggle_hidden) で nodes を作り直す都度、呼び出し側が最新の削除集合で呼び直す想定
+    pub fn sync_deleted(&mut self, root: &Path, deleted: &HashSet<PathBuf>) {
+        // selected_path は index_path 経由で self.nodes を辿るため、挿入・ソートで
+        // インデックスが崩れる scan::sync_deleted の "前" に捕まえておく必要がある
+        // (rescan/set_filter と同じ順序。後ろで呼ぶと別ノードを指してしまう)
+        let selected = self.selected_path();
+        if scan::sync_deleted(&mut self.nodes, root, deleted) {
+            self.rebuild_visible();
+            self.restore_selection(selected);
+        }
+    }
+
     /// 現在の visible 行数。フィルタ中は「変更ファイル + ディレクトリ」の件数になる
     pub fn visible_files(&self) -> usize {
         self.visible.iter().filter(|row| !row.is_dir).count()

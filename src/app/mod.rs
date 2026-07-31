@@ -14,7 +14,7 @@ use ratatui::layout::Rect;
 
 use crate::config::Config;
 use crate::editor::EditState;
-use crate::git::{self, GitStatus};
+use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
 use crate::gitview::GitState;
 use crate::logview::LogState;
@@ -24,6 +24,10 @@ use crate::watch::FsWatcher;
 
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
 const RESCAN_DEBOUNCE: Duration = Duration::from_millis(500);
+
+// Space (stage/unstage トグル) のキーリピート対策。OS/端末の自動リピートは debounce より
+// 十分速いので、これを下回る間隔の連打は git プロセスを起動せず無視する
+const STAGE_DEBOUNCE: Duration = Duration::from_millis(150);
 
 // App 全体の一時通知 (notice) が自動で消えるまでの表示時間
 const NOTICE_DURATION: Duration = Duration::from_secs(4);
@@ -72,6 +76,8 @@ pub struct App {
     watcher: Option<FsWatcher>,
     last_rescan: Instant,
     rescan_pending: bool,
+    /// 直近で stage/unstage を実行した時刻 (Space のキーリピート対策)
+    last_stage_toggle: Instant,
     /// GitHub モードを使いたいかどうか (起動オプション or 設定トグル)。使えるかどうかは別
     /// (github_available)。3 経路 (--github / 設定トグル / config ファイル) が結局この
     /// フラグ 1 つに集約される
@@ -89,10 +95,13 @@ impl App {
     /// github_cli は `--github` の指定。その起動限りの有効化で config には書かない
     /// (config.github との合成は github_enabled の初期値としてのみ行う)
     pub fn new(root: PathBuf, config: Config, github_cli: bool) -> Self {
-        let tree = Tree::new(&root, config.show_hidden);
+        let mut tree = Tree::new(&root, config.show_hidden);
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
         let watcher = FsWatcher::new(&root, config.show_hidden);
         let git = git::file_statuses(&root);
+        // 削除ファイルは WalkBuilder の走査に出てこないため、起動時点でも合成ノードを足しておく
+        // (GIT レーンへ入る前でも status 表示・将来の選択に矛盾が出ないように)
+        tree.sync_deleted(&root, &deleted_paths_of(&git));
         let mut viewer = Viewer::new();
         viewer.viewport.wrap = config.wrap_default;
         // 設定ファイルのテーマ名が壊れていても set_theme が false を返すだけで、
@@ -121,6 +130,7 @@ impl App {
             watcher,
             last_rescan: Instant::now(),
             rescan_pending: false,
+            last_stage_toggle: Instant::now(),
             github_enabled,
             github_persisted: config.github,
             github_available: false,
@@ -193,10 +203,13 @@ impl App {
     }
 
     /// ツリーと git status をまとめて再取得する。FS 監視の間引き後と、
-    /// 手動再走査 (r キー) の両方から呼ばれる共通処理。
+    /// 手動再走査 (r キー)・stage/unstage 実行後の両方から呼ばれる共通処理。
     fn rescan(&mut self) {
-        self.tree.rescan(&self.root);
+        // sync_deleted は tree.rescan (nodes を作り直す) の後に、かつ新しい git status を
+        // 使って呼ぶ必要があるため、この順序で並べる
         self.git = git::file_statuses(&self.root);
+        self.tree.rescan(&self.root);
+        self.tree.sync_deleted(&self.root, &self.deleted_paths());
         // LOG は FS 監視の対象外 (.git は watch.rs のフィルタで除外される) なので取り直しは
         // しない。リポジトリ自体が消えた場合だけは滞在させず VIEW へ戻す
         if matches!(self.lane, Lane::Log(_)) && self.git.is_none() {
@@ -404,6 +417,12 @@ impl App {
         }
     }
 
+    // Tree::sync_deleted へ渡す削除パス集合。App::new (self 未構築) でも使えるよう
+    // 本体は自由関数 (deleted_paths_of) に持たせ、ここは self.git を渡すだけの薄いラッパー
+    fn deleted_paths(&self) -> HashSet<PathBuf> {
+        deleted_paths_of(&self.git)
+    }
+
     /// bracketed paste (main のイベントループから)。編集バッファへは複数行のまま、
     /// Search/Goto/Finder の 1 行入力へは制御文字を落として流す
     /// (paste 有効化前は生キー入力として届いていた挙動の維持)
@@ -435,6 +454,9 @@ impl App {
 
     pub fn toggle_hidden(&mut self) {
         let show_hidden = self.tree.toggle_hidden(&self.root);
+        // toggle_hidden 内部の rescan で nodes が作り直されるため、削除ファイルの合成ノードも
+        // 都度足し直さないと隠れてしまう (git status 自体は変わらないので既存 self.git を使う)
+        self.tree.sync_deleted(&self.root, &self.deleted_paths());
         // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。
         self.watcher = FsWatcher::new(&self.root, show_hidden);
         self.last_rescan = Instant::now();
@@ -486,6 +508,22 @@ impl App {
     // ファイル書き込み失敗でクラッシュ・エラー表示をする理由はない
     fn persist_config(&self) {
         let _ = self.current_config().save();
+    }
+}
+
+// git status で削除 (index/worktree いずれか) 扱いのパス集合。App::new は self 構築前に
+// これが要るため、App::deleted_paths から使い回せるよう自由関数にしてある
+fn deleted_paths_of(git: &Option<GitStatus>) -> HashSet<PathBuf> {
+    match git {
+        Some(status) => status
+            .files
+            .iter()
+            .filter(|(_, s)| {
+                s.index == Some(StatusKind::Deleted) || s.worktree == Some(StatusKind::Deleted)
+            })
+            .map(|(p, _)| p.clone())
+            .collect(),
+        None => HashSet::new(),
     }
 }
 

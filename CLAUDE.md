@@ -86,6 +86,7 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 ### ツリー走査と FS 監視
 - 走査は起動時に WalkBuilder 1 回で一括（サブディレクトリ起点の遅延走査だと親の .gitignore が効かない）。`require_git(false)` で非 git ディレクトリでも .gitignore を尊重
 - `rescan` は展開状態と選択を **path で**保存・復元する（index_path は再走査で無効になる）
+- **削除された（worktree または index で `D`）が未コミットのファイルは合成ノードとして Tree に足す**（`Tree::sync_deleted`）。WalkBuilder は実ファイルしか見ないため、`rm` 等で既に消えたパスは通常の走査に一切出てこず、このままでは GIT レーンで選択も stage/unstage もできない。Tree は本来 git を知らない設計だが、削除ファイルの可視化だけはこの橋渡しが無いと表現できないため例外的に許容する。`App::rescan` / `App::new` / `toggle_hidden` が nodes を作り直す（＝合成ノードも失う）都度、最新の git status から呼び直す設計で、専用の同期タイマーは作らない
 - watch.rs のイベントフィルタは「`.` 始まり成分の除外 + root .gitignore の `matched_path_or_any_parents`」（`matched` だと `target/` が配下パスに効かない）。ツリー再走査は 500ms デバウンスで、git status の再取得もこれに相乗りする（別タイマーを作らない）
 
 ### GIT レーン（gitview.rs + ui/git_pane.rs）
@@ -97,15 +98,22 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - ツリーの status 表示は `FileStatus { index, worktree }` で porcelain の XY を index 側 / worktree 側に分けたまま持つ（`M ` / ` M` / `MM` / `??` の 2 文字表示）。1 種類に潰すと「ステージ済みかどうか」が表現できず staged/unstaged diff の切替と食い違うため。色は worktree 側（未ステージ）を優先して判定する
 - ツリーの j/k で diff は追従しない（Enter/l/クリックで開く）。キーリピートで git プロセスを連打しないため
 - 絞り込みと diff の再取得は FS 監視の 500ms デバウンス（`App::rescan`）に相乗りさせる。専用タイマーを作らない
-- **word-level ハイライト（#29）**: `render` が行の Vec を作る前に、hunk 内で「連続する削除ブロック → 直後の連続する追加ブロック」を検出し、**行数が一致する時だけ**先頭から 1 対 1 で対応付ける（ズレたペアより「対応付けない」方が読みやすいため、行数不一致・打ち切り超過は何もせず従来の全行色のまま）。文字単位の差分は `editor::diff::word_diff`（editor/diff.rs の LCS を `T: PartialEq` で汎用化し、行の LCS と共有）で計算し、双方の行で「共通部分に含まれない char range」を求める。gutter (span[0]) は不変のまま、content 側 (span[1] 以降) だけをその range で複数 span に割り、前景色はそのまま背景だけ濃くする。diff 行の先頭 1 文字は `+`/`-` マーカーなので char 単位比較の対象から外し、range をマーカー分 (+1) ずらして戻す。計算量は行の char 数（500 超で `word_diff` が None）と 1 hunk あたりの対応ペア数（200 超で以降のペアをスキップ）の 2 段で打ち切る。打ち切られた行は元々の単一 span のまま描画され、span[1..] を連結すると本文に戻る前提は崩れない
+- **`Space` は選択ファイル/ディレクトリの stage/unstage トグル**（`App::toggle_stage_selected`、Focus::Tree 限定）。判定は「worktree 側に未ステージ変更が残っているか」（無ければ unstage）で、ディレクトリは配下の `git.files` を集約して同じ判定に使う。コマンドは `git::stage_path`（modified/untracked は `git add --`、削除を含むときは `git add -A --`）/ `git::unstage_path`（`git restore --staged --`、HEAD の無い初期 repo は `git rm --cached --` へフォールバック）。非破壊的（いつでも打ち消せる）操作なので `Mode::Confirm` は経由させない — 経由させると「連打でサッと trial-and-error する」という stage/unstage の使い方自体が壊れるため
+- Space はキーリピートで git プロセスが暴走しないよう `STAGE_DEBOUNCE`（150ms）で間引く。`j`/`k` のような移動キーは「頻度が高いので git を叩く側を分離する」（診断済みの既存方針）で対処できるが、Space 自体が実行キーなのでこの手が使えず、実行キー本体に debounce を持たせている点が他のキーと違う
+- 実行後は既存の `App::rescan`（r キーと同じ入口）にそのまま乗せる。`Tree::rescan`／`Tree::set_filter` の path ベース選択復元がそのまま「選択位置を飛ばさない」「絞り込みから外れたら近い残存行に寄せる」を満たすので、stage/unstage 専用の位置合わせロジックは書いていない
+- **word-level ハイライト（#29）**: `render_inline` が行の Vec を作る前に、hunk 内で「連続する削除ブロック → 直後の連続する追加ブロック」を検出し、**行数が一致する時だけ**先頭から 1 対 1 で対応付ける（ズレたペアより「対応付けない」方が読みやすいため、行数不一致・打ち切り超過は何もせず従来の全行色のまま）。文字単位の差分は `editor::diff::word_diff`（editor/diff.rs の LCS を `T: PartialEq` で汎用化し、行の LCS と共有）で計算し、双方の行で「共通部分に含まれない char range」を求める。gutter (span[0]) は不変のまま、content 側 (span[1] 以降) だけをその range で複数 span に割り、前景色はそのまま背景だけ濃くする。diff 行の先頭 1 文字は `+`/`-` マーカーなので char 単位比較の対象から外し、range をマーカー分 (+1) ずらして戻す。計算量は行の char 数（500 超で `word_diff` が None）と 1 hunk あたりの対応ペア数（200 超で以降のペアをスキップ）の 2 段で打ち切る。打ち切られた行は元々の単一 span のまま描画され、span[1..] を連結すると本文に戻る前提は崩れない。この word_ranges は `render_side_by_side` とも共有する（同じ classify 済み body・同じ index で引くだけなので、side-by-side でも変更文字の強調がそのまま出る）
+- **side-by-side（#30、`v` で inline と切替）**: GIT レーンの単一ファイル diff のみ対応（LOG の複数ファイル diff は inline のまま）。`render_side_by_side` が classify 済みの body から**行の対応が取れた 2 本の `Vec<Line>`**（左 = 旧側行番号・右 = 新側行番号）を作るところまでを持ち、`ui/git_pane.rs` がそれを `TextPane` に 2 回渡すだけ — **text_pane.rs には side-by-side 専用の分岐を足さない**。削除ブロック→追加ブロックのペア (word-level と同じ run 検出) を「大きい方の行数」に揃え、足りない側は gutter だけの空行 (`blank_row`) で埋める。gutter 幅・最長行幅 (hscroll のクランプに使う) は左右で別々に持つ (`SideDiff`)
+  - **wrap との併用**: `Viewport` は 1 個 (scroll/hscroll は左右共有) だが、wrap 中に各カラムを独立に char 単位分割すると同じ論理行でも視覚行数がズレる。対策は「vp.scroll を常に論理行 index として使う」という既存の前提を保つために、**wrap 幅が分かる描画時 (毎フレーム) に `side_by_side_wrapped` で両カラムを事前に char 分割し、行ごとに視覚行数が少ない方へ空行を足して総行数 (=論理行数) を揃えてから**、TextPane には `vp.wrap = false` の一時コピーで渡す (Viewport を Copy にしたのはこのため)。これにより TextPane 自体は普通の非 wrap スライスをするだけで済み、ここでも text_pane.rs は変更していない。wrap 幅依存の計算なのでリサイズのたびに変わり、キャッシュせず毎フレーム作り直す (行数・hunk 位置だけ `GitState::side_wrap_cache` に書き戻して scroll クランプ・n/N に使う。viewport.height/width と同じ ui→app の書き戻しパターン)
+  - **幅不足の自動フォールバック**: `GitState::side_by_side` はユーザーの意図のトグル、`side_by_side_active` は「実際に描けるか」(各カラムが gutter 込み 40 桁以上あるか) を毎フレーム `viewport.width` から判定する関数。表示・スクロール・hscroll・hunk ジャンプの全てがこの `side_by_side_active` 1 箇所を参照するので、ペイン幅のドラッグリサイズで縮めても「見た目は inline なのに内部状態は side のまま」というズレが起きない。トグル自体は変えないので、幅を戻せば自動で side-by-side に復帰する
+  - 状態は `w` と同じく `GitState` に持ち config には保存しない
 
 ### LOG レーン（logview.rs + ui/log_pane.rs）
 - 一覧は `git log --format=%H%x00%h%x00%an%x00%ar%x00%s -z -n <limit> --skip=<skip>` を `git.rs::log` で自前パース（porcelain -z と同じ流儀）。初回 200 件、選択が末尾に到達したら同じ関数を `--skip` を進めて呼び直す（ページング）。取得件数が要求件数未満だった時点で `exhausted` を立て、以後は呼ばない（held-key で連打しても追加の `git log` は末尾到達時に高々 1 回）
 - コミットが1件も無い repo は `git log` 自体が失敗するが、`git.rs::log` はこれを空 Vec に潰して返す（エラーではなく「0 件」という正常系）。`LogState`/一覧描画のどちらも空を前提に組んであるので panic しない
 - **左ペインはツリーではなくコミット一覧**（`LogState.commits`）。GIT の「ツリーを絞り込む」方式とは異なり、ツリー自体を使わない別の描画パス（`ui/log_pane.rs::draw_log_list`）を持つ
 - 一覧の j/k は選択移動のみで diff を開かない（GIT のツリーと同じ理由）。**Enter/l/クリックでのみ** `LogState::open_selected` を呼び `git show` を実行する。開いた diff は `open_index` で選択中カーソルと別に持つ（j/k で `selected` が進んでも `open_index` はそのまま残る）
-- 右ペインは `git show --no-color <sha>` を `gitview::render_commit` で組み替えたもの。既存の GIT レーン（単一ファイル）の `render` はそのまま温存し、`build_body`（1 行単位の組み立て: classify → 色分け → gutter 付与）を共有ヘルパーへ切り出して両方から呼ぶ形にしてある（#23/#29 と同時進行だったため、`render` 自体への変更を最小化する意図）
-- 複数ファイル diff は `diff --git ` 行を境界に分割し、ファイルごとに見出し行（rename は `old → new`、新規/削除は `(new)`/`(deleted)` を付記）を挟んで連結する。**gutter 幅は全ファイル共通の 1 つに揃える**（ファイルごとに違う幅だと `TextPane` の wrap 計算・continuation 行の pad 幅がずれるため。単一ファイルの `render` はそのファイルだけの幅で良いが、`render_commit` は全体の最大行番号から 1 つの幅を出してから `build_body` を呼ぶ）
+- 右ペインは `git show --no-color <sha>` を `gitview::render_commit` で組み替えたもの。既存の GIT レーン（単一ファイル）の `render_inline` はそのまま温存し、`build_body`（1 行単位の組み立て: classify → 色分け → gutter 付与）を共有ヘルパーへ切り出して両方から呼ぶ形にしてある（#23/#29 と同時進行だったため、`render_inline` 自体への変更を最小化する意図）。LOG は side-by-side (#30) のスコープ外なので `render_commit` は inline 専用のまま
+- 複数ファイル diff は `diff --git ` 行を境界に分割し、ファイルごとに見出し行（rename は `old → new`、新規/削除は `(new)`/`(deleted)` を付記）を挟んで連結する。**gutter 幅は全ファイル共通の 1 つに揃える**（ファイルごとに違う幅だと `TextPane` の wrap 計算・continuation 行の pad 幅がずれるため。単一ファイルの `render_inline` はそのファイルだけの幅で良いが、`render_commit` は全体の最大行番号から 1 つの幅を出してから `build_body` を呼ぶ）
 - コミットメッセージ部分（`diff --git` より前の行）は gutter を空欄にしたまま別の色で出す。行番号の概念が無いコンテンツでも「span[0] = gutter 固定」の桁インバリアントは崩さない
 - **マージコミットの表示方針**: `git show` は既定でマージコミットの差分を出さない。全親差分 (`-m`) は本文が膨らみすぎて読みにくいため採用せず、**最初の親との diff のみ**を明示的に組み立てて見せる（`git show --quiet` でメッセージ部分、`git diff <sha>^1 <sha>` で diff 部分を取得し連結）。あわせて `(merge commit: diff against first parent)` の注記行を挟み、暗黙に一部の差分だけを見せていることが分かるようにする
 - Viewport は VIEW/EDIT・GIT の diff のどちらとも別に持つ（`LogState.viewport`）。別ドキュメントなので位置を共有する意味が無く、他レーンの読み位置も壊さないのは GIT の diff Viewport と同じ理由
@@ -129,6 +137,7 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。porcelain -z の rename は `XY new\0old\0` の 2 パス形式。`git diff HEAD` は HEAD 無し repo で fail するため素の diff にフォールバックする。全失敗を Option で吸収し panic しない。
 - 読み取り (`run_git`) と書き込み (`run_git_write`) は別関数。`run_git` の `GIT_OPTIONAL_LOCKS=0` は読み取り専用が前提の意図的な設定で、書き込みにそのまま使うと `git add` 等が index lock を取れず壊れうるため統一しない。`run_git_write` は `GIT_TERMINAL_PROMPT=0` を付け、認証待ちで TUI がハングするのを防ぐ（fetch/push 等のリモート操作で効いてくる）。結果は `GitOutcome { ok, message }` で返し、失敗を `Option` にせず `ok: false` に潰すのは `run_git` と同じ「呼び出し側を単純にする」方針を書き込み側にも踏襲したもの
 - 書き込み成功後の再取得は専用パスを新設せず `App::rescan`（r キーと同じ入口）に相乗りさせる。GIT の 500ms デバウンスと同じ考え方を書き込み後の同期にも適用している
+- `unstage_path` は `git restore --staged` が失敗したら理由を判別せず `git rm --cached` にフォールバックする。`changed_lines`/`baseline_lines`/`diff_text` の「まず試す → だめなら別コマンド」という既存方針をそのまま書き込み系にも踏襲したもので、失敗理由を HEAD の有無で個別判定していない
 
 ## スタイル
 
