@@ -35,6 +35,17 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
     );
     push_help_section(
         &mut lines,
+        "Workspace (GitHub モード、既定は無効)",
+        &[
+            ("Ctrl+t", "次のタブへ (viewer → issues → pull requests)"),
+            ("Alt+1/2/3", "viewer / issues / pull requests へ直接切替"),
+            ("タブをクリック", "そのタブへ切替"),
+            ("--github", "起動時だけ有効化 (config には保存しない)"),
+            ("設定画面の github tabs", "トグルで有効化・config に永続化"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
         "Tree",
         &[
             ("j/k ↑/↓", "上下移動"),

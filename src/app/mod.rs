@@ -2,7 +2,7 @@ mod keys;
 mod mode;
 mod mouse;
 
-pub use mode::{Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState};
+pub use mode::{Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,7 @@ use ratatui::layout::Rect;
 use crate::config::Config;
 use crate::editor::EditState;
 use crate::git::{self, GitStatus};
+use crate::github;
 use crate::gitview::GitState;
 use crate::tree::Tree;
 use crate::viewer::{self, Viewer};
@@ -33,6 +34,9 @@ pub struct App {
     pub lane: Lane,
     /// レーンの上に重なる一時オーバーレイ。閉じてもレーンは変わらない
     pub mode: Mode,
+    /// トップレベルのタブ (Lane/Mode に続く3本目の軸)。GitHub モードが無効/使えない間は
+    /// 常に Viewer 固定 (workspace_available が false の間、切替キーは全て no-op にする)
+    pub workspace: Workspace,
     pub tree: Tree,
     pub viewer: Viewer,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
@@ -47,6 +51,9 @@ pub struct App {
     pub viewer_area: Rect,
     // 左右ペインの境界 (両ペインの枠線 2 桁)。ドラッグの掴み判定用に ui::draw が書き戻す
     pub splitter_area: Rect,
+    /// タブバーの各タブの矩形 (workspace_available が false の間は全て空)。
+    /// ui::tab_bar が毎フレーム書き戻し、mouse.rs のクリック判定が読む
+    pub tab_areas: [Rect; Workspace::LABELS.len()],
     /// スプリッタのドラッグ中はその掴んだ桁のオフセット (0 or 1) を保持する。
     /// 掴み位置を覚えることで Down の瞬間に境界が 1 桁飛ばない
     dragging_split: Option<u16>,
@@ -55,10 +62,25 @@ pub struct App {
     watcher: Option<FsWatcher>,
     last_rescan: Instant,
     rescan_pending: bool,
+    /// GitHub モードを使いたいかどうか (起動オプション or 設定トグル)。使えるかどうかは別
+    /// (github_available)。3 経路 (--github / 設定トグル / config ファイル) が結局この
+    /// フラグ 1 つに集約される
+    pub github_enabled: bool,
+    /// config ファイルへ永続化する値。cli の --github はここへは影響しない
+    /// (「その起動でだけ有効」を current_config 側で守るため、実行時フラグと分けて持つ)
+    github_persisted: bool,
+    /// gh の有無・認証・GitHub リモートかどうかの判定結果。起動時 (または初回有効化時) に
+    /// 1 度だけ github::check_available を呼んで確定させ、以後は描画のたびに再判定しない
+    pub github_available: bool,
+    github_checked: bool,
+    /// 直近のグローバル通知 (GitHub 有効化不可の理由など)。次のキー入力で消えるトースト表示
+    pub notice: Option<String>,
 }
 
 impl App {
-    pub fn new(root: PathBuf, config: Config) -> Self {
+    /// github_cli は `--github` の指定。その起動限りの有効化で config には書かない
+    /// (config.github との合成は github_enabled の初期値としてのみ行う)
+    pub fn new(root: PathBuf, config: Config, github_cli: bool) -> Self {
         let tree = Tree::new(&root, config.show_hidden);
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
         let watcher = FsWatcher::new(&root, config.show_hidden);
@@ -68,11 +90,13 @@ impl App {
         // 設定ファイルのテーマ名が壊れていても set_theme が false を返すだけで、
         // Viewer::new() が入れた既定テーマのまま起動を続ける (パニックしない)
         viewer.set_theme(&config.theme);
-        Self {
+        let github_enabled = github_cli || config.github;
+        let mut app = Self {
             root,
             focus: Focus::Tree,
             lane: Lane::View,
             mode: Mode::Normal,
+            workspace: Workspace::Viewer,
             tree,
             viewer,
             git,
@@ -82,12 +106,23 @@ impl App {
             tree_area: Rect::default(),
             viewer_area: Rect::default(),
             splitter_area: Rect::default(),
+            tab_areas: Default::default(),
             dragging_split: None,
             split_ratio: config.split_ratio,
             watcher,
             last_rescan: Instant::now(),
             rescan_pending: false,
+            github_enabled,
+            github_persisted: config.github,
+            github_available: false,
+            github_checked: false,
+            notice: None,
+        };
+        // 判定は起動時に 1 回だけ。無効なら gh を叩くコスト自体を払わない
+        if app.github_enabled {
+            app.ensure_github_checked();
         }
+        app
     }
 
     /// 保存された割合から左ペインの実桁数を求める。ui::draw と
@@ -167,6 +202,11 @@ impl App {
     /// Shift+Tab: VIEW → EDIT → GIT → VIEW と循環する。入れないレーン
     /// (非テキストの EDIT、非 git repo の GIT) は飛ばし、一周して戻れなければ現状維持。
     pub(super) fn cycle_lane(&mut self) {
+        // Issues/PR タブに Lane の概念は無いので、居る間は循環を無効にする
+        // (ステータスバー側もこれに合わせてセグメントを暗くする)
+        if !matches!(self.workspace, Workspace::Viewer) {
+            return;
+        }
         // 未保存の編集を Shift+Tab で取りこぼさない (Esc の discard 確認と同じ理由)
         if let Lane::Edit(state) = &mut self.lane
             && state.buffer.dirty()
@@ -245,6 +285,61 @@ impl App {
         // 入った直後は「どのファイルを見るか」の選択が主操作なのでツリー側にフォーカスを寄せる
         self.focus = Focus::Tree;
         true
+    }
+
+    /// GitHub モードのタブバーを実際に出してよいか。有効化されていて (github_enabled) かつ
+    /// 使える環境 (github_available) の両方が揃って初めて true。タブバーの描画・Ctrl+t /
+    /// Alt+1..3 のキー・クリック判定が全てこの 1 箇所を参照する
+    pub fn workspace_available(&self) -> bool {
+        self.github_enabled && self.github_available
+    }
+
+    // gh の有無・認証・GitHub リモートかどうかを判定する。1 度確定したら github_checked で
+    // 以後は呼び出しても何もしない (起動時 1 回・初回有効化時 1 回だけに絞るため)
+    fn ensure_github_checked(&mut self) {
+        if self.github_checked {
+            return;
+        }
+        self.github_checked = true;
+        match github::check_available(&self.root) {
+            Ok(()) => self.github_available = true,
+            Err(reason) => {
+                self.github_available = false;
+                self.notice = Some(reason);
+            }
+        }
+    }
+
+    /// 設定オーバーレイの "github tabs" トグル。cli 由来の有効化と違い、ここでの変更は
+    /// そのまま config に永続化する (persisted と実行時フラグを同じ値に揃えることで、
+    /// 一度トグルすれば --github の有無に関わらずその通りの状態になる)
+    pub(super) fn toggle_github(&mut self) {
+        self.github_enabled = !self.github_enabled;
+        self.github_persisted = self.github_enabled;
+        self.persist_config();
+        if self.github_enabled {
+            self.ensure_github_checked();
+        }
+        if !self.workspace_available() {
+            self.workspace = Workspace::Viewer;
+        }
+    }
+
+    /// Ctrl+t: 次のタブへ循環する。使えない (workspace_available が false) 間は無効化時と
+    /// 同じ経路を通るだけの no-op になる
+    pub(super) fn cycle_workspace(&mut self) {
+        if !self.workspace_available() {
+            return;
+        }
+        self.workspace = Workspace::from_index((self.workspace.index() + 1) % 3);
+    }
+
+    /// Alt+1..3・タブクリック共通の直接指定。使えない間は no-op
+    pub(super) fn set_workspace(&mut self, workspace: Workspace) {
+        if !self.workspace_available() {
+            return;
+        }
+        self.workspace = workspace;
     }
 
     /// ツリー・ファインダーからの「開く」の振り分け。VIEW/EDIT は viewer、GIT は diff を差し替える
@@ -335,6 +430,9 @@ impl App {
             wrap_default: self.viewer.viewport.wrap,
             theme: self.viewer.theme_name().to_string(),
             split_ratio: self.split_ratio,
+            // github_enabled ではなく github_persisted を使う。cli 由来の一時的な有効化が
+            // 他の設定操作 (ペイン幅ドラッグ等) の persist_config に巻き込まれて書き込まれるのを防ぐ
+            github: self.github_persisted,
         }
     }
 

@@ -3,6 +3,7 @@ mod config;
 mod editor;
 mod finder;
 mod git;
+mod github;
 mod gitview;
 mod text;
 mod tree;
@@ -34,7 +35,12 @@ use app::App;
 use config::Config;
 
 enum Command {
-    Run { root: PathBuf, config: Config },
+    Run {
+        root: PathBuf,
+        config: Config,
+        // --github: この起動限りの有効化。config には書かない (App::new 参照)
+        github: bool,
+    },
     Help,
     Version,
 }
@@ -46,16 +52,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
-        Command::Run { root, config } => run_app(root, config)?,
+        Command::Run {
+            root,
+            config,
+            github,
+        } => run_app(root, config, github)?,
     }
     Ok(())
 }
 
-fn run_app(root: PathBuf, config: Config) -> Result<(), Box<dyn Error>> {
-    let mut app = App::new(root, config);
+fn run_app(root: PathBuf, config: Config, github: bool) -> Result<(), Box<dyn Error>> {
+    let mut app = App::new(root, config, github);
     install_panic_hook();
     enable_raw_mode()?;
     execute!(
@@ -108,6 +118,7 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
     let mut root = None;
     let mut cli_hidden = false;
     let mut cli_icons = None;
+    let mut cli_github = false;
 
     for arg in args {
         match arg.as_str() {
@@ -116,6 +127,7 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
             "--hidden" | "-a" => cli_hidden = true,
             "--icons" => cli_icons = Some(true),
             "--no-icons" => cli_icons = Some(false),
+            "--github" => cli_github = true,
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
             _ => {
                 if root.replace(PathBuf::from(arg)).is_some() {
@@ -127,10 +139,16 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
 
     let root = resolve_root(root.unwrap_or_else(|| PathBuf::from(".")))?;
     let config = resolve_config(cli_hidden, cli_icons);
-    Ok(Command::Run { root, config })
+    Ok(Command::Run {
+        root,
+        config,
+        github: cli_github,
+    })
 }
 
-// CLI での明示指定 > 前回セッションで設定画面から保存された値 > 既存の自動判定、の優先順位で確定する
+// CLI での明示指定 > 前回セッションで設定画面から保存された値 > 既存の自動判定、の優先順位で確定する。
+// github は他と違い cli フラグをここで折り込まない (App::new 側で github_enabled として
+// その起動限り上乗せし、config.github 自体は永続化された値のまま保つ)
 fn resolve_config(cli_hidden: bool, cli_icons: Option<bool>) -> Config {
     let saved = Config::load();
     Config {
@@ -143,6 +161,7 @@ fn resolve_config(cli_hidden: bool, cli_icons: Option<bool>) -> Config {
             .as_ref()
             .map(|c| c.split_ratio)
             .unwrap_or(Config::default().split_ratio),
+        github: saved.as_ref().is_some_and(|c| c.github),
         theme: saved
             .map(|c| c.theme)
             .unwrap_or_else(|| "base16-ocean.dark".to_string()),

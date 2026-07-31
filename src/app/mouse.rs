@@ -1,13 +1,20 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
-use super::{App, Focus, Lane, Mode};
+use super::{App, Focus, Lane, Mode, Workspace};
 
 impl App {
     /// マウス操作。Input/Finder 中はクリック位置の意味が入力欄と衝突するため無視する
     pub fn on_mouse(&mut self, mouse: MouseEvent) {
-        // 幅の変更はレーン・フォーカスと直交する操作なので、編集中でも効くよう最初に見る
+        // 幅の変更・タブクリックはレーン・フォーカスと直交する操作なので、編集中でも効くよう最初に見る
         if self.on_split_mouse(&mouse) {
+            return;
+        }
+        if self.on_tab_mouse(&mouse) {
+            return;
+        }
+        // Issues/PR タブはツリー・ビューアの概念を持たないので、タブクリック以外は無視する
+        if !matches!(self.workspace, Workspace::Viewer) {
             return;
         }
         if let Lane::Edit(_) = self.lane {
@@ -77,6 +84,25 @@ impl App {
             }
             _ => false,
         }
+    }
+
+    // タブバーのクリック。ペイン境界のドラッグと同じくレーン・オーバーレイ判定より前で消費する
+    // (タブ移動はレーンと直交する操作)。使えない間 (workspace_available が false) は
+    // tab_areas が全て空 Rect のままなのでヒットせず自然に no-op になる
+    fn on_tab_mouse(&mut self, mouse: &MouseEvent) -> bool {
+        let MouseEventKind::Down(MouseButton::Left) = mouse.kind else {
+            return false;
+        };
+        if !matches!(self.mode, Mode::Normal) {
+            return false;
+        }
+        let pos = Position::new(mouse.column, mouse.row);
+        let Some(index) = self.tab_areas.iter().position(|area| area.contains(pos)) else {
+            return false;
+        };
+        self.pending_g = false;
+        self.set_workspace(Workspace::from_index(index));
+        true
     }
 
     // 右ペインの中身はレーンで変わる (VIEW はファイル、GIT は diff)
