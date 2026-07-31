@@ -84,8 +84,10 @@ Ctrl+c → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search
 ### GIT レーン（gitview.rs + ui/git_pane.rs）
 - 左ペインは `Tree::set_filter` による**表示フィルタ**（変更ファイル + その祖先ディレクトリ）。集合は `GitStatus.files` と `changed_dirs` の和で、新しい走査はしない
 - 絞り込み中も `expanded` フラグを尊重するので h/l/H の開閉がそのまま効く。代わりに `set_filter` が**絞り込み開始時に元の展開状態を退避 → 対象を全展開**し、解除時に `scan::set_expanded` で厳密に戻す（GIT 内での開閉は VIEW に持ち越さない）。絞り込み中の再走査では「新しく対象になったディレクトリ」だけを開き、ユーザーが畳んだものは保存のたびに開き直さない
-- 右ペインは `git diff HEAD -- <file>` を `TextPane` の行形式（span[0] = gutter、gutter は新側行番号・削除行は空欄）に組み替えたもの。untracked は `--no-index` で全行追加として出す
+- 右ペインは `git diff <base> -- <file>`（`git::DiffBase`: Head/Staged/Unstaged）を `TextPane` の行形式（span[0] = gutter、gutter は新側行番号・削除行は空欄）に組み替えたもの。untracked の `--no-index` フォールバックは Head/Unstaged のときだけ（Staged は「index にまだ無い」が正しい状態なので出さない）
+- **diff 基準（`GitState::base`）は GIT レーン内だけの一時状態**。`t` で HEAD → staged → unstaged と循環し、ペインタイトルに常に出す。`w`（折返し）と同じく config には保存しない。**`changed_lines`（VIEW の gutter マーク）・`baseline_lines`（EDIT のライブ diff）は意図的に HEAD 固定のまま**で `DiffBase` に連動させない（GIT レーンの操作で閲覧・編集の変更行マークが勝手に変わるのを避けるため）
 - **diff は VIEW/EDIT が共有する Viewport とは別の Viewport を持つ**（GitState 内）。別ドキュメントなのでスクロール位置を共有する意味がなく、VIEW に戻った時の読み位置も壊さない。`w`（折返し）も GIT 内だけの独立トグルで config には保存しない
+- ツリーの status 表示は `FileStatus { index, worktree }` で porcelain の XY を index 側 / worktree 側に分けたまま持つ（`M ` / ` M` / `MM` / `??` の 2 文字表示）。1 種類に潰すと「ステージ済みかどうか」が表現できず staged/unstaged diff の切替と食い違うため。色は worktree 側（未ステージ）を優先して判定する
 - ツリーの j/k で diff は追従しない（Enter/l/クリックで開く）。キーリピートで git プロセスを連打しないため
 - 絞り込みと diff の再取得は FS 監視の 500ms デバウンス（`App::rescan`）に相乗りさせる。専用タイマーを作らない
 

@@ -78,6 +78,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("H", "親を選択して折りたたむ"),
             ("Enter", "diff を表示 / 展開切替"),
             ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
+            ("t", "diff 基準を切替 (HEAD → staged → unstaged)"),
             ("Ctrl+d/u", "半ページスクロール"),
             ("gg / G", "先頭 / 末尾へ"),
             ("w", "折り返し切替 (diff のみ・設定には保存しない)"),

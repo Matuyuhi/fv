@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::git;
+use crate::git::{self, DiffBase};
 use crate::text;
 use crate::viewer::Viewport;
 
@@ -41,6 +41,9 @@ pub struct GitState {
     /// diff は閲覧中のファイルとは別ドキュメントなので、Viewer と EditState が共有する
     /// Viewport とは別に自前で持つ (GIT に入っても VIEW 側の読み位置を壊さないため)
     pub viewport: Viewport,
+    /// 現在の diff 基準 (HEAD/staged/unstaged)。`w` (折返し) と同じく GIT レーン内だけの
+    /// 一時状態で config には保存しない
+    base: DiffBase,
     current: Option<GitDiff>,
 }
 
@@ -48,6 +51,7 @@ impl GitState {
     pub fn new(wrap: bool) -> Self {
         Self {
             viewport: Viewport::new(wrap),
+            base: DiffBase::Head,
             current: None,
         }
     }
@@ -60,7 +64,7 @@ impl GitState {
             .unwrap_or(path)
             .display()
             .to_string();
-        let raw = git::file_diff(root, path).unwrap_or_default();
+        let raw = git::file_diff(root, path, self.base).unwrap_or_default();
         let (lines, hunks, gutter_width, max_width) = render(&raw);
         self.current = Some(GitDiff {
             title,
@@ -72,6 +76,17 @@ impl GitState {
         });
         self.viewport.scroll = 0;
         self.viewport.hscroll = 0;
+    }
+
+    /// t: diff 基準を HEAD → staged → unstaged → HEAD と循環し、表示中ファイルを取り直す。
+    /// スクロール位置は refresh と同じく新しい行数にクランプして維持する
+    pub fn cycle_base(&mut self, root: &Path) {
+        self.base = self.base.next();
+        self.refresh(root);
+    }
+
+    pub fn base_label(&self) -> &'static str {
+        self.base.label()
     }
 
     /// 表示中ファイルの diff を取り直す (rescan / 外部変更の取り込み後)。

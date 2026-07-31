@@ -22,17 +22,20 @@ pub(super) fn draw_git(
     git.viewport.width = area.width.saturating_sub(2) as usize;
 
     let Some(title) = git.title() else {
+        let title = format!("diff [{}]", git.base_label());
         let paragraph = Paragraph::new("no file selected")
-            .block(pane_block(String::from("diff"), focused))
+            .block(pane_block(title, focused))
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     };
-    // hscroll > 0 の間はタイトル側に現在オフセットを出す (viewer と同じ扱い)
+    // 現在の diff 基準を常にタイトルに出す。hscroll > 0 の間はさらにオフセットも足す
+    // (viewer の hscroll 表示と同じ場所・作法)
+    let title = format!("{title}  [{}]", git.base_label());
     let title = if !git.viewport.wrap && git.viewport.hscroll > 0 {
         format!("{title}  →{}", git.viewport.hscroll)
     } else {
-        title.to_string()
+        title
     };
     let block = pane_block(title, focused);
 

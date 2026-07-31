@@ -9,12 +9,48 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum FileStatus {
+pub enum StatusKind {
     Modified,
     Added,
     Untracked,
     Deleted,
     Renamed,
+}
+
+/// porcelain の XY を index 側 (X) / worktree 側 (Y) に分けたまま持つ。1 種類に潰すと
+/// 「ステージ済みかどうか」が表現できず、staged/unstaged diff の切替と食い違うため
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FileStatus {
+    pub index: Option<StatusKind>,
+    pub worktree: Option<StatusKind>,
+}
+
+/// git diff の基準。changed_lines / baseline_lines (VIEW の gutter マーク・EDIT のライブ diff)
+/// はここに連動させない。GIT レーンの操作で閲覧・編集の変更行マークが勝手に変わるのを避けるため、
+/// 常に HEAD 固定のまま
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DiffBase {
+    Head,
+    Staged,
+    Unstaged,
+}
+
+impl DiffBase {
+    pub fn next(self) -> Self {
+        match self {
+            DiffBase::Head => DiffBase::Staged,
+            DiffBase::Staged => DiffBase::Unstaged,
+            DiffBase::Unstaged => DiffBase::Head,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DiffBase::Head => "HEAD",
+            DiffBase::Staged => "staged",
+            DiffBase::Unstaged => "unstaged",
+        }
+    }
 }
 
 /// git status の結果一式。changed_dirs は「配下に変更ファイルを持つディレクトリ」の
@@ -73,6 +109,8 @@ pub fn file_statuses(root: &Path) -> Option<GitStatus> {
 
 /// `git diff HEAD -U0` の hunk header から、追加・変更された行番号 (1-origin, +側) を集める。
 /// HEAD の無い初期 repo では素の `git diff -U0` (index との比較) にフォールバックする。
+/// 基準は常に HEAD 固定 (DiffBase を取らない)。GIT レーンで diff 基準を切り替えても
+/// VIEW の変更行マークが連動して変わらないようにするため
 pub fn changed_lines(root: &Path, file: &Path) -> Option<HashSet<usize>> {
     let mut output = run_git(
         root,
@@ -96,8 +134,8 @@ pub fn changed_lines(root: &Path, file: &Path) -> Option<HashSet<usize>> {
     Some(lines)
 }
 
-/// changed_lines と同じ基準 (HEAD → 初期 repo は index) のファイル内容を行で返す。
-/// 編集中のライブ diff の比較元。untracked・repo 外・取得失敗は None
+/// changed_lines と同じ基準 (HEAD → 初期 repo は index) のファイル内容を行で返す。基準は
+/// changed_lines 同様 HEAD 固定。編集中のライブ diff の比較元。untracked・repo 外・取得失敗は None
 pub fn baseline_lines(root: &Path, file: &Path) -> Option<Vec<String>> {
     // `./` 前置きの spec は -C の cwd 相対で解決される (repo toplevel の取得が要らない)
     let rel = file.strip_prefix(root).ok()?.to_str()?.to_string();
@@ -120,20 +158,18 @@ pub fn baseline_lines(root: &Path, file: &Path) -> Option<Vec<String>> {
     Some(lines)
 }
 
-/// GIT レーンの diff 表示用に `git diff HEAD -- <file>` の unified diff を行で返す。
-/// 基準は changed_lines / baseline_lines と同じ (HEAD → 初期 repo は index)。
-/// untracked で差分が空になる場合だけ --no-index で全行を追加として出す。
-pub fn file_diff(root: &Path, file: &Path) -> Option<Vec<String>> {
-    let mut output = run_git(root, diff_args(&["diff", "HEAD", "--no-color"], file));
-    if !output.as_ref().is_some_and(|o| o.status.success()) {
-        output = run_git(root, diff_args(&["diff", "--no-color"], file));
-    }
-    let text = match output {
-        Some(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
-        _ => String::new(),
-    };
+/// GIT レーンの diff 表示用に unified diff を行で返す。基準は `DiffBase` で切替:
+/// Head は changed_lines / baseline_lines と同じ (HEAD → 初期 repo は素の diff)、
+/// Staged は index vs HEAD、Unstaged は worktree vs index。
+/// untracked で差分が空になる場合の --no-index フォールバックは Head/Unstaged のみ
+/// (Staged では「index にまだ無い」が正しい状態なので --no-index を出さない)。
+pub fn file_diff(root: &Path, file: &Path, base: DiffBase) -> Option<Vec<String>> {
+    let text = diff_text(root, file, base);
     if !text.trim().is_empty() {
         return Some(text.lines().map(str::to_string).collect());
+    }
+    if base == DiffBase::Staged {
+        return None;
     }
     // untracked は index にもエントリが無いため上の diff では何も出ない。
     // --no-index は差分ありを exit code 1 で返すので status は見ずに stdout だけ拾う
@@ -153,6 +189,26 @@ pub fn file_diff(root: &Path, file: &Path) -> Option<Vec<String>> {
         return None;
     }
     Some(text.lines().map(str::to_string).collect())
+}
+
+fn diff_text(root: &Path, file: &Path, base: DiffBase) -> String {
+    let output = match base {
+        DiffBase::Head => {
+            let mut output = run_git(root, diff_args(&["diff", "HEAD", "--no-color"], file));
+            if !output.as_ref().is_some_and(|o| o.status.success()) {
+                output = run_git(root, diff_args(&["diff", "--no-color"], file));
+            }
+            output
+        }
+        // --cached は HEAD の無い初期 repo でも動く (index を空 tree と比較する)。
+        // フォールバックが要らないのは Head と違う点
+        DiffBase::Staged => run_git(root, diff_args(&["diff", "--cached", "--no-color"], file)),
+        DiffBase::Unstaged => run_git(root, diff_args(&["diff", "--no-color"], file)),
+    };
+    match output {
+        Some(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => String::new(),
+    }
 }
 
 fn diff_args(base: &[&str], file: &Path) -> Vec<OsString> {
@@ -177,17 +233,29 @@ fn parse_hunk_header(line: &str) -> Option<(usize, usize)> {
     Some((start, count))
 }
 
+// untracked (`??`) は index に相当するものが無いので、両側とも Untracked を入れて XY = "??" にする
 fn classify(x: char, y: char) -> FileStatus {
     if x == '?' && y == '?' {
-        FileStatus::Untracked
-    } else if x == 'R' || y == 'R' {
-        FileStatus::Renamed
-    } else if x == 'A' {
-        FileStatus::Added
-    } else if x == 'D' || y == 'D' {
-        FileStatus::Deleted
-    } else {
-        FileStatus::Modified
+        return FileStatus {
+            index: Some(StatusKind::Untracked),
+            worktree: Some(StatusKind::Untracked),
+        };
+    }
+    FileStatus {
+        index: status_kind(x),
+        worktree: status_kind(y),
+    }
+}
+
+// porcelain の 1 文字コードを StatusKind へ。空白は「その側は変更なし」で None。
+// M/C/T 等その他の文字は既存挙動 (未分類は Modified 扱い) を維持する
+fn status_kind(code: char) -> Option<StatusKind> {
+    match code {
+        ' ' => None,
+        'A' => Some(StatusKind::Added),
+        'D' => Some(StatusKind::Deleted),
+        'R' => Some(StatusKind::Renamed),
+        _ => Some(StatusKind::Modified),
     }
 }
 

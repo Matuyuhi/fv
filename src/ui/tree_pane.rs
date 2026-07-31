@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{List, ListItem};
 
 use crate::app::{App, Focus};
-use crate::git::FileStatus;
+use crate::git::{FileStatus, StatusKind};
 
 use super::pane_block;
 
@@ -34,7 +34,7 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             };
             // ディレクトリは git.files に直接エントリを持たないため自然に None になる
             let file_status = git.and_then(|g| g.files.get(&row.path).copied());
-            let prefix = file_status.map(status_prefix).unwrap_or("");
+            let prefix = file_status.map(status_prefix).unwrap_or_default();
             let icon = if app.icons {
                 let glyph = if row.is_dir {
                     super::icons::dir_icon(row.expanded)
@@ -83,21 +83,38 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut app.tree.list_state);
 }
 
-// ツリーの行頭に置く1文字+空白のマーカー
-fn status_prefix(status: FileStatus) -> &'static str {
-    match status {
-        FileStatus::Modified => "M ",
-        FileStatus::Added => "A ",
-        FileStatus::Untracked => "? ",
-        FileStatus::Deleted => "D ",
-        FileStatus::Renamed => "R ",
+// ツリーの行頭に置く XY (index 側 + worktree 側) + 空白のマーカー。
+// git status --short と同じ並びで "M " = ステージ済みのみ、" M" = 未ステージのみ、
+// "MM" = 両方、"??" = untracked を表す
+fn status_prefix(status: FileStatus) -> String {
+    format!(
+        "{}{} ",
+        status_char(status.index),
+        status_char(status.worktree)
+    )
+}
+
+fn status_char(kind: Option<StatusKind>) -> char {
+    match kind {
+        None => ' ',
+        Some(StatusKind::Modified) => 'M',
+        Some(StatusKind::Added) => 'A',
+        Some(StatusKind::Untracked) => '?',
+        Some(StatusKind::Deleted) => 'D',
+        Some(StatusKind::Renamed) => 'R',
     }
 }
 
+// 色は worktree 側を優先する (未ステージの変更の方がこれから触る対象として目立たせたいため)。
+// 未ステージが無ければ index 側で判定する。両方 None は file_status が Some を返す限り
+// 実際には起こらない (porcelain の行は必ずどちらかに変更を持つ)
 fn status_color(status: FileStatus) -> Color {
-    match status {
-        FileStatus::Modified => Color::Yellow,
-        FileStatus::Added | FileStatus::Untracked | FileStatus::Renamed => Color::Green,
-        FileStatus::Deleted => Color::Red,
+    match status.worktree.or(status.index) {
+        Some(StatusKind::Modified) => Color::Yellow,
+        Some(StatusKind::Added) | Some(StatusKind::Untracked) | Some(StatusKind::Renamed) => {
+            Color::Green
+        }
+        Some(StatusKind::Deleted) => Color::Red,
+        None => Color::Yellow,
     }
 }
