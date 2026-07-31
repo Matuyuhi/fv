@@ -87,10 +87,13 @@ impl App {
             self.cycle_lane();
             return;
         }
-        // Issues/PR タブは #33/#34 までプレースホルダ。Lane/ツリー/ビューアの概念を持たないので
-        // 以降のディスパッチには流さず、共通のグローバルキーだけをここで拾う
+        // Viewer 以外のタブは Lane/ツリー/ビューアの概念を持たないので、以降の共通ディスパッチには
+        // 流さずここで専用のハンドラに振り分ける。PullRequests (#34) はまだ中身が無いプレースホルダ
         if !matches!(self.workspace, Workspace::Viewer) {
-            self.on_workspace_key(key);
+            match self.workspace {
+                Workspace::Issues => self.on_issues_key(key, ctrl),
+                _ => self.on_workspace_key(key),
+            }
             return;
         }
         // 編集中は q/s/Tab 等のグローバルキーも全て文字入力として扱うため、
@@ -258,7 +261,8 @@ impl App {
     }
 
     // Search の確定先は Lane で振り分ける (#31: GIT レーンの diff 内検索は GitState 側に持つ)。
-    // Goto は View レーンの `:` からしか届かないので lane 分岐は要らない
+    // Goto は View レーンの `:` からしか届かないので lane 分岐は要らない。Filter は Workspace
+    // (issues/PR タブ) 側の状態なので Lane ではなく workspace で振り分ける
     fn cancel_input(&mut self, kind: InputKind) {
         match kind {
             InputKind::Search => match &mut self.lane {
@@ -267,6 +271,11 @@ impl App {
             },
             // Goto は確定時にしか状態を変えないので、キャンセル時に戻すものがない
             InputKind::Goto => {}
+            InputKind::Filter => {
+                if matches!(self.workspace, Workspace::Issues) {
+                    self.issues.cancel_filter_edit();
+                }
+            }
         }
     }
 
@@ -282,6 +291,11 @@ impl App {
                     && let Ok(line_no) = buffer.parse::<usize>()
                 {
                     self.viewer.goto_line(line_no);
+                }
+            }
+            InputKind::Filter => {
+                if matches!(self.workspace, Workspace::Issues) {
+                    self.issues.confirm_filter_edit();
                 }
             }
         }
@@ -301,11 +315,19 @@ impl App {
             }
             // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
             InputKind::Goto => {}
+            InputKind::Filter => {
+                if let Mode::Input { buffer, .. } = &self.mode
+                    && matches!(self.workspace, Workspace::Issues)
+                {
+                    self.issues.set_query(buffer.clone());
+                }
+            }
         }
     }
 
-    // Issues/PR タブ (プレースホルダ) 中に拾うグローバルキー。ツリー・ビューア相当の操作は
-    // まだ中身が無いので受けない (#33/#34 で個別のハンドラに置き換わる)
+    // Issues/PR タブ共通のグローバルキー (q/?/s)。ツリー・ビューア相当の操作を持つタブは
+    // これより先に自前のハンドラ (on_issues_key 等) で処理して return するので、ここに来るのは
+    // まだ中身の無い PullRequests (#34) だけ
     fn on_workspace_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
@@ -313,6 +335,142 @@ impl App {
             KeyCode::Char('s') => self.mode = Mode::Settings(SettingsState::default()),
             _ => {}
         }
+    }
+
+    // issues タブ (#33) のグローバルキー。フォーカスに依らない操作 (o/r/t/フィルタ開始) を先に拾い、
+    // 残りは on_tree_key/on_viewer_key と同じ「フォーカスで振り分け」に揃える
+    fn on_issues_key(&mut self, key: KeyEvent, ctrl: bool) {
+        match key.code {
+            KeyCode::Char('q') => {
+                self.should_quit = true;
+                return;
+            }
+            KeyCode::Char('?') => {
+                self.mode = Mode::Help;
+                return;
+            }
+            KeyCode::Char('s') => {
+                self.mode = Mode::Settings(SettingsState::default());
+                return;
+            }
+            KeyCode::Tab => {
+                self.pending_g = false;
+                self.focus = match self.focus {
+                    Focus::Tree => Focus::Viewer,
+                    Focus::Viewer => Focus::Tree,
+                };
+                return;
+            }
+            KeyCode::Char('o') => {
+                self.open_issue_web();
+                return;
+            }
+            KeyCode::Char('r') => {
+                self.refresh_issues();
+                return;
+            }
+            KeyCode::Char('t') => {
+                self.issues.cycle_state_filter();
+                return;
+            }
+            // 絞り込みは一覧側にフォーカスがある時だけ (詳細ペインでの / は将来 diff 内検索等に
+            // 予約したいので、ここでは今の要求 (一覧のみ) 通りに絞る)
+            KeyCode::Char('/') if self.focus == Focus::Tree => {
+                self.issues.begin_filter_edit();
+                self.mode = Mode::Input {
+                    kind: InputKind::Filter,
+                    buffer: self.issues.query.clone(),
+                };
+                return;
+            }
+            _ => {}
+        }
+        match self.focus {
+            Focus::Tree => self.on_issues_list_key(key, ctrl),
+            Focus::Viewer => self.on_issues_detail_key(key, ctrl),
+        }
+    }
+
+    fn on_issues_list_key(&mut self, key: KeyEvent, ctrl: bool) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                self.issues.select_top();
+                return;
+            }
+        }
+        let half_page = (self.issues.list_area_height / 2).max(1) as isize;
+        match key.code {
+            KeyCode::Char('d') if ctrl => self.issues.move_selection(half_page),
+            KeyCode::Char('u') if ctrl => self.issues.move_selection(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => self.issues.move_selection(1),
+            KeyCode::Char('k') | KeyCode::Up => self.issues.move_selection(-1),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => self.issues.select_bottom(),
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => self.open_selected_issue(),
+            _ => {}
+        }
+    }
+
+    // 詳細ペインのスクロール。GIT/LOG の diff ペインと同じ操作感だが、折返しは常時 ON 固定
+    // (issuesview::IssuesState 参照) なので w/h/l/0 は割り当てない
+    fn on_issues_detail_key(&mut self, key: KeyEvent, ctrl: bool) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                self.issues.jump_to_top();
+                return;
+            }
+        }
+        let half_page = (self.issues.viewport.height / 2).max(1) as isize;
+        match key.code {
+            KeyCode::Char('d') if ctrl => self.issues.scroll_by(half_page),
+            KeyCode::Char('u') if ctrl => self.issues.scroll_by(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => self.issues.scroll_by(1),
+            KeyCode::Char('k') | KeyCode::Up => self.issues.scroll_by(-1),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => self.issues.jump_to_bottom(),
+            _ => {}
+        }
+    }
+
+    /// r / 初回タブ表示: issues 一覧を取得する。実行中の取得があれば二重起動しない
+    /// (App::ensure_issues_loaded と同じガードをここでも通す)
+    pub(super) fn refresh_issues(&mut self) {
+        if self.issues.list_loading() {
+            return;
+        }
+        let root = self.root.clone();
+        let rx = crate::job::spawn(move || crate::github::list_issues(&root));
+        self.issues.begin_list_fetch(rx);
+    }
+
+    /// Enter/l/クリック共通の詳細オープン。キャッシュ済み・取得中なら job を起動しない
+    /// (IssuesState::request_open が判定する)
+    pub(super) fn open_selected_issue(&mut self) {
+        let Some(number) = self.issues.selected_number() else {
+            return;
+        };
+        if !self.issues.request_open(number) {
+            return;
+        }
+        let root = self.root.clone();
+        let rx = crate::job::spawn(move || (number, crate::github::issue_detail(&root, number)));
+        self.issues.begin_detail_fetch(rx);
+    }
+
+    /// o: ブラウザで開く。多重起動防止のみ行い、成功時は notice を出さない (ブラウザが
+    /// 実際に開いたかどうかは OS 側の話で、fv 側からは gh の exit code しか分からないため)
+    fn open_issue_web(&mut self) {
+        let Some(number) = self.issues.selected_number() else {
+            return;
+        };
+        if self.issues.open_web_in_flight() {
+            return;
+        }
+        let root = self.root.clone();
+        let rx = crate::job::spawn(move || crate::github::open_issue_web(&root, number));
+        self.issues.begin_open_web(rx);
     }
 
     fn on_edit_key(&mut self, key: KeyEvent) {

@@ -40,8 +40,8 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(走査・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
-- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
-- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit・branches/branch_status/switch 系・fetch/pull/push) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
+- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), issues_pane.rs(issues タブの一覧+詳細), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
+- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit・branches/branch_status/switch 系・fetch/pull/push) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`) / `issuesview.rs`(issues タブの一覧フィルタ・詳細キャッシュ・ジョブ管理の状態) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
 キーマップ飽和を避けるため、状態を3軸に分けている。**新しい機能を足す時はどの軸かをまず決める**。
@@ -65,7 +65,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - wrap は閲覧・編集とも **char 単位の自前分割**（`Paragraph::wrap` は単語境界 wrap で折返し位置が外から計算できないため全面的に不使用）。視覚行数は描画（text_pane）・カーソル追従（ensure_visible）・クリック座標（click_at）の 3 者が `text::wrap_rows` を共有し、ズレると即カーソル位置バグになる
 
 ### キールーティングの優先順位（app/keys.rs on_key）
-Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → Mode::Commit → Mode::Branch → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップ** → Lane::Edit → Ctrl+p → q/?/a/s/c/C/b/f/p/P/Tab → **Z(stash pop、レーン不問)** → **X/z(discard・stash push、GIT レーン限定)** → focus 別ディスパッチ。f/p/P (#27 リモート操作) は c/C/b と同じ位置・同じ理由 (レーンを問わず開ける) でここに置く。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。Z (stash pop) だけレーンを問わず呼べる理由は「破棄 (discard) と stash」節を参照。
+Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto/Filter) → Mode::Commit → Mode::Branch → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップし on_issues_key/on_workspace_key へ**（#33: Issues は `on_issues_key` が focus 別に一覧/詳細へ振り分ける。#34 までの PullRequests は `on_workspace_key` のプレースホルダのまま） → Lane::Edit → Ctrl+p → q/?/a/s/c/C/b/f/p/P/Tab → **Z(stash pop、レーン不問)** → **X/z(discard・stash push、GIT レーン限定)** → focus 別ディスパッチ。f/p/P (#27 リモート操作) は c/C/b と同じ位置・同じ理由 (レーンを問わず開ける) でここに置く。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。Z (stash pop) だけレーンを問わず呼べる理由は「破棄 (discard) と stash」節を参照。
 ツリーのキー処理（`on_tree_key`）は VIEW/GIT で共通で、**「開く」対象のパスを返すだけ**にしてある。viewer に開くか diff に開くかの振り分けは `App::open_selected` 1 箇所に閉じている（ツリー操作をレーンごとに複製しない）。LOG は左ペインがツリーではないため `on_tree_key` には乗せず、`Focus::Tree` の分岐で `Lane::Log` だけ `on_log_list_key` へ振り分ける（`Focus::Viewer` 側も同様に `on_log_diff_key` を割り込ませる）。
 
 ### 桁位置の整合インバリアント（複数ファイルに跨る前提）
@@ -84,6 +84,18 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 
 ### GitHub モードのタブバー（app/mouse.rs on_tab_mouse・ui/tab_bar.rs）
 タブごとの列範囲は `App::tab_areas`（`ui/tab_bar.rs` が毎フレーム書き戻す、`tree_area`/`splitter_area` と同じ ui→app のパターン）。クリック判定 `on_tab_mouse` はペイン境界のドラッグと同じ理由でレーン・オーバーレイ判定より前に処理して消費する（タブ移動はレーンと直交する操作）。`workspace_available` が false の間は `tab_areas` が全て空 Rect のままなので、判定コードを分岐させなくても自然に無効化される。
+
+### issues タブ（#33、github.rs + issuesview.rs + ui/issues_pane.rs）
+- 取得は `gh issue list`/`gh issue view` を CLI 呼び出しで済ませ、`--json` の生 JSON を自前パースする代わりに `--template` で `\0` 区切りのプレーンテキストへ整形させてから porcelain -z と同じ流儀でパースする（serde を足さないため）。`--template` 単独では gh が使うフィールドを決められないため `--json number,title,author,updatedAt,labels,state` を必ず併せて渡す
+- **一覧は `--state all` で常に 1 回だけ取得する**。`t`（open/closed/all の循環）は再取得せず `IssuesState::state_filter` によるローカルフィルタに閉じる — 「タブを往復しても gh を叩かない」という要求と同じ理由で、state 切替のたびに gh を叩くのは避けたい。副作用として `--limit 100` の枠を open/closed 合算で消費する（極端に issue が多い repo では新しい open issue が一覧から漏れうるが、`r` で明示的に取り直せる）
+- `RemoteItem`（github.rs）は issue 固有の項目を持たない一覧行の型。`gh issue list`/`gh pr list`（#34）はどちらも同じ `--json` フィールド名（number/title/author/updatedAt/labels/state）を返すため、#34 が型を分けずにそのまま再利用できる。一覧側の絞り込み・スコアリング・キャッシュ・ジョブ管理（issuesview.rs）も issue 固有の要素を持たず、issue 固有なのは詳細（`gh issue view` のプレーン出力）だけに閉じている
+- フィルタ（`/`）は branch.rs::BranchState と同じパターンで、新しいマッチャを書かず `finder.rs::fuzzy_match` を再利用する。Search（`Mode::Input`）と同じ枠組みに乗せるため `InputKind::Filter` を追加したが、意味は Search と異なる：一覧の絞り込みは編集を始める前から existing な「常設状態」なので、Esc は Search の「全消去」ではなく「編集を始める前のクエリへ復元」にした（`IssuesState::begin_filter_edit`/`cancel_filter_edit` が snapshot を持つ）
+- 一覧・詳細・ブラウザで開く (`o`) の 3 操作はすべて `job.rs` (#27) に乗せる。詳細は issue 番号ごとに `HashMap` でキャッシュし、選択を変えても再取得しない。**未キャッシュ・未取得中のときだけ** job を起動する判定 (`IssuesState::request_open`) に一本化し、Enter を連打しても二重起動しない。取得失敗はキャッシュに残さない (`detail_errors` は成功でクリアするだけ) ので、再度 Enter で再試行できる
+- 詳細の `Viewport` は VIEW/EDIT・GIT・LOG のいずれとも独立 (`IssuesState.viewport`)。他レーンと違い折返しトグル (`w`) を割り当てていない — issue 本文はコード行と違い折返しが基本的に必要な prose なので、常に `wrap = true` で固定し config にも保存しない
+- Focus (Tree/Viewer) は Lane 用に定義された既存の enum をそのまま流用する（新しい variant を増やさない。GIT/LOG が「左ペイン/右ペイン」の意味を再利用するのと同じ考え方）。Workspace::Issues に入った瞬間は GIT/LOG と同じく Focus::Tree（一覧側）に寄せる
+- `j`/`k` で詳細ペインを自動追従させない（Enter/l/クリックでのみ開く）。GIT のツリー・LOG の一覧と同じ理由（キーリピートで gh を連打しないため）
+- 一覧の描画は「タイトルを最優先で残し、狭い端末では author → 更新日時 → labels の順に列を落とす」（`ui/issues_pane.rs` の閾値定数）。char 単位のファジーマッチ位置ハイライトは branch_panel.rs::highlight_name と同じ組み立て方
+- gh 未インストール/未認証/GitHub リモートでない場合は `github::check_available`（既存、#32）が起動時に一度だけ弾くため、issues タブ自体がタブバーに現れない。issuesview.rs 側の取得コードは「gh は動く前提」で書いてよく、ここでの失敗はネットワーク断・API レート制限・issue 権限等の実行時エラーに限られる（`list_error`/`detail_errors` で表示するだけで panic しない）
 
 ### ツリー走査と FS 監視
 - 走査は起動時に WalkBuilder 1 回で一括（サブディレクトリ起点の遅延走査だと親の .gitignore が効かない）。`require_git(false)` で非 git ディレクトリでも .gitignore を尊重

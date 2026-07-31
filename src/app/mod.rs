@@ -18,6 +18,7 @@ use crate::editor::EditState;
 use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
 use crate::gitview::GitState;
+use crate::issuesview::IssuesState;
 use crate::job;
 use crate::logview::LogState;
 use crate::tree::Tree;
@@ -49,6 +50,9 @@ pub struct App {
     /// トップレベルのタブ (Lane/Mode に続く3本目の軸)。GitHub モードが無効/使えない間は
     /// 常に Viewer 固定 (workspace_available が false の間、切替キーは全て no-op にする)
     pub workspace: Workspace,
+    /// issues タブ (#33) の状態。GitHub モードが無効でも構築コスト自体はゼロ (フィールドが
+    /// 空のまま) なので、常に持たせて Workspace::Issues に切り替わった時だけ取得を始める
+    pub issues: IssuesState,
     pub tree: Tree,
     pub viewer: Viewer,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
@@ -142,6 +146,7 @@ impl App {
             lane: Lane::View,
             mode: Mode::Normal,
             workspace: Workspace::Viewer,
+            issues: IssuesState::new(),
             tree,
             viewer,
             git,
@@ -215,6 +220,11 @@ impl App {
         {
             self.remote_job_rx = None;
             self.finish_remote_job(outcome);
+        }
+        // issues タブ (#33) の list/detail/open ジョブも同じ 100ms poll ループに相乗りさせる。
+        // 専用タイマーは作らない (job.rs の既存方針)
+        if let Some((message, is_error)) = self.issues.poll() {
+            self.set_notice(message, is_error);
         }
         let Some(watcher) = &self.watcher else {
             return;
@@ -455,6 +465,7 @@ impl App {
             return;
         }
         self.workspace = Workspace::from_index((self.workspace.index() + 1) % 3);
+        self.after_workspace_change();
     }
 
     /// Alt+1..3・タブクリック共通の直接指定。使えない間は no-op
@@ -463,6 +474,21 @@ impl App {
             return;
         }
         self.workspace = workspace;
+        self.after_workspace_change();
+    }
+
+    // cycle_workspace/set_workspace 共通の遷移後処理。同じガード (issues が初回取得済みか) を
+    // 呼び出し側に重複させないための唯一の入口 (keys.rs の関数コピーを避ける方針と同じ理由)
+    fn after_workspace_change(&mut self) {
+        if !matches!(self.workspace, Workspace::Issues) {
+            return;
+        }
+        // 入った直後の主操作は一覧側の選択なので、GIT/LOG と同じくツリー相当にフォーカスを寄せる
+        self.focus = Focus::Tree;
+        // 初回タブ表示時に 1 回だけ取得する。タブを往復しても再取得しない (issue #33 の要求)
+        if !self.issues.fetched() && !self.issues.list_loading() {
+            self.refresh_issues();
+        }
     }
 
     /// ツリー・ファインダーからの「開く」の振り分け。VIEW/EDIT は viewer、GIT は diff を差し替える

@@ -51,6 +51,20 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
     );
     push_help_section(
         &mut lines,
+        "Issues (Ctrl+t / Alt+2、GitHub モード有効時)",
+        &[
+            ("j/k ↑/↓ gg/G", "一覧を移動"),
+            ("Ctrl+d/u", "一覧を半ページ移動 / 詳細を半ページスクロール"),
+            ("Tab", "一覧 ⇄ 詳細のフォーカス切替"),
+            ("Enter / l / クリック", "選択 issue の詳細を右に読み込む"),
+            ("o", "ブラウザで開く (gh issue view --web)"),
+            ("r", "一覧を再取得 (タブ往復では自動取得しない)"),
+            ("/", "一覧をファジー絞り込み (一覧側フォーカス時のみ)"),
+            ("t", "state 絞り込みを循環 (open → closed → all)"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
         "Tree",
         &[
             ("j/k ↑/↓", "上下移動"),

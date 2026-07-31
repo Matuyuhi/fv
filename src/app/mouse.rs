@@ -19,8 +19,12 @@ impl App {
         if self.on_tab_mouse(&mouse) {
             return;
         }
-        // Issues/PR タブはツリー・ビューアの概念を持たないので、タブクリック以外は無視する
+        // Viewer 以外のタブはツリー・ビューアの概念を持たない。issues (#33) だけ専用ハンドラを持ち、
+        // PullRequests (#34) はまだ中身が無いのでタブクリック以外は無視する
         if !matches!(self.workspace, Workspace::Viewer) {
+            if matches!(self.workspace, Workspace::Issues) {
+                self.on_issues_mouse(mouse);
+            }
             return;
         }
         if let Lane::Edit(_) = self.lane {
@@ -157,6 +161,50 @@ impl App {
             MouseEventKind::ScrollDown => self.viewer.scroll_by(3),
             _ => {}
         }
+    }
+
+    // issues タブ (#33) のマウス操作。左右ペインの領域判定は Viewer タブと同じ tree_area/
+    // viewer_area を使い回す (draw_issues_workspace が同じ書き戻しパターンで埋める)
+    fn on_issues_mouse(&mut self, mouse: MouseEvent) {
+        self.pending_g = false;
+        let pos = Position::new(mouse.column, mouse.row);
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self.tree_area.contains(pos) {
+                    self.focus = Focus::Tree;
+                    self.click_issue_row(mouse.row);
+                } else if self.viewer_area.contains(pos) {
+                    self.focus = Focus::Viewer;
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if self.tree_area.contains(pos) {
+                    self.issues.move_selection(-3);
+                } else if self.viewer_area.contains(pos) {
+                    self.issues.scroll_by(-3);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if self.tree_area.contains(pos) {
+                    self.issues.move_selection(3);
+                } else if self.viewer_area.contains(pos) {
+                    self.issues.scroll_by(3);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // click_tree_row と同じ座標変換 (上枠1行 + list_state.offset())。クリックは Enter/l と同じ
+    // 明示操作なので、j/k と違い自動追従 (詳細取得) を避ける理由がない
+    fn click_issue_row(&mut self, row: u16) {
+        let row =
+            row as isize - self.tree_area.y as isize - 1 + self.issues.list_state.offset() as isize;
+        if row < 0 || row as usize >= self.issues.matches.len() {
+            return;
+        }
+        self.issues.selected = row as usize;
+        self.open_selected_issue();
     }
 
     // クリックされた画面行をツリーの selected に変換する。上枠1行分を引き、
