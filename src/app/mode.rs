@@ -73,19 +73,31 @@ pub enum Mode {
     // 破壊的・書き込み系操作の確認オーバーレイ。Lane と直交する (GIT で出しても EDIT で出しても
     // 同じ挙動)。y/Enter でのみ action を実行し、それ以外の全キーは中止として扱う。
     // #23 (stage/unstage) は非破壊的なのでここを経由させず、構築元がまだ無い
-    // (#24 コミット・#25 discard/stash で実際に使われるまでの一時的な未使用)
-    #[allow(dead_code)]
     Confirm {
         prompt: String,
         action: ConfirmAction,
+    },
+    // コミットメッセージ入力オーバーレイ (`c`/`C`)。Search/Goto の 1 行入力用 Input では
+    // 複数行編集を表現できないため独立させた。buffer は改行を含む生テキスト、cursor は
+    // buffer 内の char インデックス (常に 1 次元、行/桁の 2 次元カーソルは持たない)。
+    // error は pre-commit hook 失敗時の stderr 要約 — Esc/破棄せず同じオーバーレイに留めて
+    // 見せるため Mode 自体に持たせる (App.notice だとオーバーレイを閉じた後の表示になってしまう)
+    Commit {
+        buffer: String,
+        cursor: usize,
+        amend: bool,
+        error: Option<String>,
     },
 }
 
 /// Mode::Confirm が実行する操作。クロージャは App を借りたまま呼べず持たせられないため
 /// enum にする。書き込み系の子 issue が実装されるたびにここへ variant を足していく想定。
-/// #23 (stage/unstage) は非破壊的操作なので Confirm を経由させず、まだ variant が無い
-/// (#21 の動作確認用 variant はここで役目を終えて削除した)
-pub enum ConfirmAction {}
+/// #23 (stage/unstage) は非破壊的操作なので Confirm を経由させない
+pub enum ConfirmAction {
+    // amend は履歴を書き換える (push 済みの可能性がある) ので確認を必須にする。
+    // 通常コミットは確認なしで直接実行する (issue #24 の要求通り)
+    Amend { message: String },
+}
 
 /// トップレベルのタブ ("Workspace")。Lane / Mode に続く 3 本目の軸で、GitHub モード
 /// (#32) 有効時だけヘッダに 1 行のタブバーとして現れる。Viewer が既存アプリ全体

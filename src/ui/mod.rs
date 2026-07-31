@@ -1,3 +1,4 @@
+mod commit;
 mod confirm;
 mod editor_pane;
 mod finder_panel;
@@ -66,6 +67,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     if matches!(app.mode, Mode::Confirm { .. }) {
         confirm::draw_confirm(frame, app, full);
+    }
+    if matches!(app.mode, Mode::Commit { .. }) {
+        commit::draw_commit(frame, app, full);
     }
 }
 
