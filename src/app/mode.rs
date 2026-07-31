@@ -1,3 +1,4 @@
+use crate::branch::BranchState;
 use crate::editor::EditState;
 use crate::finder::Finder;
 use crate::gitview::GitState;
@@ -88,6 +89,9 @@ pub enum Mode {
         amend: bool,
         error: Option<String>,
     },
+    // ブランチ一覧オーバーレイ (`b`)。Lane と直交する独立オーバーレイなので Finder と同じ
+    // 位置付けで、状態 (絞り込み候補・選択位置) は BranchState (branch.rs) に持たせる
+    Branch(BranchState),
 }
 
 /// Mode::Confirm が実行する操作。クロージャは App を借りたまま呼べず持たせられないため
