@@ -92,6 +92,15 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
                 "Space",
                 "選択中のファイル/ディレクトリを stage/unstage トグル",
             ),
+            (
+                "X",
+                "選択中のファイル/ディレクトリの変更を破棄 (確認あり・untracked は削除)",
+            ),
+            ("z", "変更を stash へ退避 (確認あり・untracked も含む)"),
+            (
+                "Z",
+                "直近の stash を pop (確認あり・GIT レーン以外からも可)",
+            ),
             ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
             ("t", "diff 基準を切替 (HEAD → staged → unstaged)"),
             ("Ctrl+d/u", "半ページスクロール"),

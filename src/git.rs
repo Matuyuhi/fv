@@ -438,6 +438,54 @@ pub fn stage_path(root: &Path, path: &Path, has_deletion: bool) -> GitOutcome {
     run_git_write(root, args)
 }
 
+/// discard (tracked 分): `git restore --source=HEAD --staged --worktree --`。untracked 分の
+/// 削除は git ではなく呼び出し側の fs 操作で扱うため、この関数は tracked 分のみを対象にする。
+///
+/// HEAD の無い初期 repo では `--staged` 側の復元先が HEAD しかあり得ない (index が最初の
+/// 内容そのものなので、index を復元先にする選択肢が無い) ため、`--source` を省いても
+/// 同じ「HEAD を解決できない」エラーになる (`--staged --worktree` は明示 `--source=HEAD` と
+/// 挙動が同じ。unstage_path の「try → だめなら別コマンド」とは違い、単純な代替コマンドが
+/// 存在しない)。そこで HEAD 無し repo 限定のフォールバックとして、`--worktree` 単独
+/// (index 基準で HEAD を要求しない) で worktree 側だけ index に揃えた上で、`git rm --cached`
+/// (unstage_path と同じ) で index から外す。結果としてファイルは HEAD 相当の内容へは戻らず
+/// (存在しないため) untracked として残る点は「破棄」として不完全だが、HEAD 未解決のまま
+/// エラーを見せるよりは安全側 (誤ってファイルを消さない) に倒している
+pub fn discard_path(root: &Path, path: &Path, is_dir: bool) -> GitOutcome {
+    let outcome = run_git_write(
+        root,
+        [
+            OsString::from("restore"),
+            OsString::from("--source=HEAD"),
+            OsString::from("--staged"),
+            OsString::from("--worktree"),
+            OsString::from("--"),
+            path.as_os_str().to_os_string(),
+        ],
+    );
+    if outcome.ok {
+        return outcome;
+    }
+    let worktree_outcome = run_git_write(
+        root,
+        [
+            OsString::from("restore"),
+            OsString::from("--worktree"),
+            OsString::from("--"),
+            path.as_os_str().to_os_string(),
+        ],
+    );
+    if !worktree_outcome.ok {
+        return worktree_outcome;
+    }
+    let mut args: Vec<OsString> = vec![OsString::from("rm"), OsString::from("--cached")];
+    if is_dir {
+        args.push(OsString::from("-r"));
+    }
+    args.push(OsString::from("--"));
+    args.push(path.as_os_str().to_os_string());
+    run_git_write(root, args)
+}
+
 /// unstage: `git restore --staged --`。HEAD の無い初期 repo では restore が HEAD の解決を
 /// 要求して失敗するため `git rm --cached --` にフォールバックする (ディレクトリは -r 必須)。
 /// 失敗理由をコマンドごとに判別せず常にフォールバックを試すのは、changed_lines 等
