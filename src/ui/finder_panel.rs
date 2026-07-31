@@ -10,6 +10,12 @@ use crate::finder::Finder;
 use super::centered_rect;
 
 pub(super) fn draw_finder(frame: &mut Frame, app: &mut App, area: Rect) {
+    // 背景走査中は候補が読み込み済み分だけの暫定値なので、件数が増える途中であることを示す
+    let title = if app.file_index.scanning() {
+        "finder (Ctrl+p) scanning..."
+    } else {
+        "finder (Ctrl+p)"
+    };
     let Mode::Finder(finder) = &mut app.mode else {
         return;
     };
@@ -20,7 +26,7 @@ pub(super) fn draw_finder(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title("finder (Ctrl+p)");
+        .title(title);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 

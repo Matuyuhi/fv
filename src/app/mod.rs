@@ -14,6 +14,7 @@ use crate::config::Config;
 use crate::editor::EditState;
 use crate::git::{self, GitStatus};
 use crate::gitview::GitState;
+use crate::index::FileIndex;
 use crate::tree::Tree;
 use crate::viewer::{self, Viewer};
 use crate::watch::FsWatcher;
@@ -35,6 +36,8 @@ pub struct App {
     pub mode: Mode,
     pub tree: Tree,
     pub viewer: Viewer,
+    /// Finder の候補。ツリーが遅延走査になったぶん、全ファイル一覧は別に持つ
+    pub file_index: FileIndex,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
     pub git: Option<GitStatus>,
     // Nerd Font アイコン表示。起動時に確定し実行中は変わらない (判定は main 側)
@@ -52,7 +55,7 @@ pub struct App {
     dragging_split: Option<u16>,
     // 左ペインが画面幅に占める割合 (config に永続化)
     split_ratio: f32,
-    watcher: Option<FsWatcher>,
+    watcher: FsWatcher,
     last_rescan: Instant,
     rescan_pending: bool,
 }
@@ -60,7 +63,8 @@ pub struct App {
 impl App {
     pub fn new(root: PathBuf, config: Config) -> Self {
         let tree = Tree::new(&root, config.show_hidden);
-        // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
+        // 再帰監視の登録は別スレッドで進む (起動を待たせない)。失敗しても
+        // 監視なしで動き続ける
         let watcher = FsWatcher::new(&root, config.show_hidden);
         let git = git::file_statuses(&root);
         let mut viewer = Viewer::new();
@@ -68,6 +72,7 @@ impl App {
         // 設定ファイルのテーマ名が壊れていても set_theme が false を返すだけで、
         // Viewer::new() が入れた既定テーマのまま起動を続ける (パニックしない)
         viewer.set_theme(&config.theme);
+        let file_index = FileIndex::new(root.clone(), config.show_hidden);
         Self {
             root,
             focus: Focus::Tree,
@@ -75,6 +80,7 @@ impl App {
             mode: Mode::Normal,
             tree,
             viewer,
+            file_index,
             git,
             icons: config.icons,
             should_quit: false,
@@ -114,10 +120,16 @@ impl App {
     /// watcher に溜まったファイル変更を取り込む。キー入力の有無に関わらず、
     /// イベントループの毎 tick (poll タイムアウト時も含む) で呼ばれる。
     pub fn on_tick(&mut self) {
-        let Some(watcher) = &self.watcher else {
-            return;
-        };
-        let changed = watcher.drain();
+        // 背景走査が終わったら、開いたままの Finder の候補も差し替える
+        // (走査中に開いた場合は読み込み済み分だけの暫定候補になっているため)
+        if self.file_index.poll()
+            && let Mode::Finder(finder) = &mut self.mode
+            && let Some(files) = self.file_index.files()
+        {
+            finder.set_candidates(to_candidates(files));
+        }
+
+        let changed = self.watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
 
         for path in &changed {
@@ -144,7 +156,10 @@ impl App {
     /// ツリーと git status をまとめて再取得する。FS 監視の間引き後と、
     /// 手動再走査 (r キー) の両方から呼ばれる共通処理。
     fn rescan(&mut self) {
-        self.tree.rescan(&self.root);
+        self.tree.rescan();
+        // ツリーに現れない (未展開の) 変更も候補一覧には効くので、次に Finder を
+        // 開くときに歩き直させる。ここで走査を起こすと保存のたびに全走査になる
+        self.file_index.invalidate();
         self.git = git::file_statuses(&self.root);
         if !matches!(self.lane, Lane::Git(_)) {
             return;
@@ -299,7 +314,8 @@ impl App {
     }
 
     pub fn toggle_hidden(&mut self) {
-        let show_hidden = self.tree.toggle_hidden(&self.root);
+        let show_hidden = self.tree.toggle_hidden();
+        self.file_index.set_show_hidden(show_hidden);
         // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。
         self.watcher = FsWatcher::new(&self.root, show_hidden);
         self.last_rescan = Instant::now();
@@ -343,6 +359,15 @@ impl App {
     fn persist_config(&self) {
         let _ = self.current_config().save();
     }
+}
+
+// Finder の候補は相対パス文字列。FileIndex とツリー (走査完了前の代用) の
+// どちらから来ても同じ形に揃える
+pub(super) fn to_candidates(files: &[PathBuf]) -> Vec<String> {
+    files
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect()
 }
 
 // 最小幅を満たせない極端に狭い端末では下限を諦めて半分ずつにする
