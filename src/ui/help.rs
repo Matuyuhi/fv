@@ -27,10 +27,15 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("Shift+Tab", "モード切替 (VIEW → EDIT → GIT → LOG)"),
             ("Tab", "フォーカス切替 (Tree/Viewer)"),
             ("Ctrl+p", "ファインダーを開く"),
+            ("b", "ブランチ一覧オーバーレイを開く (git repo でのみ)"),
             ("?", "このヘルプを開く"),
             ("s", "設定画面を開く"),
             ("a", "隠し項目の表示を切替"),
             ("-a, --hidden", "起動時に隠し項目を表示"),
+            (
+                "ステータスバー",
+                "現在ブランチ + ahead/behind を常時表示 (git repo のみ)",
+            ),
         ],
     );
     push_help_section(
@@ -181,6 +186,23 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
                 "Esc",
                 "閉じる (書きかけは下書きとして残り、再度 c/C で復元)",
             ),
+        ],
+    );
+    push_help_section(
+        &mut lines,
+        "Branch (b、レーンを問わず開ける)",
+        &[
+            ("文字入力", "ブランチ名をファジー絞り込み"),
+            ("↑/↓ Ctrl+p", "候補選択 (Ctrl+n は新規作成に予約)"),
+            (
+                "Enter",
+                "選択中のブランチへ切替 (リモートは追跡ブランチを作成)",
+            ),
+            (
+                "Ctrl+n",
+                "入力文字列が既存ブランチと不一致なら新規作成して切替",
+            ),
+            ("Esc", "閉じる"),
         ],
     );
     push_help_section(

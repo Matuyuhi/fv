@@ -51,6 +51,9 @@ pub struct App {
     pub viewer: Viewer,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
     pub git: Option<GitStatus>,
+    /// ステータスバー常時表示用の現在ブランチ + ahead/behind。非 git repo なら None。
+    /// 取得は起動時と rescan (500ms デバウンス) に相乗りさせ、描画のたびには叩かない
+    pub branch_status: Option<git::BranchStatus>,
     /// レーンをまたぐ一時通知 (message, 表示開始時刻, is_error)。EditState.notice は EDIT レーン
     /// 専用の表示なのでそのまま残し、こちらは GIT の書き込み結果等レーン非依存のメッセージに使う。
     /// on_tick で期限切れにし、再描画のたびにタイマーは触らない
@@ -104,6 +107,7 @@ impl App {
         // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
         let watcher = FsWatcher::new(&root, config.show_hidden);
         let git = git::file_statuses(&root);
+        let branch_status = git::branch_status(&root);
         // 削除ファイルは WalkBuilder の走査に出てこないため、起動時点でも合成ノードを足しておく
         // (GIT レーンへ入る前でも status 表示・将来の選択に矛盾が出ないように)
         tree.sync_deleted(&root, &deleted_paths_of(&git));
@@ -122,6 +126,7 @@ impl App {
             tree,
             viewer,
             git,
+            branch_status,
             notice: None,
             icons: config.icons,
             should_quit: false,
@@ -215,6 +220,8 @@ impl App {
         // sync_deleted は tree.rescan (nodes を作り直す) の後に、かつ新しい git status を
         // 使って呼ぶ必要があるため、この順序で並べる
         self.git = git::file_statuses(&self.root);
+        // ステータスバーの常時表示もこの 500ms デバウンスに相乗りさせる (専用タイマーは作らない)
+        self.branch_status = git::branch_status(&self.root);
         self.tree.rescan(&self.root);
         self.tree.sync_deleted(&self.root, &self.deleted_paths());
         // LOG は FS 監視の対象外 (.git は watch.rs のフィルタで除外される) なので取り直しは
@@ -366,6 +373,12 @@ impl App {
         // GIT と同じ理由 (入った直後の主操作は一覧側の選択) でツリー相当のフォーカスに寄せる
         self.focus = Focus::Tree;
         true
+    }
+
+    /// ブランチ一覧オーバーレイ (`b`) を開けるか。LOG と同じく変更の有無を問わず、
+    /// git repo でありさえすればよい (一覧が空でも BranchState 側が空を前提に組んである)
+    pub fn branch_available(&self) -> bool {
+        self.git.is_some()
     }
 
     /// GitHub モードのタブバーを実際に出してよいか。有効化されていて (github_enabled) かつ

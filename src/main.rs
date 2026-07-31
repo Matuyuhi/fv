@@ -1,4 +1,5 @@
 mod app;
+mod branch;
 mod config;
 mod editor;
 mod finder;

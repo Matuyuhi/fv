@@ -105,7 +105,9 @@ impl Finder {
 // 各クエリ文字は「直前の一致位置より後で最初に現れる位置」を貪欲に選ぶ2ポインタ法。
 // 最適なアラインメントを保証するものではないが、クエリを連続入力すれば自然と
 // 連続一致になるため実用上は十分で、数千件を毎キー入力で線形走査しても軽い
-fn fuzzy_match(candidate: &str, query: &str) -> Option<(i64, Vec<usize>)> {
+//
+// pub(crate): BranchState (branch.rs) が新しいマッチャを書かずこれを再利用するため公開する
+pub(crate) fn fuzzy_match(candidate: &str, query: &str) -> Option<(i64, Vec<usize>)> {
     let hay: Vec<char> = candidate.chars().map(|c| c.to_ascii_lowercase()).collect();
     let needle: Vec<char> = query.chars().map(|c| c.to_ascii_lowercase()).collect();
     if needle.is_empty() {
