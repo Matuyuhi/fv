@@ -1,6 +1,7 @@
 use crate::editor::EditState;
 use crate::finder::Finder;
 use crate::gitview::GitState;
+use crate::logview::LogState;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -30,25 +31,27 @@ pub struct SettingsState {
     pub selected: usize,
 }
 
-/// 持続する作業レーン。Shift+Tab で View → Edit → Git → View と循環する。
-/// Edit / Git はそれぞれの状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
+/// 持続する作業レーン。Shift+Tab で View → Edit → Git → Log → View と循環する。
+/// Edit / Git / Log はそれぞれの状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
 /// (Finder と同じパターン)。オーバーレイ (Mode) を挟んでもレーンは保持されるので、
 /// GIT でヘルプを開いて閉じても GIT に戻る
 pub enum Lane {
     View,
     Edit(EditState),
     Git(GitState),
+    Log(LogState),
 }
 
 impl Lane {
     /// ステータスバーのセグメント表示。並び順は Shift+Tab の循環順と同じ
-    pub const LABELS: [&'static str; 3] = ["VIEW", "EDIT", "GIT"];
+    pub const LABELS: [&'static str; 4] = ["VIEW", "EDIT", "GIT", "LOG"];
 
     pub fn index(&self) -> usize {
         match self {
             Lane::View => 0,
             Lane::Edit(_) => 1,
             Lane::Git(_) => 2,
+            Lane::Log(_) => 3,
         }
     }
 }

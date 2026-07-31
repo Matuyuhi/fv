@@ -5,6 +5,7 @@ mod finder;
 mod git;
 mod github;
 mod gitview;
+mod logview;
 mod text;
 mod tree;
 mod ui;

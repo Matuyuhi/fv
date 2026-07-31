@@ -6,6 +6,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::app::{App, Focus, InputKind, Lane, Mode, Workspace};
 use crate::editor::EditState;
+use crate::logview::LogState;
 
 pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // レーンのセグメントは常に先頭に出す。Claude Code のモード表示と同じく
@@ -22,7 +23,12 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 fn lane_segments(app: &App) -> Vec<Span<'static>> {
     let in_viewer_workspace = matches!(app.workspace, Workspace::Viewer);
     let current = app.lane.index();
-    let available = [true, app.viewer.is_text(), app.git_available()];
+    let available = [
+        true,
+        app.viewer.is_text(),
+        app.git_available(),
+        app.log_available(),
+    ];
     let mut spans = Vec::with_capacity(Lane::LABELS.len() + 1);
     for (i, label) in Lane::LABELS.iter().enumerate() {
         let style = if i == current && in_viewer_workspace {
@@ -69,6 +75,7 @@ fn hint_line(app: &App) -> Line<'static> {
             match &app.lane {
                 Lane::Edit(state) => edit_status_line(state),
                 Lane::Git(_) => git_status_line(app),
+                Lane::Log(state) => log_status_line(app, state),
                 Lane::View => normal_status_line(app),
             }
         }
@@ -123,6 +130,19 @@ fn git_status_line(app: &App) -> Line<'static> {
         Focus::Viewer => "j/k: scroll  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
     };
     Line::from(format!("{} changes  {hint}", app.tree.visible_files()))
+}
+
+fn log_status_line(app: &App, log: &LogState) -> Line<'static> {
+    if app.pending_g {
+        return Line::from("g");
+    }
+    let hint = match app.focus {
+        Focus::Tree => {
+            "j/k: move  Enter/l: diff  gg/G: top/bottom  Tab: focus  Shift+Tab: mode  ?: help"
+        }
+        Focus::Viewer => "j/k: scroll  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
+    };
+    Line::from(format!("{} commits  {hint}", log.commits().len()))
 }
 
 fn normal_status_line(app: &App) -> Line<'static> {

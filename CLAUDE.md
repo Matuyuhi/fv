@@ -40,18 +40,18 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(走査・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo)
-- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, help.rs, confirm.rs(確認オーバーレイ)
-- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write) / `gitview.rs`(GIT レーンの diff 表示状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `watch.rs`(notify)
+- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, help.rs, confirm.rs(確認オーバーレイ)
+- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーンの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定) / `watch.rs`(notify)
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
 キーマップ飽和を避けるため、状態を3軸に分けている。**新しい機能を足す時はどの軸かをまず決める**。
 - `Workspace`（app/mode.rs）= トップレベルのタブ。`Viewer` / `Issues` / `PullRequests` の3つで、GitHub モード（既定 off）有効時だけ **Ctrl+t で循環**（`App::cycle_workspace`）・Alt+1..3 で直接指定・タブクリックで切替。`Workspace::Viewer` が既存アプリ全体（Lane 3 種 + ツリー + オーバーレイ）にあたり、Issues/PullRequests は「ローカルのファイル」という文脈を共有しないリモートのデータなので Lane には混ぜない（Shift+Tab で編集中から PR 一覧に飛ぶとレーンの意味が壊れるため）。GitHub モードが無効/使えない間は Workspace は Viewer 固定で、タブバーの1行も確保しない（`ui::draw` が `App::workspace_available` 1 箇所で判定）
-- `Lane`（app/mode.rs）= Viewer タブの中の持続する作業レーン。`View` / `Edit(EditState)` / `Git(GitState)` の3つで、**Shift+Tab で循環**（`App::cycle_lane`）。Edit・Git は自分の状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
+- `Lane`（app/mode.rs）= Viewer タブの中の持続する作業レーン。`View` / `Edit(EditState)` / `Git(GitState)` / `Log(LogState)` の4つで、**Shift+Tab で循環**（`App::cycle_lane`）。Edit・Git・Log は自分の状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
 - `Mode` = レーンの上に重なる一時オーバーレイ（Input/Finder/Help/Settings）。閉じると `Mode::Normal` に戻るが**レーンは変わらない**（GIT でヘルプを開いて閉じても GIT に戻る）。この分離のために `Mode::Edit` を `Lane::Edit` へ移した経緯がある。Workspace を跨いでも同様にモードは独立している
-- 入れないレーンは循環時にスキップする（非テキスト → EDIT、非 git repo → GIT）。判定は `enter_edit` / `enter_git` が false を返す形に閉じ込め、呼び出し側で条件を二重に書かない
+- 入れないレーンは循環時にスキップする（非テキスト → EDIT、非 git repo → GIT/LOG）。判定は `enter_edit` / `enter_git` / `enter_log` が false を返す形に閉じ込め、呼び出し側で条件を二重に書かない。GIT (`git_available`: 変更が1件以上) と LOG (`log_available`: git repo でありさえすればよい) は判定基準が違う点に注意（LOG はコミット 0 件の repo でも一覧を出して「no commits」を見せるだけで良いため）
 - **Shift+Tab は Edit レーンより前に処理する**（keys.rs）。印字キーではないので「編集中は印字キーを全て文字入力にする」ポリシーとは衝突しない。ただし未保存バッファがある間はレーンを変えず notice を出す。Issues/PR タブに Lane の概念は無いので、そこに居る間 `cycle_lane` 自体が no-op になる（ステータスバーのレーンセグメントも合わせて暗くする）
-- `Focus`（Tree/Viewer）はレーンと直交する。GIT でも Tab で左右を行き来する
-- 右ペインの中身はレーンで決まる（VIEW: ファイル / EDIT: 編集バッファ / GIT: diff）。`ui::draw` の振り分けがその唯一の場所
+- `Focus`（Tree/Viewer）はレーンと直交する。GIT・LOG でも Tab で左右を行き来する。LOG は左ペインがツリーではなくコミット一覧だが、新しい Focus variant は増やさず「左ペイン/右ペイン」という既存の意味を再利用する（GIT がツリーを変更ファイル一覧に絞り込むのと同じ考え方）
+- 右ペインの中身はレーンで決まる（VIEW: ファイル / EDIT: 編集バッファ / GIT: diff / LOG: 選択コミットの diff）。`ui::draw` の振り分けがその唯一の場所。**LOG は左ペインもツリーから差し替わる**唯一のレーンなので、`draw_viewer_workspace` は他レーンより先に分岐して `tree_pane` 自体を呼ばない
 - **未保存の編集バッファがあっても Workspace の切替は拒否しない**（`Lane::Edit` の状態はタブを跨いでも保持され、Viewer タブへ戻れば復元される）。Shift+Tab のレーン循環がバッファ dirty 中に拒否するのとは対照的で、その代わりタブ側に未保存マーク（`viewer ●`）を出す
 - GitHub モードの有効化は起動オプション `--github` / 設定オーバーレイのトグル / config ファイル `github = true` の3経路が同じ `Config.github` に集約される。`--github` はその起動限りの上乗せで config には書かない（`App::github_enabled` と永続化用の `github_persisted` を分けて持つのはこのため）。`gh` の有無・認証・GitHub リモートかどうかの判定（`github::check_available`）は起動時（または初回有効化時）に1度だけ行い、描画のたびには叩かない
 - `Mode::Confirm { prompt, action }`（破壊的・書き込み系操作の確認）も Lane と直交する。これまでの Mode（Input/Finder/Help/Settings）は編集中は開けない制約があったが、Confirm だけは EDIT レーン中でも出す必要があるため、キールーティング上は Shift+Tab と同じ位置（`Lane::Edit` の文字入力ディスパッチより前）に置く。`action` はクロージャではなく enum（`ConfirmAction`）にする — クロージャだと App を借りたまま呼べず、確認後に App のメソッドを呼ぶ形にできないため。書き込み系の子 issue が増えるたびに variant を足していく想定。確認中は y/Enter 以外の全キーで中止し、他のキーがレーンへ漏れないことをキールーティングの順序で保証する（型ではなく手続きで守っている点は他の Mode と同じ）
@@ -64,7 +64,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 
 ### キールーティングの優先順位（app/keys.rs on_key）
 Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto) → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップ** → Lane::Edit → Ctrl+p → q/?/a/s/Tab → focus 別ディスパッチ。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。
-ツリーのキー処理（`on_tree_key`）は VIEW/GIT で共通で、**「開く」対象のパスを返すだけ**にしてある。viewer に開くか diff に開くかの振り分けは `App::open_selected` 1 箇所に閉じている（ツリー操作をレーンごとに複製しない）。
+ツリーのキー処理（`on_tree_key`）は VIEW/GIT で共通で、**「開く」対象のパスを返すだけ**にしてある。viewer に開くか diff に開くかの振り分けは `App::open_selected` 1 箇所に閉じている（ツリー操作をレーンごとに複製しない）。LOG は左ペインがツリーではないため `on_tree_key` には乗せず、`Focus::Tree` の分岐で `Lane::Log` だけ `on_log_list_key` へ振り分ける（`Focus::Viewer` 側も同様に `on_log_diff_key` を割り込ませる）。
 
 ### 桁位置の整合インバリアント（複数ファイルに跨る前提）
 - 各行 `Line` の **span[0] は行番号 gutter**。検索ハイライト・水平スクロールは span[1..] を char 単位で走査する
@@ -97,6 +97,19 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - ツリーの status 表示は `FileStatus { index, worktree }` で porcelain の XY を index 側 / worktree 側に分けたまま持つ（`M ` / ` M` / `MM` / `??` の 2 文字表示）。1 種類に潰すと「ステージ済みかどうか」が表現できず staged/unstaged diff の切替と食い違うため。色は worktree 側（未ステージ）を優先して判定する
 - ツリーの j/k で diff は追従しない（Enter/l/クリックで開く）。キーリピートで git プロセスを連打しないため
 - 絞り込みと diff の再取得は FS 監視の 500ms デバウンス（`App::rescan`）に相乗りさせる。専用タイマーを作らない
+
+### LOG レーン（logview.rs + ui/log_pane.rs）
+- 一覧は `git log --format=%H%x00%h%x00%an%x00%ar%x00%s -z -n <limit> --skip=<skip>` を `git.rs::log` で自前パース（porcelain -z と同じ流儀）。初回 200 件、選択が末尾に到達したら同じ関数を `--skip` を進めて呼び直す（ページング）。取得件数が要求件数未満だった時点で `exhausted` を立て、以後は呼ばない（held-key で連打しても追加の `git log` は末尾到達時に高々 1 回）
+- コミットが1件も無い repo は `git log` 自体が失敗するが、`git.rs::log` はこれを空 Vec に潰して返す（エラーではなく「0 件」という正常系）。`LogState`/一覧描画のどちらも空を前提に組んであるので panic しない
+- **左ペインはツリーではなくコミット一覧**（`LogState.commits`）。GIT の「ツリーを絞り込む」方式とは異なり、ツリー自体を使わない別の描画パス（`ui/log_pane.rs::draw_log_list`）を持つ
+- 一覧の j/k は選択移動のみで diff を開かない（GIT のツリーと同じ理由）。**Enter/l/クリックでのみ** `LogState::open_selected` を呼び `git show` を実行する。開いた diff は `open_index` で選択中カーソルと別に持つ（j/k で `selected` が進んでも `open_index` はそのまま残る）
+- 右ペインは `git show --no-color <sha>` を `gitview::render_commit` で組み替えたもの。既存の GIT レーン（単一ファイル）の `render` はそのまま温存し、`build_body`（1 行単位の組み立て: classify → 色分け → gutter 付与）を共有ヘルパーへ切り出して両方から呼ぶ形にしてある（#23/#29 と同時進行だったため、`render` 自体への変更を最小化する意図）
+- 複数ファイル diff は `diff --git ` 行を境界に分割し、ファイルごとに見出し行（rename は `old → new`、新規/削除は `(new)`/`(deleted)` を付記）を挟んで連結する。**gutter 幅は全ファイル共通の 1 つに揃える**（ファイルごとに違う幅だと `TextPane` の wrap 計算・continuation 行の pad 幅がずれるため。単一ファイルの `render` はそのファイルだけの幅で良いが、`render_commit` は全体の最大行番号から 1 つの幅を出してから `build_body` を呼ぶ）
+- コミットメッセージ部分（`diff --git` より前の行）は gutter を空欄にしたまま別の色で出す。行番号の概念が無いコンテンツでも「span[0] = gutter 固定」の桁インバリアントは崩さない
+- **マージコミットの表示方針**: `git show` は既定でマージコミットの差分を出さない。全親差分 (`-m`) は本文が膨らみすぎて読みにくいため採用せず、**最初の親との diff のみ**を明示的に組み立てて見せる（`git show --quiet` でメッセージ部分、`git diff <sha>^1 <sha>` で diff 部分を取得し連結）。あわせて `(merge commit: diff against first parent)` の注記行を挟み、暗黙に一部の差分だけを見せていることが分かるようにする
+- Viewport は VIEW/EDIT・GIT の diff のどちらとも別に持つ（`LogState.viewport`）。別ドキュメントなので位置を共有する意味が無く、他レーンの読み位置も壊さないのは GIT の diff Viewport と同じ理由
+- `.git` 配下は watch.rs のフィルタで最初から監視対象外（`.` 始まり成分は除外）なので、コミット追加を検知して一覧を自動更新する経路は無い。GIT のような 500ms デバウンス再取得への相乗りはしていない（コミット履歴の閲覧は「その時点のスナップショットを読む」用途と割り切り、動くリポジトリで追従させたい場合は一旦 LOG を出入りし直す想定）。repo 自体が消えた場合だけは `App::rescan` が VIEW へフォールバックさせる
+- 絞り込み（Ctrl+f 等でファイル単位のログに切り替える機能）は本 issue のスコープ外として見送った。実装するなら `git log -- <path>` を `git.rs::log` に path 引数を足す形で追加できる
 
 ### インライン編集（editor/ + ui/editor_pane.rs）
 - `Lane::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）

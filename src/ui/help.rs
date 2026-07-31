@@ -24,7 +24,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         &[
             ("Ctrl+c", "終了"),
             ("q", "終了"),
-            ("Shift+Tab", "モード切替 (VIEW → EDIT → GIT)"),
+            ("Shift+Tab", "モード切替 (VIEW → EDIT → GIT → LOG)"),
             ("Tab", "フォーカス切替 (Tree/Viewer)"),
             ("Ctrl+p", "ファインダーを開く"),
             ("?", "このヘルプを開く"),
@@ -99,6 +99,27 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
             ("h/l ←/→", "水平スクロール (diff ペイン)"),
             ("r", "再走査 (git status も取り直す)"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
+        "Log (Shift+Tab)",
+        &[
+            (
+                "左ペイン",
+                "コミット一覧 (短縮 SHA / 相対日時 / 作者 / 件名)",
+            ),
+            ("j/k ↑/↓", "コミット間を移動 (diff は追従しない)"),
+            ("Enter / l →", "選択コミットの diff を表示"),
+            ("gg / G", "先頭 / 読み込み済み末尾へ (末尾で追加取得)"),
+            ("n / N", "次 / 前の hunk へ (] / [ も同様)"),
+            ("Ctrl+d/u", "半ページスクロール"),
+            ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
+            ("h/l ←/→", "水平スクロール (diff ペイン)"),
+            (
+                "マージコミット",
+                "最初の親との diff を表示 (git show の既定は差分なし)",
+            ),
         ],
     );
     push_help_section(
