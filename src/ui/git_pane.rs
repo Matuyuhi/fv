@@ -122,7 +122,7 @@ fn draw_side_by_side(
 
     // TextPane の非 wrap パスは vp.scroll を「両カラムで揃えた行 index」としてそのまま
     // スライスに使う。wrap 中でも side-by-side は自前で分割済みなので wrap=false で渡す
-    let mut vp = git.viewport;
+    let mut vp = git.viewport.clone();
     vp.wrap = false;
 
     let left_pane = TextPane {
