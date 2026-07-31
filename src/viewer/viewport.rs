@@ -2,6 +2,9 @@
 /// モード遷移でスクロール位置が飛ばないようにする。
 /// 「wrap 中は hscroll = 0」のインバリアントはこの型のメソッドが守る
 /// (フィールドを直接書く側はインバリアントを壊さない責任を持つ)
+/// Copy なのは side-by-side (gitview) が「wrap は独自に事前分割するので TextPane には
+/// wrap=false で渡したい」という一時コピーを気軽に作れるようにするため
+#[derive(Clone, Copy)]
 pub struct Viewport {
     pub scroll: usize,
     /// wrap off 時のみ有効な水平スクロール量 (char 単位)

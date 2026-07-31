@@ -1,9 +1,9 @@
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::gitview::GitState;
+use crate::gitview::{self, GitState};
 
 use super::pane_block;
 use super::text_pane::TextPane;
@@ -17,7 +17,8 @@ pub(super) fn draw_git(
     background: Color,
     area: Rect,
 ) {
-    // キー・マウス処理が次のフレームで読む実測値の書き戻し (viewer_pane と同じパターン)
+    // キー・マウス処理が次のフレームで読む実測値の書き戻し (viewer_pane と同じパターン)。
+    // side-by-side のカラム幅もここに書いた width から導出する (GitState::column_width)
     git.viewport.height = area.height.saturating_sub(2) as usize;
     git.viewport.width = area.width.saturating_sub(2) as usize;
 
@@ -30,22 +31,33 @@ pub(super) fn draw_git(
         return;
     };
     // 現在の diff 基準を常にタイトルに出す。hscroll > 0 の間はさらにオフセットも足す
-    // (viewer の hscroll 表示と同じ場所・作法)
-    let title = format!("{title}  [{}]", git.base_label());
+    // (viewer の hscroll 表示と同じ場所・作法)。side-by-side を要求していても幅不足で
+    // inline に落ちている間は、それが分かるようヒントを足す
+    let mut title = format!("{title}  [{}]", git.base_label());
+    if git.side_by_side_requested() && !git.side_by_side_active() {
+        title.push_str("  (narrow: inline)");
+    } else if git.side_by_side_active() {
+        title.push_str("  [side-by-side]");
+    }
     let title = if !git.viewport.wrap && git.viewport.hscroll > 0 {
         format!("{title}  →{}", git.viewport.hscroll)
     } else {
         title
     };
-    let block = pane_block(title, focused);
 
     if git.line_count() == 0 {
         let paragraph = Paragraph::new("no changes")
-            .block(block)
+            .block(pane_block(title, focused))
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }
+
+    if git.side_by_side_active() {
+        draw_side_by_side(frame, git, focused, background, area, title);
+        return;
+    }
+
     let pane = TextPane {
         lines: git.lines(),
         // diff 自体が変更の表示なので、閲覧側の変更行マーク・検索・カーソルは全て使わない
@@ -56,7 +68,90 @@ pub(super) fn draw_git(
     };
     let visible = pane.visible(&git.viewport);
     let paragraph = Paragraph::new(visible)
-        .block(block)
+        .block(pane_block(title, focused))
         .style(Style::default().bg(background));
     frame.render_widget(paragraph, area);
+}
+
+// side-by-side (左 = 旧, 右 = 新) 描画。外枠は 1 つで内側を左右 2 分割し、間に 1 桁の
+// 区切り罫線を挟む。折返し中は gitview::side_by_side_wrapped で char 単位に事前分割・
+// 行数を揃えた列を都度作り直す (wrap 幅は実測でしか出せないため、ここは他の描画パイプ
+// ラインと同じく毎フレーム計算する)。事前に行数を揃えてあるぶん TextPane 自体は非 wrap
+// のまま普通にスライスするだけで済み、text_pane.rs に side-by-side 専用の分岐は増えない
+fn draw_side_by_side(
+    frame: &mut Frame,
+    git: &mut GitState,
+    focused: bool,
+    background: Color,
+    area: Rect,
+    title: String,
+) {
+    let block = pane_block(title, focused);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let column_width = git.column_width() as u16;
+    let [left_area, sep_area, right_area] = Layout::horizontal([
+        Constraint::Length(column_width),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas(inner);
+
+    let (left_gutter, right_gutter) = git.side_gutter_widths();
+    let (left_src, right_src) = git.side_lines();
+
+    // 折返し ON: 事前分割 + 行数揃えの結果をそのまま使う (非 wrap 前提で TextPane に渡す)。
+    // 折返し OFF: side_lines の時点で既に行数が揃っている (render_side_by_side が保証)
+    let owned;
+    let (left_lines, right_lines): (&[_], &[_]) = if git.viewport.wrap {
+        let (l, r, hunks) = gitview::side_by_side_wrapped(
+            left_src,
+            right_src,
+            git.side_hunks(),
+            left_gutter,
+            right_gutter,
+            git.column_width(),
+        );
+        git.set_side_wrap_cache(l.len(), hunks);
+        owned = (l, r);
+        (&owned.0, &owned.1)
+    } else {
+        (left_src, right_src)
+    };
+
+    // TextPane の非 wrap パスは vp.scroll を「両カラムで揃えた行 index」としてそのまま
+    // スライスに使う。wrap 中でも side-by-side は自前で分割済みなので wrap=false で渡す
+    let mut vp = git.viewport;
+    vp.wrap = false;
+
+    let left_pane = TextPane {
+        lines: left_lines,
+        changed_lines: &None,
+        search: None,
+        cursor: None,
+        gutter_width: left_gutter,
+    };
+    let right_pane = TextPane {
+        lines: right_lines,
+        changed_lines: &None,
+        search: None,
+        cursor: None,
+        gutter_width: right_gutter,
+    };
+    let left_visible = left_pane.visible(&vp);
+    let right_visible = right_pane.visible(&vp);
+
+    frame.render_widget(
+        Paragraph::new(left_visible).style(Style::default().bg(background)),
+        left_area,
+    );
+    frame.render_widget(
+        Paragraph::new(right_visible).style(Style::default().bg(background)),
+        right_area,
+    );
+    let separator = Block::default()
+        .borders(Borders::LEFT)
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(separator, sep_area);
 }
