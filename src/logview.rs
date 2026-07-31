@@ -163,13 +163,11 @@ impl LogState {
         !self.boundaries().is_empty()
     }
 
-    /// viewport.scroll 以下で最大の境界 index を二分探索で引き、そのファイルのラベルを返す。
-    /// scroll がまだ最初のファイルに届いていない (コミットメッセージ部分) 場合は None
+    /// scroll がまだ最初のファイルに届いていない (コミットメッセージ部分) 場合は None。
+    /// 探索ロジックは GIT レーンのまとめ diff (GitState::sticky_label) と共有する
+    /// (gitview::sticky_label、#31 で複数ファイル diff の sticky header を GIT にも広げた際に切り出した)
     pub fn sticky_label(&self) -> Option<&str> {
-        let boundaries = self.boundaries();
-        let scroll = self.viewport.scroll;
-        let idx = boundaries.partition_point(|&(line, _)| line <= scroll);
-        (idx > 0).then(|| boundaries[idx - 1].1.as_str())
+        gitview::sticky_label(self.boundaries(), self.viewport.scroll)
     }
 
     pub fn scroll_by(&mut self, delta: isize) {
