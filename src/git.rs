@@ -424,6 +424,46 @@ where
     }
 }
 
+/// stage: modified/untracked は `git add --`、削除 (index/worktree いずれかが Deleted) を
+/// 含む場合は `git add -A --` にする (プレーンな add でも現在の git は削除を拾うが、
+/// 挙動をバージョンに依存させないため issue の指示通り明示的に分ける)。ディレクトリ選択時は
+/// 呼び出し側 (App::toggle_stage_selected) が配下の集約結果を has_deletion として渡す
+pub fn stage_path(root: &Path, path: &Path, has_deletion: bool) -> GitOutcome {
+    let mut args: Vec<OsString> = vec![OsString::from("add")];
+    if has_deletion {
+        args.push(OsString::from("-A"));
+    }
+    args.push(OsString::from("--"));
+    args.push(path.as_os_str().to_os_string());
+    run_git_write(root, args)
+}
+
+/// unstage: `git restore --staged --`。HEAD の無い初期 repo では restore が HEAD の解決を
+/// 要求して失敗するため `git rm --cached --` にフォールバックする (ディレクトリは -r 必須)。
+/// 失敗理由をコマンドごとに判別せず常にフォールバックを試すのは、changed_lines 等
+/// 既存の「try → だめなら別コマンド」方針と揃えるため
+pub fn unstage_path(root: &Path, path: &Path, is_dir: bool) -> GitOutcome {
+    let outcome = run_git_write(
+        root,
+        [
+            OsString::from("restore"),
+            OsString::from("--staged"),
+            OsString::from("--"),
+            path.as_os_str().to_os_string(),
+        ],
+    );
+    if outcome.ok {
+        return outcome;
+    }
+    let mut args: Vec<OsString> = vec![OsString::from("rm"), OsString::from("--cached")];
+    if is_dir {
+        args.push(OsString::from("-r"));
+    }
+    args.push(OsString::from("--"));
+    args.push(path.as_os_str().to_os_string());
+    run_git_write(root, args)
+}
+
 // 出力の先頭の非空行を取り出す。無ければ空文字列 (成功時は notice にそのまま出しても違和感がない)
 fn first_line(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)

@@ -78,16 +78,6 @@ impl App {
             self.cycle_lane();
             return;
         }
-        // 動作確認用デモ (#21): Confirm オーバーレイと run_git_write の経路を EDIT レーンからでも
-        // 確認できるよう、Edit レーンの文字入力より前に置く。実際の書き込み機能 (#23 以降) が
-        // 入り次第、このキーは役目を終える想定
-        if ctrl && key.code == KeyCode::Char('r') && self.git.is_some() {
-            self.mode = Mode::Confirm {
-                prompt: "git update-index --refresh を実行しますか?".to_string(),
-                action: ConfirmAction::DemoGitRefresh,
-            };
-            return;
-        }
         // Issues/PR タブは #33/#34 までプレースホルダ。Lane/ツリー/ビューアの概念を持たないので
         // 以降のディスパッチには流さず、共通のグローバルキーだけをここで拾う
         if !matches!(self.workspace, Workspace::Viewer) {
@@ -140,6 +130,17 @@ impl App {
             // LOG は左ペインがツリーではなくコミット一覧なので専用ハンドラに分ける
             Focus::Tree => match &self.lane {
                 Lane::Log(_) => self.on_log_list_key(key),
+                Lane::Git(_) => {
+                    // Space (stage/unstage トグル) は GIT レーン限定。on_tree_key は VIEW とも
+                    // 共用するハンドラなので、ここで先に拾って VIEW 側の意味 (no-op) を変えない
+                    if key.code == KeyCode::Char(' ') {
+                        self.toggle_stage_selected();
+                        return;
+                    }
+                    if let Some(path) = self.on_tree_key(key) {
+                        self.open_selected(&path);
+                    }
+                }
                 _ => {
                     if let Some(path) = self.on_tree_key(key) {
                         self.open_selected(&path);
@@ -259,33 +260,11 @@ impl App {
         self.run_confirm_action(action);
     }
 
-    // ConfirmAction は今は動作確認用の 1 種類のみ。書き込み系の子 issue が実装されるたびに
-    // ここへ match 枝を足していく想定 (mode.rs 側の variant 追加と対で増える)
+    // ConfirmAction は現状 variant を持たない (stage/unstage は非破壊的なのでトグルを
+    // Confirm に通さない想定のため #23 では variant を足さなかった)。破壊的操作の子 issue
+    // (discard/stash 等) が実装され次第、ここへ match 枝を足していく
     fn run_confirm_action(&mut self, action: ConfirmAction) {
-        match action {
-            ConfirmAction::DemoGitRefresh => {
-                let outcome = git::run_git_write(&self.root, ["update-index", "-q", "--refresh"]);
-                if outcome.ok {
-                    // 専用の再取得パスは新設せず、r キーと同じ入口 (rescan) に相乗りさせる
-                    self.rescan();
-                    self.last_rescan = Instant::now();
-                    self.rescan_pending = false;
-                    let message = if outcome.message.is_empty() {
-                        "done".to_string()
-                    } else {
-                        outcome.message
-                    };
-                    self.set_notice(message, false);
-                } else {
-                    let message = if outcome.message.is_empty() {
-                        "git update-index に失敗しました".to_string()
-                    } else {
-                        outcome.message
-                    };
-                    self.set_notice(message, true);
-                }
-            }
-        }
+        match action {}
     }
 
     // Help 中は ?/Esc/q のいずれでも閉じる。それ以外は無視する (Ctrl+c は on_key 冒頭で処理済み)
@@ -550,6 +529,68 @@ impl App {
             KeyCode::Char('n') | KeyCode::Char(']') => log.next_hunk(),
             KeyCode::Char('N') | KeyCode::Char('[') => log.prev_hunk(),
             _ => {}
+        }
+    }
+
+    /// Space: 選択中のファイル/ディレクトリを stage/unstage トグルする。判定は
+    /// 「worktree 側に未ステージ変更が残っているか」で、残っていれば stage、無ければ unstage
+    /// (issue #23 の要求通り)。ディレクトリは配下の files を集約して同じ判定に使う
+    fn toggle_stage_selected(&mut self) {
+        // キーリピート対策。debounce 中の呼び出しは git プロセスを起動せずに捨てる
+        if self.last_stage_toggle.elapsed() < super::STAGE_DEBOUNCE {
+            return;
+        }
+        let Some(row) = self.tree.visible.get(self.tree.selected) else {
+            return;
+        };
+        let path = row.path.clone();
+        let is_dir = row.is_dir;
+        let Some(status) = &self.git else {
+            return;
+        };
+        let (has_worktree_change, has_deletion) = if is_dir {
+            let mut worktree = false;
+            let mut deletion = false;
+            for (p, s) in &status.files {
+                if !p.starts_with(&path) {
+                    continue;
+                }
+                worktree |= s.worktree.is_some();
+                deletion |= s.worktree == Some(git::StatusKind::Deleted)
+                    || s.index == Some(git::StatusKind::Deleted);
+            }
+            (worktree, deletion)
+        } else {
+            let Some(s) = status.files.get(&path) else {
+                // フィルタに乗っているのに status が無いのは通常起こらない (rescan 直後の
+                // ズレなど)。何もせず次の rescan を待つ
+                return;
+            };
+            (
+                s.worktree.is_some(),
+                s.worktree == Some(git::StatusKind::Deleted)
+                    || s.index == Some(git::StatusKind::Deleted),
+            )
+        };
+        self.last_stage_toggle = Instant::now();
+        let outcome = if has_worktree_change {
+            git::stage_path(&self.root, &path, has_deletion)
+        } else {
+            git::unstage_path(&self.root, &path, is_dir)
+        };
+        if outcome.ok {
+            // rescan は選択位置を path ベースで維持する (Tree::rescan/set_filter の既存の
+            // 復元経路をそのまま使う)。ツリーの XY 表示・絞り込み・diff の全てがここで揃う
+            self.rescan();
+            self.last_rescan = Instant::now();
+            self.rescan_pending = false;
+        } else {
+            let message = if outcome.message.is_empty() {
+                "git の実行に失敗しました".to_string()
+            } else {
+                outcome.message
+            };
+            self.set_notice(message, true);
         }
     }
 }
