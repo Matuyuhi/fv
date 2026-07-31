@@ -1,3 +1,4 @@
+mod branch_panel;
 mod commit;
 mod confirm;
 mod editor_pane;
@@ -70,6 +71,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
     if matches!(app.mode, Mode::Commit { .. }) {
         commit::draw_commit(frame, app, full);
+    }
+    if matches!(app.mode, Mode::Branch(_)) {
+        branch_panel::draw_branch(frame, app, full);
     }
 }
 

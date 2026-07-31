@@ -277,6 +277,12 @@ impl Viewer {
         }
     }
 
+    /// 開いているファイルを閉じて右ペインを空にする。ブランチ切替で開いていたファイルが
+    /// 切替先に存在しなくなった場合に使う (cache・履歴には触れず current だけ落とす)
+    pub fn close(&mut self) {
+        self.current = None;
+    }
+
     pub fn is_text(&self) -> bool {
         matches!(
             self.current.as_ref().map(|open| open.content.as_ref()),

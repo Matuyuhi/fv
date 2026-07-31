@@ -12,10 +12,35 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // レーンのセグメントは常に先頭に出す。Claude Code のモード表示と同じく
     // 「今どこにいるか」と「Shift+Tab で次に何が来るか」を同時に見せるため
     let mut spans = lane_segments(app);
+    // ブランチ + ahead/behind は issue #26 の要求通り GIT レーン以外・どの Mode 中でも常時出す
+    spans.extend(branch_segment(app));
     spans.extend(hint_line(app).spans);
     let paragraph = Paragraph::new(Line::from(spans))
         .style(Style::default().fg(Color::White).bg(Color::DarkGray));
     frame.render_widget(paragraph, area);
+}
+
+// 現在ブランチ + ahead/behind。非 git repo (branch_status が None) では何も出さず、
+// detached HEAD は短縮 SHA をそのまま名前として見せる (git::branch_status が既に解決済み)
+fn branch_segment(app: &App) -> Vec<Span<'static>> {
+    let Some(status) = &app.branch_status else {
+        return Vec::new();
+    };
+    let mut spans = Vec::new();
+    let name = if status.detached {
+        format!("{} (detached)", status.name)
+    } else {
+        status.name.clone()
+    };
+    spans.push(Span::styled(name, Style::default().fg(Color::Magenta)));
+    if status.has_upstream {
+        spans.push(Span::styled(
+            format!(" ↑{} ↓{}", status.ahead, status.behind),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    spans.push(Span::raw("  "));
+    spans
 }
 
 // 現在レーンは [ ] 付きの反転、入れないレーン (非テキストの EDIT / 非 git repo の GIT) は暗く出す。
@@ -60,6 +85,7 @@ fn hint_line(app: &App) -> Line<'static> {
             buffer,
         } => input_line(':', buffer),
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
+        Mode::Branch(_) => Line::from("Enter: switch  Ctrl+n: new branch  Esc: close"),
         Mode::Help => Line::from("?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
         Mode::Confirm { prompt, .. } => confirm_line(prompt),
