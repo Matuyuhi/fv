@@ -9,8 +9,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StatusKind {
@@ -520,4 +521,96 @@ fn first_line(bytes: &[u8]) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or_default()
         .to_string()
+}
+
+/// amend のプリフィル用。`%B` はコミットメッセージ本文そのまま。git はコミット保存時に
+/// メッセージ末尾を改行 1 個に正規化し、`log --format` はさらにエントリ区切りの改行を足すため、
+/// 出力は末尾に改行が 2 個並ぶ。末尾の改行を 1 個だけ剥がすと空行が編集バッファに残ってしまうので
+/// 末尾の改行は全て trim する (amend で編集するたびに空行が増えていくのを防ぐ)。
+/// コミットが 1 つも無い repo では失敗するのでそのまま None
+pub fn last_commit_message(root: &Path) -> Option<String> {
+    let output = run_git(root, ["log", "-1", "--format=%B"])?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(text.trim_end_matches('\n').to_string())
+}
+
+/// `c`/`C` の実行本体。メッセージは引数ではなく stdin から `-F -` で渡す (エスケープ・
+/// コマンドライン長の問題を避けるため)。amend は `--amend -F -` を付けるだけで良い。
+/// 成功時の message は「短縮 SHA + 件名」(notice にそのまま出せる形)、失敗時は stderr の
+/// 先頭行 (複数行なら "…" を付けて省略したことを示す)
+pub fn commit(root: &Path, message: &str, amend: bool) -> GitOutcome {
+    let mut args: Vec<OsString> = vec![OsString::from("commit")];
+    if amend {
+        args.push(OsString::from("--amend"));
+    }
+    args.push(OsString::from("-F"));
+    args.push(OsString::from("-"));
+
+    let mut child = match Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(&args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => {
+            return GitOutcome {
+                ok: false,
+                message: "git を実行できませんでした".to_string(),
+            };
+        }
+    };
+    // stdin を明示的に drop して EOF を送る (`-F -` は EOF まで読み続けるため、
+    // 書き込み後に take() したハンドルをスコープ末尾で drop するだけで良い)
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(message.as_bytes());
+    }
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(_) => {
+            return GitOutcome {
+                ok: false,
+                message: "git を実行できませんでした".to_string(),
+            };
+        }
+    };
+    if !output.status.success() {
+        return GitOutcome {
+            ok: false,
+            message: stderr_summary(&output.stderr),
+        };
+    }
+    // commit の stdout ("[branch hash] subject") は amend やルートコミットで書式が揺れるため、
+    // 短縮 SHA は rev-parse で確実な形を取り直す
+    let short = run_git(root, ["rev-parse", "--short", "HEAD"])
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    let subject = message.lines().next().unwrap_or("").to_string();
+    GitOutcome {
+        ok: true,
+        message: format!("{short} {subject}").trim().to_string(),
+    }
+}
+
+// pre-commit hook 失敗時などの stderr は複数行になりうる。ステータスバー 1 行に収めるため
+// 先頭の非空行だけを見せ、他にも行があれば省略したことが分かるよう "…" を付ける
+fn stderr_summary(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    if lines.next().is_some() {
+        format!("{first} …")
+    } else {
+        first.to_string()
+    }
 }

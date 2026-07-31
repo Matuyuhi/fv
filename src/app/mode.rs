@@ -79,16 +79,34 @@ pub enum Mode {
         prompt: String,
         action: ConfirmAction,
     },
+    // コミットメッセージ入力オーバーレイ (`c`/`C`)。Search/Goto の 1 行入力用 Input では
+    // 複数行編集を表現できないため独立させた。buffer は改行を含む生テキスト、cursor は
+    // buffer 内の char インデックス (常に 1 次元、行/桁の 2 次元カーソルは持たない)。
+    // error は pre-commit hook 失敗時の stderr 要約 — Esc/破棄せず同じオーバーレイに留めて
+    // 見せるため Mode 自体に持たせる (App.notice だとオーバーレイを閉じた後の表示になってしまう)
+    Commit {
+        buffer: String,
+        cursor: usize,
+        amend: bool,
+        error: Option<String>,
+    },
 }
 
 /// Mode::Confirm が実行する操作。クロージャは App を借りたまま呼べず持たせられないため
 /// enum にする。書き込み系の子 issue が実装されるたびにここへ variant を足していく想定。
-/// #23 (stage/unstage) は非破壊的操作なので Confirm を経由させず、まだ variant が無い
-/// (#21 の動作確認用 variant はここで役目を終えて削除した)
+/// #23 (stage/unstage) は非破壊的操作なので Confirm を経由させない
 pub enum ConfirmAction {
+    // amend は履歴を書き換える (push 済みの可能性がある) ので確認を必須にする。
+    // 通常コミットは確認なしで直接実行する (issue #24 の要求通り)
+    Amend {
+        message: String,
+    },
     /// 選択ファイル/ディレクトリの変更破棄 (#25)。is_dir は tracked/untracked の扱いを
     /// 分けるために確認時点の Row から引き継ぐ (実行時に fs へ問い合わせ直さない)
-    Discard { path: PathBuf, is_dir: bool },
+    Discard {
+        path: PathBuf,
+        is_dir: bool,
+    },
     /// `git stash push -u` (#25)。untracked も含めて退避する
     StashPush,
     /// `git stash pop` (#25)。コンフリクト時は stash entry を残したまま notice にエラーを出す

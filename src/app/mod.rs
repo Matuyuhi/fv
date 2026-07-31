@@ -78,6 +78,11 @@ pub struct App {
     rescan_pending: bool,
     /// 直近で stage/unstage を実行した時刻 (Space のキーリピート対策)
     last_stage_toggle: Instant,
+    /// `c` で開いた通常コミットの下書き。Esc で閉じても捨てず、次に `c` を押した時に復元する
+    commit_draft: Option<String>,
+    /// `C` で開いた amend コミットの下書き。amend は既存メッセージのプリフィルがあるため
+    /// commit_draft とは別に持つ (無ければ都度 `git log -1 --format=%B` からプリフィルする)
+    amend_draft: Option<String>,
     /// GitHub モードを使いたいかどうか (起動オプション or 設定トグル)。使えるかどうかは別
     /// (github_available)。3 経路 (--github / 設定トグル / config ファイル) が結局この
     /// フラグ 1 つに集約される
@@ -131,6 +136,8 @@ impl App {
             last_rescan: Instant::now(),
             rescan_pending: false,
             last_stage_toggle: Instant::now(),
+            commit_draft: None,
+            amend_draft: None,
             github_enabled,
             github_persisted: config.github,
             github_available: false,
@@ -429,6 +436,10 @@ impl App {
     pub fn on_paste(&mut self, text: &str) {
         if let Lane::Edit(state) = &mut self.lane {
             state.paste(text, &self.viewer.highlighter, &mut self.viewer.viewport);
+            return;
+        }
+        if let Mode::Commit { .. } = &self.mode {
+            self.commit_paste(text);
             return;
         }
         match &mut self.mode {
