@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::editor::diff::{self, CharRanges};
 use crate::git::{self, DiffBase};
 use crate::text;
 use crate::viewer::Viewport;
@@ -15,6 +16,13 @@ use crate::viewer::Viewport;
 const ADDED: Color = Color::Green;
 const DELETED: Color = Color::Red;
 const HUNK: Color = Color::Cyan;
+// word-level ハイライト (#29) の背景色。前景の赤/緑はそのまま、背景だけ濃くして
+// 変更範囲を示す (検索ハイライトの MATCH_BG と同じく端末テーマに依存しない固定色)
+const ADDED_WORD_BG: Color = Color::Rgb(20, 90, 20);
+const DELETED_WORD_BG: Color = Color::Rgb(110, 25, 25);
+// 1 hunk あたりの word-level 対応ペア数の上限。大きな hunk で char diff を大量に
+// 計算して描画が重くなるのを避けるための打ち切り (超えた分は従来の全行ハイライト)
+const MAX_WORD_DIFF_PAIRS_PER_HUNK: usize = 200;
 
 /// diff 行の由来。gutter に新側行番号を出すか、内容をどの色で出すかがこれで決まる
 enum Kind {
@@ -174,41 +182,161 @@ fn render(raw: &[String]) -> (Vec<Line<'static>>, Vec<usize>, usize, usize) {
     // gutter 幅は行番号の最大桁で決まるので、行番号を振る前に一度だけ走査して求める
     let max_lineno = max_new_lineno(&body);
     let gutter_width = text::gutter_width(max_lineno);
+    let word_ranges = word_diff_ranges(&body);
 
     let mut lines = Vec::with_capacity(body.len());
     let mut hunks = Vec::new();
     let mut max_width = 0usize;
     let mut lineno = 0usize;
-    for (kind, raw) in body {
+    for (i, (kind, raw)) in body.into_iter().enumerate() {
         let content = text::normalize(raw);
         max_width = max_width.max(content.chars().count());
-        let (gutter, style) = match kind {
+        // word_bg は Added/Deleted のみ Some。word-level 差分が取れた行だけ実際に分割する
+        let (gutter, style, word_bg) = match kind {
             Kind::Hunk => {
                 hunks.push(lines.len());
                 lineno = hunk_start(raw).unwrap_or(lineno);
-                (blank_gutter(gutter_width), Style::default().fg(HUNK))
+                (blank_gutter(gutter_width), Style::default().fg(HUNK), None)
             }
             Kind::Added => {
                 let g = number_gutter(lineno, gutter_width);
                 lineno += 1;
-                (g, Style::default().fg(ADDED))
+                (g, Style::default().fg(ADDED), Some(ADDED_WORD_BG))
             }
-            Kind::Deleted => (blank_gutter(gutter_width), Style::default().fg(DELETED)),
+            Kind::Deleted => (
+                blank_gutter(gutter_width),
+                Style::default().fg(DELETED),
+                Some(DELETED_WORD_BG),
+            ),
             Kind::Context => {
                 let g = number_gutter(lineno, gutter_width);
                 lineno += 1;
-                (g, Style::default())
+                (g, Style::default(), None)
             }
             Kind::Note => (
                 blank_gutter(gutter_width),
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::DIM),
+                None,
             ),
         };
-        lines.push(Line::from(vec![gutter, Span::styled(content, style)]));
+        let mut spans = Vec::with_capacity(2);
+        spans.push(gutter);
+        match (word_bg, &word_ranges[i]) {
+            (Some(bg), Some(word_range)) => {
+                spans.extend(split_with_emphasis(&content, style, bg, word_range))
+            }
+            _ => spans.push(Span::styled(content, style)),
+        }
+        lines.push(Line::from(spans));
     }
     (lines, hunks, gutter_width, max_width)
+}
+
+// content (gutter を除いた本文) を word-level 差分の char range で複数 span に割る。
+// 範囲内は前景色そのまま背景だけ濃くする。range 同士・前後の隙間は必ず埋めるので、
+// span を連結すれば content に戻る (「span[1..] を連結すると本文」の前提を保つ)
+fn split_with_emphasis(
+    content: &str,
+    style: Style,
+    emphasis_bg: Color,
+    ranges: &[(usize, usize)],
+) -> Vec<Span<'static>> {
+    if ranges.is_empty() {
+        return vec![Span::styled(content.to_string(), style)];
+    }
+    let chars: Vec<char> = content.chars().collect();
+    let mut spans = Vec::new();
+    let mut pos = 0usize;
+    for &(start, end) in ranges {
+        let start = start.min(chars.len());
+        let end = end.min(chars.len());
+        if start > pos {
+            spans.push(Span::styled(
+                chars[pos..start].iter().collect::<String>(),
+                style,
+            ));
+        }
+        if end > start {
+            spans.push(Span::styled(
+                chars[start..end].iter().collect::<String>(),
+                style.bg(emphasis_bg),
+            ));
+        }
+        pos = pos.max(end);
+    }
+    if pos < chars.len() {
+        spans.push(Span::styled(chars[pos..].iter().collect::<String>(), style));
+    }
+    spans
+}
+
+// hunk 内で連続する削除ブロック→追加ブロックのペアを検出し、行数が一致する時だけ
+// 1 対 1 で char 単位の差分 (editor::diff::word_diff) を計算する。行数が合わない・
+// 打ち切り上限を超えるペアは None のままにし、呼び出し側を従来の全行ハイライトに倒す
+fn word_diff_ranges(body: &[(Kind, &str)]) -> Vec<Option<CharRanges>> {
+    let mut ranges: Vec<Option<CharRanges>> = vec![None; body.len()];
+    let mut hunk_pairs = 0usize;
+    let mut i = 0;
+    while i < body.len() {
+        match body[i].0 {
+            Kind::Hunk => {
+                hunk_pairs = 0;
+                i += 1;
+            }
+            Kind::Deleted => {
+                let del_start = i;
+                let del_end = run_end(body, del_start, |k| matches!(k, Kind::Deleted));
+                let add_start = del_end;
+                let add_end = run_end(body, add_start, |k| matches!(k, Kind::Added));
+                let del_len = del_end - del_start;
+                let add_len = add_end - add_start;
+                if del_len == add_len && hunk_pairs + del_len <= MAX_WORD_DIFF_PAIRS_PER_HUNK {
+                    hunk_pairs += del_len;
+                    for offset in 0..del_len {
+                        pair_word_diff(body, del_start + offset, add_start + offset, &mut ranges);
+                    }
+                } else {
+                    hunk_pairs += del_len;
+                }
+                i = add_end;
+            }
+            _ => i += 1,
+        }
+    }
+    ranges
+}
+
+fn run_end(body: &[(Kind, &str)], start: usize, matches_kind: impl Fn(&Kind) -> bool) -> usize {
+    let mut j = start;
+    while j < body.len() && matches_kind(&body[j].0) {
+        j += 1;
+    }
+    j
+}
+
+// 削除行・追加行 1 組の char diff を計算し、結果を該当 index の ranges に入れる。
+// 先頭 1 文字は diff の +/- マーカーなので比較対象から外し、range だけマーカー分 (1 char)
+// 戻して content 上の座標に合わせる
+fn pair_word_diff(
+    body: &[(Kind, &str)],
+    del_idx: usize,
+    add_idx: usize,
+    ranges: &mut [Option<CharRanges>],
+) {
+    let del_body = text::normalize(&body[del_idx].1[1..]);
+    let add_body = text::normalize(&body[add_idx].1[1..]);
+    let Some((del_ranges, add_ranges)) = diff::word_diff(&del_body, &add_body) else {
+        return;
+    };
+    ranges[del_idx] = Some(shift_ranges(del_ranges));
+    ranges[add_idx] = Some(shift_ranges(add_ranges));
+}
+
+fn shift_ranges(ranges: CharRanges) -> CharRanges {
+    // マーカー1 文字分だけ後ろにずらす (word_diff は marker を含まない文字列で計算している)
+    ranges.into_iter().map(|(s, e)| (s + 1, e + 1)).collect()
 }
 
 // diff 本文として描く行だけを残す。ファイル名は右ペインのタイトルに出るので、
