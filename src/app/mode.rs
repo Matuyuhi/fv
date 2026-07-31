@@ -115,6 +115,8 @@ pub enum ConfirmAction {
     StashPush,
     /// `git stash pop` (#25)。コンフリクト時は stash entry を残したまま notice にエラーを出す
     StashPop,
+    /// `P`: push (#27)。fetch/pull と違いリモートの履歴・ブランチ構成を変えるので確認必須にする
+    Push,
 }
 
 /// トップレベルのタブ ("Workspace")。Lane / Mode に続く 3 本目の軸で、GitHub モード

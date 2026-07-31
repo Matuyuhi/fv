@@ -207,6 +207,26 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
     );
     push_help_section(
         &mut lines,
+        "Remote (f / p / P、レーンを問わず開ける)",
+        &[
+            ("f", "fetch --prune (確認不要)"),
+            (
+                "p",
+                "pull --ff-only (確認不要・ff できないと git のエラーを表示)",
+            ),
+            (
+                "P",
+                "push (確認あり。upstream が無ければ --set-upstream origin <branch>)",
+            ),
+            (
+                "実行中",
+                "ステータスバーにジョブ名を表示。他の操作は継続可能・同じ/別ジョブの多重起動は不可",
+            ),
+            ("完了後", "status / ahead-behind / 表示中 diff を再取得"),
+        ],
+    );
+    push_help_section(
+        &mut lines,
         "Finder (Ctrl+p)",
         &[
             ("文字入力", "クエリを絞り込み"),

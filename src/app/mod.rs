@@ -8,6 +8,7 @@ pub use mode::{
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
@@ -17,6 +18,7 @@ use crate::editor::EditState;
 use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
 use crate::gitview::GitState;
+use crate::job;
 use crate::logview::LogState;
 use crate::tree::Tree;
 use crate::viewer::{self, Viewer};
@@ -97,6 +99,23 @@ pub struct App {
     /// 1 度だけ github::check_available を呼んで確定させ、以後は描画のたびに再判定しない
     pub github_available: bool,
     github_checked: bool,
+    /// 実行中のリモート操作 (fetch/pull/push)。ステータスバー表示と多重起動防止
+    /// (f/p/P は全て .git を触るため、実行中は新しいジョブを一切受け付けず直列化する) に使う
+    pending_remote_job: Option<PendingRemoteJob>,
+    /// バックグラウンドスレッドからの結果。on_tick の try_recv で drain するだけで、
+    /// 専用タイマー・ブロッキング read は作らない (イベントループの既存デザインをそのまま使う)
+    remote_job_rx: Option<mpsc::Receiver<git::GitOutcome>>,
+}
+
+/// 実行中のリモート操作 (f/p/P) のコンテキスト。開始時点の ahead/behind・upstream 有無を
+/// 保持し、完了メッセージ (「push → origin/main (2 commits)」等) の組み立てに使う。rescan で
+/// branch_status が新しい値に上書きされてしまうため、開始時点のスナップショットを別に持つ
+struct PendingRemoteJob {
+    kind: git::RemoteJobKind,
+    branch: String,
+    ahead: usize,
+    behind: usize,
+    had_upstream: bool,
 }
 
 impl App {
@@ -147,6 +166,8 @@ impl App {
             github_persisted: config.github,
             github_available: false,
             github_checked: false,
+            pending_remote_job: None,
+            remote_job_rx: None,
         };
         // 判定は起動時に 1 回だけ。無効なら gh を叩くコスト自体を払わない
         if app.github_enabled {
@@ -186,6 +207,14 @@ impl App {
             .is_some_and(|(_, at, _)| at.elapsed() >= NOTICE_DURATION)
         {
             self.notice = None;
+        }
+        // リモート操作 (f/p/P) の結果 drain。watcher の有無に関わらず毎 tick 見る
+        // (ブロッキング read はせず、既存の 100ms poll ループにただ相乗りするだけ)
+        if let Some(rx) = &self.remote_job_rx
+            && let Ok(outcome) = rx.try_recv()
+        {
+            self.remote_job_rx = None;
+            self.finish_remote_job(outcome);
         }
         let Some(watcher) = &self.watcher else {
             return;
@@ -540,6 +569,53 @@ impl App {
         self.notice = Some((message.into(), Instant::now(), is_error));
     }
 
+    /// ステータスバー表示用。実行中のリモート操作が無ければ None
+    pub fn running_remote_job(&self) -> Option<&'static str> {
+        self.pending_remote_job.as_ref().map(|p| p.kind.label())
+    }
+
+    /// f/p/P 共通のジョブ起動。実行中は新しいジョブを一切受け付けない (多重起動防止) ことと、
+    /// 完了メッセージ用のスナップショット保存をここに集約し、keys.rs 側の各キー処理で
+    /// 同じガードを重複させない
+    pub(super) fn start_remote_job<F>(&mut self, kind: git::RemoteJobKind, work: F)
+    where
+        F: FnOnce() -> git::GitOutcome + Send + 'static,
+    {
+        if self.pending_remote_job.is_some() {
+            return;
+        }
+        let status = self.branch_status.as_ref();
+        self.pending_remote_job = Some(PendingRemoteJob {
+            kind,
+            branch: status.map(|s| s.name.clone()).unwrap_or_default(),
+            ahead: status.map(|s| s.ahead).unwrap_or(0),
+            behind: status.map(|s| s.behind).unwrap_or(0),
+            had_upstream: status.is_some_and(|s| s.has_upstream),
+        });
+        self.remote_job_rx = Some(job::spawn(work));
+    }
+
+    // 完了後の反映。成功なら他の書き込み系操作と同じ rescan (500ms デバウンスとは別に即時実行) に
+    // 相乗りさせて status/ahead-behind/表示中 diff をまとめて取り直してから要約を notice に出す
+    fn finish_remote_job(&mut self, outcome: git::GitOutcome) {
+        let Some(pending) = self.pending_remote_job.take() else {
+            return;
+        };
+        if outcome.ok {
+            self.rescan();
+            self.last_rescan = Instant::now();
+            self.rescan_pending = false;
+            self.set_notice(summarize_remote_job(&pending, &outcome), false);
+        } else {
+            let message = if outcome.message.is_empty() {
+                format!("{} に失敗しました", pending.kind.label())
+            } else {
+                outcome.message
+            };
+            self.set_notice(message, true);
+        }
+    }
+
     fn current_config(&self) -> Config {
         Config {
             show_hidden: self.tree.show_hidden(),
@@ -573,6 +649,40 @@ fn deleted_paths_of(git: &Option<GitStatus>) -> HashSet<PathBuf> {
             .map(|(p, _)| p.clone())
             .collect(),
         None => HashSet::new(),
+    }
+}
+
+// リモート操作の完了メッセージ組み立て。pending は実行開始時点の ahead/behind、outcome は
+// git の実行結果。issue の例 (「push → origin/main (2 commits)」) に合わせた形式にする。
+// ahead/behind が 0 のときは「N commits」ではなく「up to date」にして違和感を減らす
+fn summarize_remote_job(pending: &PendingRemoteJob, outcome: &git::GitOutcome) -> String {
+    match pending.kind {
+        git::RemoteJobKind::Fetch => {
+            if outcome.message.is_empty() {
+                "fetch 完了".to_string()
+            } else {
+                format!("fetch 完了: {}", outcome.message)
+            }
+        }
+        git::RemoteJobKind::Pull => {
+            if pending.behind == 0 {
+                format!("pull → {} (up to date)", pending.branch)
+            } else {
+                format!("pull → {} ({} commits)", pending.branch, pending.behind)
+            }
+        }
+        git::RemoteJobKind::Push => {
+            let target = format!("origin/{}", pending.branch);
+            // upstream が無かった push は ahead が常に 0 (branch_status が算出できないため) で
+            // コミット数として意味を持たないので、「新規ブランチ」だと分かる表記にする
+            if !pending.had_upstream {
+                format!("push → {target} (new branch)")
+            } else if pending.ahead == 0 {
+                format!("push → {target} (up to date)")
+            } else {
+                format!("push → {target} ({} commits)", pending.ahead)
+            }
+        }
     }
 }
 
