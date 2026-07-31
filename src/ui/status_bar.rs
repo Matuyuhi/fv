@@ -115,12 +115,13 @@ fn hint_line(app: &App) -> Line<'static> {
     }
 }
 
-// Issues/PR タブ滞在中のヒント。issues (#33) だけ中身があり、PR (#34) はまだプレースホルダ
+// Issues/PR タブ滞在中のヒント
 fn workspace_status_line(app: &App) -> Line<'static> {
-    if matches!(app.workspace, Workspace::Issues) {
-        return issues_status_line(app);
+    match app.workspace {
+        Workspace::Issues => issues_status_line(app),
+        Workspace::PullRequests => pr_status_line(app),
+        Workspace::Viewer => Line::from("Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help"),
     }
-    Line::from("Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help")
 }
 
 fn issues_status_line(app: &App) -> Line<'static> {
@@ -147,6 +148,35 @@ fn issues_status_line(app: &App) -> Line<'static> {
         app.issues.visible_count(),
         app.issues.total(),
         app.issues.state_filter.label()
+    ))
+}
+
+fn pr_status_line(app: &App) -> Line<'static> {
+    if app.pending_g {
+        return Line::from("g");
+    }
+    if app.prs.list_loading() && !app.prs.fetched() {
+        return Line::from("pull requests 取得中…");
+    }
+    if let Some(err) = app.prs.list_error() {
+        return Line::from(Span::styled(
+            format!("pull requests 取得失敗: {err}  (r: 再取得)"),
+            Style::default().fg(Color::Red),
+        ));
+    }
+    let hint = match app.focus {
+        Focus::Tree => {
+            "j/k: move  Enter/l: open  d: diff  S: checks  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
+        }
+        Focus::Viewer => {
+            "j/k: scroll  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: focus  ?: help"
+        }
+    };
+    Line::from(format!(
+        "{}/{} pull requests [{}]  {hint}",
+        app.prs.visible_count(),
+        app.prs.total(),
+        app.prs.state_filter.label()
     ))
 }
 

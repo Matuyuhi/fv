@@ -19,11 +19,12 @@ impl App {
         if self.on_tab_mouse(&mouse) {
             return;
         }
-        // Viewer 以外のタブはツリー・ビューアの概念を持たない。issues (#33) だけ専用ハンドラを持ち、
-        // PullRequests (#34) はまだ中身が無いのでタブクリック以外は無視する
+        // Viewer 以外のタブはツリー・ビューアの概念を持たない。issues/PR はそれぞれ専用ハンドラを持つ
         if !matches!(self.workspace, Workspace::Viewer) {
-            if matches!(self.workspace, Workspace::Issues) {
-                self.on_issues_mouse(mouse);
+            match self.workspace {
+                Workspace::Issues => self.on_issues_mouse(mouse),
+                Workspace::PullRequests => self.on_pr_mouse(mouse),
+                Workspace::Viewer => {}
             }
             return;
         }
@@ -193,6 +194,48 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    // pull requests タブ (#34) のマウス操作。issues (#33) と同じ tree_area/viewer_area を使い回す
+    fn on_pr_mouse(&mut self, mouse: MouseEvent) {
+        self.pending_g = false;
+        let pos = Position::new(mouse.column, mouse.row);
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self.tree_area.contains(pos) {
+                    self.focus = Focus::Tree;
+                    self.click_pr_row(mouse.row);
+                } else if self.viewer_area.contains(pos) {
+                    self.focus = Focus::Viewer;
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if self.tree_area.contains(pos) {
+                    self.prs.move_selection(-3);
+                } else if self.viewer_area.contains(pos) {
+                    self.prs.scroll_by(-3);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if self.tree_area.contains(pos) {
+                    self.prs.move_selection(3);
+                } else if self.viewer_area.contains(pos) {
+                    self.prs.scroll_by(3);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // click_issue_row と同じ座標変換。クリックは Enter/l と同じ明示操作 (説明表示で開く)
+    fn click_pr_row(&mut self, row: u16) {
+        let row =
+            row as isize - self.tree_area.y as isize - 1 + self.prs.list_state.offset() as isize;
+        if row < 0 || row as usize >= self.prs.matches.len() {
+            return;
+        }
+        self.prs.selected = row as usize;
+        self.open_selected_pr();
     }
 
     // click_tree_row と同じ座標変換 (上枠1行 + list_state.offset())。クリックは Enter/l と同じ
