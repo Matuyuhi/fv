@@ -65,6 +65,35 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
     );
     push_help_section(
         &mut lines,
+        "Pull Requests (Ctrl+t / Alt+3、GitHub モード有効時)",
+        &[
+            ("j/k ↑/↓ gg/G", "一覧を移動"),
+            (
+                "Ctrl+d/u",
+                "一覧を半ページ移動 / 右ペインを半ページスクロール",
+            ),
+            ("Tab", "一覧 ⇄ 詳細のフォーカス切替"),
+            ("Enter / l / クリック", "選択 PR を説明表示で開く"),
+            ("d", "差分を表示 (GIT/LOG レーンと同じ見え方)"),
+            (
+                "S",
+                "CI ステータスを表示 (s は設定に割り当て済みのため大文字)",
+            ),
+            ("]/[ (diff 表示中)", "次 / 前の hunk へ"),
+            ("w (diff 表示中)", "折り返し切替 (設定には保存しない)"),
+            ("h/l ←/→ (diff 表示中)", "水平スクロール"),
+            ("o", "ブラウザで開く (gh pr view --web)"),
+            ("r", "一覧を再取得 (タブ往復では自動取得しない)"),
+            ("/", "一覧をファジー絞り込み (一覧側フォーカス時のみ)"),
+            ("t", "state 絞り込みを循環 (open → closed → merged → all)"),
+            (
+                "巨大な diff",
+                "行数/バイト数の上限で打ち切り、notice で通知",
+            ),
+        ],
+    );
+    push_help_section(
+        &mut lines,
         "Tree",
         &[
             ("j/k ↑/↓", "上下移動"),

@@ -9,6 +9,8 @@ mod help;
 mod icons;
 mod issues_pane;
 mod log_pane;
+mod pr_pane;
+mod remote_list_pane;
 mod settings_panel;
 mod status_bar;
 mod tab_bar;
@@ -19,7 +21,7 @@ mod viewer_pane;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders};
 
 use crate::app::{App, Focus, Lane, Mode, Workspace};
 
@@ -50,14 +52,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     match app.workspace {
         Workspace::Viewer => draw_viewer_workspace(frame, app, main),
         Workspace::Issues => draw_issues_workspace(frame, app, main),
-        Workspace::PullRequests => {
-            // PR タブは #34 までプレースホルダ。ツリー/ビューアのクリック対象を
-            // 残すと誤ヒットするので空にしておく
-            app.tree_area = Rect::default();
-            app.viewer_area = Rect::default();
-            app.splitter_area = Rect::default();
-            draw_workspace_placeholder(frame, app, main);
-        }
+        Workspace::PullRequests => draw_pr_workspace(frame, app, main),
     }
 
     status_bar::draw_status_bar(frame, app, status);
@@ -151,13 +146,27 @@ fn draw_issues_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     issues_pane::draw_issues_detail(frame, &mut app.issues, detail_focused, background, right);
 }
 
-// PullRequests タブの中身。#34 まで空のプレースホルダで良い (issue #32 のスコープ)
-fn draw_workspace_placeholder(frame: &mut Frame, app: &App, area: Rect) {
-    let title = Workspace::LABELS[app.workspace.index()].to_string();
-    let paragraph = Paragraph::new("準備中 (#33 / #34 で実装予定)")
-        .block(pane_block(title, true))
-        .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(paragraph, area);
+// pull requests タブ (#34) の中身。issues タブと同じ左右分割・幅共有パターン
+// (App::tree_width / split_ratio、tree_area 等の書き戻し)
+fn draw_pr_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
+    let [left, right] = Layout::horizontal([
+        Constraint::Length(app.tree_width(main.width)),
+        Constraint::Min(1),
+    ])
+    .areas(main);
+    app.tree_area = left;
+    app.viewer_area = right;
+    app.splitter_area = Rect {
+        x: left.right().saturating_sub(1),
+        y: main.y,
+        width: 2.min(main.width),
+        height: main.height,
+    };
+    let list_focused = app.focus == Focus::Tree;
+    let detail_focused = app.focus == Focus::Viewer;
+    let background = app.viewer.background();
+    pr_pane::draw_pr_list(frame, &mut app.prs, list_focused, left);
+    pr_pane::draw_pr_detail(frame, &mut app.prs, detail_focused, background, right);
 }
 
 fn pane_block(title: String, focused: bool) -> Block<'static> {

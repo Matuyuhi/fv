@@ -9,6 +9,8 @@ mod gitview;
 mod issuesview;
 mod job;
 mod logview;
+mod prsview;
+mod remotelist;
 mod text;
 mod tree;
 mod ui;

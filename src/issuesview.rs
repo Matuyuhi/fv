@@ -5,31 +5,20 @@
 //! イベントループをブロックしない。フィルタは finder.rs の fuzzy_match を再利用し、
 //! 新しいマッチャは書かない (branch.rs::BranchState と同じ方針)。
 //!
-//! #34 (pull requests タブ) が一覧まわりをそのまま再利用できるよう、issue 固有の要素は
-//! detail (`gh issue view` のプレーン出力) だけに閉じ、一覧のフィルタ・キャッシュ・
-//! ジョブ管理は `github::RemoteItem` 型の集合として扱う (issue/PR で行の型を分けない)。
+//! #34 (pull requests タブ) が一覧まわりをそのまま再利用できるよう、フィルタ・スコアリング
+//! (`remotelist::filter_rows`) と詳細の非同期キャッシュ (`remotelist::DetailSlot`) を
+//! 共有モジュールへ切り出してある。issue 固有なのは detail (`gh issue view` のプレーン出力)
+//! の組み立てと state 絞り込みのカーディナリティ (open/closed/all) だけ
 
-use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
 
 use ratatui::text::{Line, Span};
 use ratatui::widgets::ListState;
 
-use crate::finder::fuzzy_match;
 use crate::github::RemoteItem;
+use crate::remotelist::{DetailSlot, ListMatch, filter_rows};
 use crate::text;
 use crate::viewer::Viewport;
-
-// clippy::type_complexity 対策。詳細取得は「どの番号への応答か」を結果と一緒に持ち帰る必要が
-// あるため (list/open と違い対象が複数ありうる)、タプルのまま Receiver の型引数にする
-type DetailResult = (u64, Result<Vec<String>, String>);
-
-/// 一覧のフィルタ結果 1 行。row は rows の index、positions はタイトル内でマッチした
-/// char インデックス (branch.rs::BranchMatch と同じ形)
-pub struct IssueMatch {
-    pub row: usize,
-    pub positions: Vec<usize>,
-}
 
 /// `t` で循環する state 絞り込み。一覧そのものは常に `--state all` で 1 回だけ取得し、
 /// ここはローカルフィルタに徹する (gh を余計に叩かないため)
@@ -67,7 +56,9 @@ impl StateFilter {
 }
 
 pub struct IssuesState {
-    rows: Vec<RemoteItem>,
+    // ui/remote_list_pane.rs::draw_remote_list へ直接フィールドとして渡す (list_state と
+    // 同時に借りるため、メソッド越しだと不透明な借用になり同時に借りられない)
+    pub rows: Vec<RemoteItem>,
     /// 初回取得が完了したかどうか。true になったらタブを往復しても自動では再取得しない
     fetched: bool,
     list_loading: bool,
@@ -78,22 +69,19 @@ pub struct IssuesState {
     /// `/` で編集中の間だけ Some。Esc でここへ戻す (viewer の cancel_search と違い
     /// 一覧の絞り込みは常設状態なので、キャンセル時は編集前のクエリへ復元する)
     filter_snapshot: Option<String>,
-    pub matches: Vec<IssueMatch>,
+    pub matches: Vec<ListMatch>,
     pub selected: usize,
     pub list_state: ListState,
     /// 一覧ペインの実測高さ。ui 側が毎フレーム書き戻す (viewport.height と同じ ui→app パターン)。
     /// Ctrl+d/u の半ページ移動に使う
     pub list_area_height: usize,
 
-    /// 番号ごとの詳細キャッシュ (`gh issue view` のプレーン出力を Line 化したもの)
-    detail_cache: HashMap<u64, Vec<Line<'static>>>,
-    /// 取得失敗した番号のエラー文言。再度 Enter で再試行できるよう cache とは別に持つ
-    detail_errors: HashMap<u64, String>,
+    /// 番号ごとの詳細キャッシュ (`gh issue view` のプレーン出力を Line 化したもの)。
+    /// PR タブの説明/diff/CI と同じ形なので remotelist::DetailSlot を共有する
+    detail: DetailSlot<Vec<Line<'static>>>,
     /// 右ペインに表示中の issue 番号。selected (一覧側カーソル) とは別に持ち、
     /// j/k では追従させない (Enter/l/クリックでのみ開く。GIT ツリー・LOG 一覧と同じ理由)
     open_number: Option<u64>,
-    detail_loading: Option<u64>,
-    detail_rx: Option<Receiver<DetailResult>>,
     /// `o` (ブラウザで開く) の結果待ち。多重起動防止だけが目的で、成功時は何も表示しない
     open_rx: Option<Receiver<Result<(), String>>>,
 
@@ -117,11 +105,8 @@ impl IssuesState {
             selected: 0,
             list_state: ListState::default(),
             list_area_height: 0,
-            detail_cache: HashMap::new(),
-            detail_errors: HashMap::new(),
+            detail: DetailSlot::new(),
             open_number: None,
-            detail_loading: None,
-            detail_rx: None,
             open_rx: None,
             viewport: Viewport::new(true),
         }
@@ -195,35 +180,12 @@ impl IssuesState {
         self.filter_snapshot = None;
     }
 
-    // クエリでスコアリング → state_filter で絞り込み、という branch.rs::BranchState と
-    // 対称の 2 段階。gh 側の並び順 (updated 降順) をクエリ空の間はそのまま保つ
+    // フィルタ・スコアリングの実アルゴリズムは remotelist::filter_rows (#34 と共有)。
+    // ここでは state_filter の意味 (open/closed/all) を accepts 述語として渡すだけ
     fn rescan(&mut self) {
-        let mut matches: Vec<IssueMatch> = if self.query.is_empty() {
-            self.rows
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| self.state_filter.accepts(&r.state))
-                .map(|(i, _)| IssueMatch {
-                    row: i,
-                    positions: Vec::new(),
-                })
-                .collect()
-        } else {
-            let mut scored: Vec<(i64, IssueMatch)> = self
-                .rows
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| self.state_filter.accepts(&r.state))
-                .filter_map(|(i, r)| {
-                    let (score, positions) = fuzzy_match(&r.title, &self.query)?;
-                    Some((score, IssueMatch { row: i, positions }))
-                })
-                .collect();
-            scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-            scored.into_iter().map(|(_, m)| m).collect()
-        };
-        self.selected = self.selected.min(matches.len().saturating_sub(1));
-        std::mem::swap(&mut self.matches, &mut matches);
+        let state_filter = self.state_filter;
+        self.matches = filter_rows(&self.rows, &self.query, |s| state_filter.accepts(s));
+        self.selected = self.selected.min(self.matches.len().saturating_sub(1));
     }
 
     pub fn move_selection(&mut self, delta: isize) {
@@ -248,16 +210,13 @@ impl IssuesState {
         self.open_number = Some(number);
         self.viewport.scroll = 0;
         self.viewport.hscroll = 0;
-        if self.detail_cache.contains_key(&number) || self.detail_loading == Some(number) {
-            return false;
-        }
-        self.detail_errors.remove(&number);
-        self.detail_loading = Some(number);
-        true
+        self.detail.request(number)
     }
 
-    pub fn begin_detail_fetch(&mut self, rx: Receiver<DetailResult>) {
-        self.detail_rx = Some(rx);
+    // ジョブ側 (App::open_selected_issue) が gh の生行を Line 化してから送ってくるので、
+    // ここは DetailSlot へそのまま渡すだけ (詳細キャッシュのスレッド構成を増やさない)
+    pub fn begin_detail_fetch(&mut self, rx: Receiver<(u64, Result<Vec<Line<'static>>, String>)>) {
+        self.detail.begin_fetch(rx);
     }
 
     pub fn begin_open_web(&mut self, rx: Receiver<Result<(), String>>) {
@@ -276,19 +235,18 @@ impl IssuesState {
     }
 
     pub fn detail_loading_current(&self) -> bool {
-        self.open_number.is_some() && self.open_number == self.detail_loading
+        self.open_number.is_some_and(|n| self.detail.loading(n))
     }
 
     pub fn detail_error(&self) -> Option<&str> {
-        let number = self.open_number?;
-        self.detail_errors.get(&number).map(String::as_str)
+        self.open_number.and_then(|n| self.detail.error(n))
     }
 
     pub fn lines(&self) -> &[Line<'static>] {
-        match self.open_number.and_then(|n| self.detail_cache.get(&n)) {
-            Some(lines) => lines,
-            None => &[],
-        }
+        self.open_number
+            .and_then(|n| self.detail.get(n))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn line_count(&self) -> usize {
@@ -328,25 +286,11 @@ impl IssuesState {
                 Err(message) => self.list_error = Some(message),
             }
         }
-        if let Some(rx) = &self.detail_rx
-            && let Ok((number, result)) = rx.try_recv()
+        if let Some(number) = self.detail.poll()
+            && self.open_number == Some(number)
         {
-            self.detail_rx = None;
-            if self.detail_loading == Some(number) {
-                self.detail_loading = None;
-            }
-            match result {
-                Ok(raw) => {
-                    self.detail_cache.insert(number, build_detail_lines(&raw));
-                    if self.open_number == Some(number) {
-                        self.viewport.scroll = 0;
-                        self.viewport.hscroll = 0;
-                    }
-                }
-                Err(message) => {
-                    self.detail_errors.insert(number, message);
-                }
-            }
+            self.viewport.scroll = 0;
+            self.viewport.hscroll = 0;
         }
         if let Some(rx) = &self.open_rx
             && let Ok(result) = rx.try_recv()
@@ -367,8 +311,9 @@ impl Default for IssuesState {
 }
 
 // gh の出力をそのまま Line 化する。gutter (span[0]) は行番号を持たないので空のままにするが、
-// 「span[0] = gutter 固定」というインバリアント自体は崩さない (TextPane が前提にするため)
-fn build_detail_lines(raw: &[String]) -> Vec<Line<'static>> {
+// 「span[0] = gutter 固定」というインバリアント自体は崩さない (TextPane が前提にするため)。
+// PR タブ (#34) の説明/CI ステータス表示もプレーンテキストという点で同じなので共有する
+pub(crate) fn build_detail_lines(raw: &[String]) -> Vec<Line<'static>> {
     raw.iter()
         .map(|line| {
             let content = text::normalize(line);

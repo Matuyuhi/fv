@@ -1,14 +1,12 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, Paragraph};
+use ratatui::text::Span;
 
 use crate::github::RemoteItem;
 use crate::issuesview::IssuesState;
 
-use super::pane_block;
-use super::text_pane::TextPane;
+use super::remote_list_pane::{draw_remote_list, draw_text_detail};
 
 // 狭い端末では優先度の低い列から落とす (タイトルが最後まで残る)。issue の要求通り
 // 「狭い時はタイトル以外から落とす」を閾値の並びだけで表現する
@@ -30,56 +28,24 @@ pub(super) fn draw_issues_list(
         issues.total(),
         issues.state_filter.label()
     );
-    if issues.list_loading() && !issues.fetched() {
-        let paragraph = Paragraph::new("読み込み中…")
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-    if let Some(err) = issues.list_error() {
-        let text = format!("issues の取得に失敗しました:\n{err}\n\n(r で再取得)");
-        let paragraph = Paragraph::new(text)
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::Red));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-    if issues.visible_count() == 0 {
-        let message = if issues.total() == 0 {
-            "no issues"
-        } else {
-            "no matches"
-        };
-        let paragraph = Paragraph::new(message)
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-
-    let width = area.width;
-    let items: Vec<ListItem> = issues
-        .matches
-        .iter()
-        .map(|m| {
-            let spans = issues
-                .row(m.row)
-                .map(|row| issue_line(row, &m.positions, width))
-                .unwrap_or_default();
-            ListItem::new(Line::from(spans))
-        })
-        .collect();
-    let list = List::new(items)
-        .block(pane_block(title, focused))
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
-    let selected = (!issues.matches.is_empty()).then_some(issues.selected);
-    issues.list_state.select(selected);
-    frame.render_stateful_widget(list, area, &mut issues.list_state);
+    // list_error() は Option<&str> (issues を借りたまま) を返すため、&mut issues.list_state と
+    // 同じ呼び出しには渡せない (String に複製して借用を切ってから渡す。エラー時のみのコストなので安い)
+    let error = issues.list_error().map(str::to_string);
+    draw_remote_list(
+        frame,
+        title,
+        issues.list_loading() && !issues.fetched(),
+        error.as_deref(),
+        issues.total(),
+        "no issues",
+        &issues.matches,
+        &issues.rows,
+        issue_line,
+        issues.selected,
+        &mut issues.list_state,
+        focused,
+        area,
+    );
 }
 
 // #番号 タイトル(マッチ char をハイライト) [author] [更新日時] [labels]。author/更新日時/labels は
@@ -112,7 +78,7 @@ fn issue_line(row: &RemoteItem, positions: &[usize], width: u16) -> Vec<Span<'st
 }
 
 // updatedAt は ISO8601 ("2026-07-30T12:34:56Z")。相対日時ライブラリを足さず日付部分だけ見せる
-fn short_date(updated_at: &str) -> &str {
+pub(super) fn short_date(updated_at: &str) -> &str {
     updated_at.split('T').next().unwrap_or(updated_at)
 }
 
@@ -126,12 +92,21 @@ fn highlight_title(row: &RemoteItem, positions: &[usize]) -> Vec<Span<'static>> 
             .fg(Color::DarkGray)
             .add_modifier(Modifier::CROSSED_OUT)
     };
+    highlight_span(&row.title, positions, base_style)
+}
+
+// PR タブ (ui/pr_pane.rs) のタイトルハイライトとも共有する (positions は char インデックス)
+pub(super) fn highlight_span(
+    text: &str,
+    positions: &[usize],
+    base_style: Style,
+) -> Vec<Span<'static>> {
     let match_style = base_style
         .fg(Color::Cyan)
         .add_modifier(Modifier::UNDERLINED);
     let mut spans = Vec::new();
     let mut pos_iter = positions.iter().peekable();
-    for (i, ch) in row.title.chars().enumerate() {
+    for (i, ch) in text.chars().enumerate() {
         let style = if pos_iter.peek() == Some(&&i) {
             pos_iter.next();
             match_style
@@ -152,48 +127,21 @@ pub(super) fn draw_issues_detail(
     background: Color,
     area: Rect,
 ) {
+    // TextPane に渡す viewport の実測値書き戻し (ui→app の既存パターン)。draw_text_detail は
+    // &Viewport しか要求しないため、書き戻しは呼び出し側 (ここ) で先に済ませておく
     issues.viewport.height = area.height.saturating_sub(2) as usize;
     issues.viewport.width = area.width.saturating_sub(2) as usize;
-
-    let Some(title) = issues.title() else {
-        let paragraph = Paragraph::new("Enter / l / クリック: 詳細を開く")
-            .block(pane_block("issue".to_string(), focused))
-            .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(paragraph, area);
-        return;
-    };
-    if issues.detail_loading_current() {
-        let paragraph = Paragraph::new("読み込み中…")
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-    if let Some(err) = issues.detail_error() {
-        let text = format!("取得に失敗しました:\n{err}\n\n(Enter で再試行)");
-        let paragraph = Paragraph::new(text)
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::Red));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-    if issues.line_count() == 0 {
-        let paragraph = Paragraph::new("(empty)")
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-    let pane = TextPane {
-        lines: issues.lines(),
-        changed_lines: &None,
-        search: None,
-        cursor: None,
-        gutter_width: 0,
-    };
-    let visible = pane.visible(&issues.viewport);
-    let paragraph = Paragraph::new(visible)
-        .block(pane_block(title, focused))
-        .style(Style::default().bg(background));
-    frame.render_widget(paragraph, area);
+    let title = issues.title();
+    draw_text_detail(
+        frame,
+        title,
+        "Enter / l / クリック: 詳細を開く",
+        issues.detail_loading_current(),
+        issues.detail_error(),
+        issues.lines(),
+        &issues.viewport,
+        focused,
+        background,
+        area,
+    );
 }

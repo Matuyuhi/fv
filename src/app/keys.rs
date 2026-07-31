@@ -88,11 +88,12 @@ impl App {
             return;
         }
         // Viewer 以外のタブは Lane/ツリー/ビューアの概念を持たないので、以降の共通ディスパッチには
-        // 流さずここで専用のハンドラに振り分ける。PullRequests (#34) はまだ中身が無いプレースホルダ
+        // 流さずここで専用のハンドラに振り分ける
         if !matches!(self.workspace, Workspace::Viewer) {
             match self.workspace {
                 Workspace::Issues => self.on_issues_key(key, ctrl),
-                _ => self.on_workspace_key(key),
+                Workspace::PullRequests => self.on_pr_key(key, ctrl),
+                Workspace::Viewer => {}
             }
             return;
         }
@@ -271,11 +272,11 @@ impl App {
             },
             // Goto は確定時にしか状態を変えないので、キャンセル時に戻すものがない
             InputKind::Goto => {}
-            InputKind::Filter => {
-                if matches!(self.workspace, Workspace::Issues) {
-                    self.issues.cancel_filter_edit();
-                }
-            }
+            InputKind::Filter => match self.workspace {
+                Workspace::Issues => self.issues.cancel_filter_edit(),
+                Workspace::PullRequests => self.prs.cancel_filter_edit(),
+                Workspace::Viewer => {}
+            },
         }
     }
 
@@ -293,11 +294,11 @@ impl App {
                     self.viewer.goto_line(line_no);
                 }
             }
-            InputKind::Filter => {
-                if matches!(self.workspace, Workspace::Issues) {
-                    self.issues.confirm_filter_edit();
-                }
-            }
+            InputKind::Filter => match self.workspace {
+                Workspace::Issues => self.issues.confirm_filter_edit(),
+                Workspace::PullRequests => self.prs.confirm_filter_edit(),
+                Workspace::Viewer => {}
+            },
         }
     }
 
@@ -316,24 +317,16 @@ impl App {
             // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
             InputKind::Goto => {}
             InputKind::Filter => {
-                if let Mode::Input { buffer, .. } = &self.mode
-                    && matches!(self.workspace, Workspace::Issues)
-                {
-                    self.issues.set_query(buffer.clone());
+                let Mode::Input { buffer, .. } = &self.mode else {
+                    return;
+                };
+                let query = buffer.clone();
+                match self.workspace {
+                    Workspace::Issues => self.issues.set_query(query),
+                    Workspace::PullRequests => self.prs.set_query(query),
+                    Workspace::Viewer => {}
                 }
             }
-        }
-    }
-
-    // Issues/PR タブ共通のグローバルキー (q/?/s)。ツリー・ビューア相当の操作を持つタブは
-    // これより先に自前のハンドラ (on_issues_key 等) で処理して return するので、ここに来るのは
-    // まだ中身の無い PullRequests (#34) だけ
-    fn on_workspace_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
-            KeyCode::Char('?') => self.mode = Mode::Help,
-            KeyCode::Char('s') => self.mode = Mode::Settings(SettingsState::default()),
-            _ => {}
         }
     }
 
@@ -455,7 +448,14 @@ impl App {
             return;
         }
         let root = self.root.clone();
-        let rx = crate::job::spawn(move || (number, crate::github::issue_detail(&root, number)));
+        // Line 化 (build_detail_lines) はここ (バックグラウンドスレッド) で済ませておく。
+        // DetailSlot<Vec<Line>> は組み立て済みデータを持つ想定で、詳細キャッシュのスレッド
+        // 構成を増やさないため (issuesview::IssuesState::begin_detail_fetch 参照)
+        let rx = crate::job::spawn(move || {
+            let result = crate::github::issue_detail(&root, number)
+                .map(|raw| crate::issuesview::build_detail_lines(&raw));
+            (number, result)
+        });
         self.issues.begin_detail_fetch(rx);
     }
 
@@ -471,6 +471,190 @@ impl App {
         let root = self.root.clone();
         let rx = crate::job::spawn(move || crate::github::open_issue_web(&root, number));
         self.issues.begin_open_web(rx);
+    }
+
+    // pull requests タブ (#34) のグローバルキー。issues (#33) と同じ形 (フォーカスに依らない
+    // 操作を先に拾い、残りはフォーカスで振り分け) に、右ペインの表示切替 (d/S) が追加で入る
+    fn on_pr_key(&mut self, key: KeyEvent, ctrl: bool) {
+        match key.code {
+            KeyCode::Char('q') => {
+                self.should_quit = true;
+                return;
+            }
+            KeyCode::Char('?') => {
+                self.mode = Mode::Help;
+                return;
+            }
+            KeyCode::Char('s') => {
+                self.mode = Mode::Settings(SettingsState::default());
+                return;
+            }
+            KeyCode::Tab => {
+                self.pending_g = false;
+                self.focus = match self.focus {
+                    Focus::Tree => Focus::Viewer,
+                    Focus::Viewer => Focus::Tree,
+                };
+                return;
+            }
+            KeyCode::Char('o') => {
+                self.open_pr_web();
+                return;
+            }
+            KeyCode::Char('r') => {
+                self.refresh_prs();
+                return;
+            }
+            KeyCode::Char('t') => {
+                self.prs.cycle_state_filter();
+                return;
+            }
+            KeyCode::Char('/') if self.focus == Focus::Tree => {
+                self.prs.begin_filter_edit();
+                self.mode = Mode::Input {
+                    kind: InputKind::Filter,
+                    buffer: self.prs.query.clone(),
+                };
+                return;
+            }
+            // d/S は開いている (または選択中の) PR の表示だけを切り替える。Ctrl+d は
+            // 半ページスクロールなので !ctrl で明示的に除外する
+            KeyCode::Char('d') if !ctrl => {
+                self.switch_pr_view(crate::prsview::DetailView::Diff);
+                return;
+            }
+            KeyCode::Char('S') => {
+                self.switch_pr_view(crate::prsview::DetailView::Checks);
+                return;
+            }
+            _ => {}
+        }
+        match self.focus {
+            Focus::Tree => self.on_pr_list_key(key, ctrl),
+            Focus::Viewer => self.on_pr_detail_key(key, ctrl),
+        }
+    }
+
+    fn on_pr_list_key(&mut self, key: KeyEvent, ctrl: bool) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                self.prs.select_top();
+                return;
+            }
+        }
+        let half_page = (self.prs.list_area_height / 2).max(1) as isize;
+        match key.code {
+            KeyCode::Char('d') if ctrl => self.prs.move_selection(half_page),
+            KeyCode::Char('u') if ctrl => self.prs.move_selection(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => self.prs.move_selection(1),
+            KeyCode::Char('k') | KeyCode::Up => self.prs.move_selection(-1),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => self.prs.select_bottom(),
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => self.open_selected_pr(),
+            _ => {}
+        }
+    }
+
+    // 右ペイン (説明/diff/CI) のスクロール。diff 表示中だけ GIT/LOG と同じ wrap・hscroll・
+    // hunk ジャンプが効く (説明/CI は issues の詳細と同じくプロースなので wrap 固定)
+    fn on_pr_detail_key(&mut self, key: KeyEvent, ctrl: bool) {
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                self.prs.jump_to_top();
+                return;
+            }
+        }
+        let half_page = (self.prs.current_viewport().height / 2).max(1) as isize;
+        match key.code {
+            KeyCode::Char('d') if ctrl => self.prs.scroll_by(half_page),
+            KeyCode::Char('u') if ctrl => self.prs.scroll_by(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => self.prs.scroll_by(1),
+            KeyCode::Char('k') | KeyCode::Up => self.prs.scroll_by(-1),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => self.prs.jump_to_bottom(),
+            KeyCode::Char('w') => self.prs.toggle_diff_wrap(),
+            KeyCode::Char('h') | KeyCode::Left => self.prs.hscroll_by(-6),
+            KeyCode::Char('l') | KeyCode::Right => self.prs.hscroll_by(6),
+            KeyCode::Char('0') => self.prs.hscroll_reset(),
+            KeyCode::Char(']') => self.prs.next_hunk(),
+            KeyCode::Char('[') => self.prs.prev_hunk(),
+            _ => {}
+        }
+    }
+
+    /// r / 初回タブ表示: PR 一覧を取得する。実行中の取得があれば二重起動しない
+    pub(super) fn refresh_prs(&mut self) {
+        if self.prs.list_loading() {
+            return;
+        }
+        let root = self.root.clone();
+        let rx = crate::job::spawn(move || crate::github::list_prs(&root));
+        self.prs.begin_list_fetch(rx);
+    }
+
+    /// Enter/l/クリック共通: 選択中 PR を説明表示で開く (既に別の PR/表示を開いていても
+    /// Description へ揃える。新しい対象を選ぶ操作なので既定表示に戻すのが自然)
+    pub(super) fn open_selected_pr(&mut self) {
+        let Some(number) = self.prs.selected_number() else {
+            return;
+        };
+        self.prs
+            .set_open(number, crate::prsview::DetailView::Description);
+        self.dispatch_pr_fetch();
+    }
+
+    /// d/S: 表示だけを切り替える。まだ何も開いていなければ選択中の行を対象にする
+    /// (Enter を経由しなくても d/S だけで読み始められるようにするため)
+    fn switch_pr_view(&mut self, view: crate::prsview::DetailView) {
+        let Some(number) = self
+            .prs
+            .open_number()
+            .or_else(|| self.prs.selected_number())
+        else {
+            return;
+        };
+        self.prs.set_open(number, view);
+        self.dispatch_pr_fetch();
+    }
+
+    // 現在の (open_number, view) が未キャッシュ・未取得中なら対応する gh コマンドの job を
+    // 起動する。取得済み・取得中は PrsState::request_current が None を返すので何もしない
+    // (Enter/d/S の連打で二重起動しない)
+    fn dispatch_pr_fetch(&mut self) {
+        let Some((number, view)) = self.prs.request_current() else {
+            return;
+        };
+        let root = self.root.clone();
+        match view {
+            crate::prsview::DetailView::Description => {
+                let rx =
+                    crate::job::spawn(move || crate::prsview::fetch_description(&root, number));
+                self.prs.begin_description_fetch(rx);
+            }
+            crate::prsview::DetailView::Diff => {
+                let rx = crate::job::spawn(move || crate::prsview::fetch_diff(&root, number));
+                self.prs.begin_diff_fetch(rx);
+            }
+            crate::prsview::DetailView::Checks => {
+                let rx = crate::job::spawn(move || crate::prsview::fetch_checks(&root, number));
+                self.prs.begin_checks_fetch(rx);
+            }
+        }
+    }
+
+    /// o: ブラウザで開く
+    fn open_pr_web(&mut self) {
+        let Some(number) = self.prs.selected_number() else {
+            return;
+        };
+        if self.prs.open_web_in_flight() {
+            return;
+        }
+        let root = self.root.clone();
+        let rx = crate::job::spawn(move || crate::github::open_pr_web(&root, number));
+        self.prs.begin_open_web(rx);
     }
 
     fn on_edit_key(&mut self, key: KeyEvent) {

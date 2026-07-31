@@ -183,8 +183,8 @@ pub fn file_diff(root: &Path, file: &Path, base: DiffBase) -> Option<Vec<String>
     Some(text.lines().map(str::to_string).collect())
 }
 
-// 上限を超える行数/バイト数の diff は打ち切る。GIT レーンでの単発の `A` 操作とはいえ、
-// 巨大なリポジトリでの一括変更 (依存更新等) を丸ごと Line 化すると描画・スクロールが
+// 上限を超える行数/バイト数の diff は打ち切る。GIT レーンでの単発の `A` 操作・PR タブの
+// `gh pr diff` (#34) とはいえ、巨大な変更を丸ごと Line 化すると描画・スクロールが
 // 固まりうるため、行単位で打ち切りを判定する (提案値どおり 20000 行 / 2MB)
 const DIFF_ALL_LINE_LIMIT: usize = 20_000;
 const DIFF_ALL_BYTE_LIMIT: usize = 2 * 1024 * 1024;
@@ -219,7 +219,9 @@ pub fn diff_all(root: &Path, base: DiffBase, untracked: &[PathBuf]) -> (Vec<Stri
     truncate_diff(text)
 }
 
-fn truncate_diff(text: String) -> (Vec<String>, bool) {
+// pull requests タブ (#34) の `gh pr diff` 出力も同じ上限で打ち切るため pub(crate) にする
+// (diff_all と同じ打ち切りロジックを 2 回書かない)
+pub(crate) fn truncate_diff(text: String) -> (Vec<String>, bool) {
     let mut lines = Vec::new();
     let mut bytes = 0usize;
     let mut truncated = false;
