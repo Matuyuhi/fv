@@ -121,12 +121,11 @@ fn remote_item(fields: &[&str]) -> Option<RemoteItem> {
     })
 }
 
-/// 詳細は `gh issue view <n>` のプレーン出力 (本文 + コメント) をそのまま行として返す。
+/// 詳細は `gh issue view <n>` のプレーン出力をそのまま行として返す。
 /// `--json`/`--template` を使わないのは、issue の要求通り「gh の整形済み出力をそのまま描く」
 /// ためで、パースし直す必要がない
 pub fn issue_detail(root: &Path, number: u64) -> Result<Vec<String>, String> {
-    let stdout = run_gh(root, ["issue", "view", &number.to_string(), "--comments"])?;
-    Ok(stdout.lines().map(str::to_string).collect())
+    detail_with_comments(root, "issue", number)
 }
 
 /// `o`: ブラウザで開く。実際にブラウザを起動するのは gh 自身で、fv 側は結果 (成功/失敗) だけ見る
@@ -180,8 +179,26 @@ pub fn list_prs(root: &Path) -> Result<Vec<PrRow>, String> {
 /// （既定）説明・レビューコメント: `gh pr view <n>` のプレーン出力。issue_detail と同じ方針
 /// (gh の整形済み出力をそのまま描く)
 pub fn pr_detail(root: &Path, number: u64) -> Result<Vec<String>, String> {
-    let stdout = run_gh(root, ["pr", "view", &number.to_string(), "--comments"])?;
-    Ok(stdout.lines().map(str::to_string).collect())
+    detail_with_comments(root, "pr", number)
+}
+
+// `gh <kind> view <n> --comments` は本文の代わりにコメント一覧だけを出す (本文が消え、
+// コメントが 1 件も無いと出力が空になる)。本文とコメントは別々に取って繋ぐしかない。
+// コメント取得の失敗は本文の表示まで巻き込まない (本文だけでも読めた方が良い)
+fn detail_with_comments(root: &Path, kind: &str, number: u64) -> Result<Vec<String>, String> {
+    let number = number.to_string();
+    let body = run_gh(root, [kind, "view", &number])?;
+    let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
+    if let Ok(comments) = run_gh(root, [kind, "view", &number, "--comments"]) {
+        let comments: Vec<&str> = comments.lines().collect();
+        if comments.iter().any(|line| !line.trim().is_empty()) {
+            lines.push(String::new());
+            lines.push("─── comments ───".to_string());
+            lines.push(String::new());
+            lines.extend(comments.into_iter().map(str::to_string));
+        }
+    }
+    Ok(lines)
 }
 
 /// `d`: 差分。出力は `git diff` と同じ unified diff 形式なので、行の組み立ては
