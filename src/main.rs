@@ -1,26 +1,17 @@
 mod app;
-mod branch;
+mod component;
 mod config;
-mod editor;
-mod finder;
 mod git;
 mod github;
-mod gitview;
-mod index;
-mod issuesview;
 mod job;
-mod logview;
 // 開発用の静的プレビュー (preview/mod.rs)。製品ビルドには含めないため既定では無効で、
 // 見た目を確認する時だけ `cargo preview <scene>` (= --features preview) で有効化する
 #[cfg(feature = "preview")]
 mod preview;
-mod prsview;
-mod remotelist;
+mod shell;
 mod text;
-mod tree;
-mod ui;
-mod viewer;
 mod watch;
+mod widget;
 
 use std::env;
 use std::error::Error;
@@ -126,7 +117,7 @@ fn run(
     let mut dirty = true;
     loop {
         if dirty {
-            terminal.draw(|frame| ui::draw(frame, app))?;
+            terminal.draw(|frame| shell::draw(frame, app))?;
             dirty = false;
         }
         // poll がタイムアウトしても 100ms 周期でループが回り、その都度 watcher を drain する。

@@ -1,10 +1,10 @@
 //! ブランチ一覧オーバーレイ (`b`、Mode::Branch) のキー処理と切替・作成の実行。
-//! 一覧の絞り込み・選択状態そのものは branch.rs (BranchState) が持ち、ここは
+//! 一覧の絞り込み・選択状態そのものは component/branch/mod.rs (BranchState) が持ち、ここは
 //! 「どの git コマンドを呼び、結果をどう表示へ反映するか」だけを持つ。
 
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::branch::BranchState;
+use crate::component::branch::BranchState;
 use crate::git;
 
 use super::{App, Lane, Mode};

@@ -2,7 +2,7 @@
 //! Compose の `@Preview` / SwiftUI の Preview と同じ狙いで、「実装 → 保存 → 見た目を確認」を
 //! アプリの操作なしで回せるようにするための開発用の入口。
 //!
-//! 実装は ratatui の `TestBackend` (メモリ上の Buffer) に `ui::draw` をそのまま通すだけで、
+//! 実装は ratatui の `TestBackend` (メモリ上の Buffer) に `shell::draw` をそのまま通すだけで、
 //! **描画コードにプレビュー専用の分岐を一切足さない** — プレビューにだけ都合の良い経路を
 //! 作ると「プレビューでは直っているのに実物が直っていない」が起きるため。
 
@@ -190,7 +190,7 @@ fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16), color: bool) 
     let mut app = App::new(root.to_path_buf(), config, false);
     let mut terminal = Terminal::new(TestBackend::new(size.0, size.1)).expect("test backend");
     let mut draw = |app: &mut App| {
-        let _ = terminal.draw(|frame| crate::ui::draw(frame, app));
+        let _ = terminal.draw(|frame| crate::shell::draw(frame, app));
     };
     draw(&mut app);
     (scene.setup)(&mut app);

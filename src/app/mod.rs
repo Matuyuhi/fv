@@ -17,18 +17,18 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
 
+use crate::component::editor::EditState;
+use crate::component::finder::index::FileIndex;
+use crate::component::gitlane::GitState;
+use crate::component::issues::IssuesState;
+use crate::component::log::LogState;
+use crate::component::prs::PrsState;
+use crate::component::tree::Tree;
+use crate::component::viewer::{self, Viewer};
 use crate::config::Config;
-use crate::editor::EditState;
 use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
-use crate::gitview::GitState;
-use crate::index::FileIndex;
-use crate::issuesview::IssuesState;
 use crate::job;
-use crate::logview::LogState;
-use crate::prsview::PrsState;
-use crate::tree::Tree;
-use crate::viewer::{self, Viewer};
 use crate::watch::FsWatcher;
 
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
@@ -79,10 +79,10 @@ pub struct App {
     pub should_quit: bool,
     // g 待ち状態。Mode を増やすほどのものではないので App の小さなフラグで持つ
     pub pending_g: bool,
-    // マウスのヒットテスト用。ui::draw が毎フレーム書き戻す (viewport の実測値と同じパターン)
+    // マウスのヒットテスト用。shell::draw が毎フレーム書き戻す (viewport の実測値と同じパターン)
     pub tree_area: Rect,
     pub viewer_area: Rect,
-    // 左右ペインの境界 (両ペインの枠線 2 桁)。ドラッグの掴み判定用に ui::draw が書き戻す
+    // 左右ペインの境界 (両ペインの枠線 2 桁)。ドラッグの掴み判定用に shell::draw が書き戻す
     pub splitter_area: Rect,
     /// タブバーの各タブの矩形 (workspace_available が false の間は全て空)。
     /// ui::tab_bar が毎フレーム書き戻し、mouse.rs のクリック判定が読む
@@ -200,7 +200,7 @@ impl App {
         app
     }
 
-    /// 保存された割合から左ペインの実桁数を求める。ui::draw と
+    /// 保存された割合から左ペインの実桁数を求める。shell::draw と
     /// ドラッグ時の clamp が同じ定義を通るよう、換算はここ 1 箇所に閉じる
     pub fn tree_width(&self, total: u16) -> u16 {
         clamp_tree_width((self.split_ratio * total as f32).round() as u16, total)

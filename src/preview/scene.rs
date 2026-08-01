@@ -9,8 +9,8 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::{App, Lane, Workspace};
+use crate::component::prs::DetailView;
 use crate::github::{PrRow, RemoteItem};
-use crate::prsview::DetailView;
 
 use super::keys;
 

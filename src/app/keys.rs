@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::editor::EditOutcome;
-use crate::finder::Finder;
+use crate::component::editor::EditOutcome;
+use crate::component::finder::Finder;
 
 use super::{
     App, ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace,
