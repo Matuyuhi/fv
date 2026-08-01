@@ -15,10 +15,11 @@ jobs:
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # UI 差分を PR にコメントするぶんだけ書き込みを足す (fork からの PR では
-    # GITHUB_TOKEN が読み取り専用のままなので、コメントは静かに諦める)
+    # contents: write は main への push でスナップショットを追従コミットするためだけに使う
+    # (PR の実行では push しない)。fork からの PR では GITHUB_TOKEN が
+    # 権限指定に関わらず読み取り専用になるので、コメントも push も静かに諦める
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
     strategy:
       fail-fast: false
@@ -86,16 +87,33 @@ jobs:
           cargo run --quiet --features preview -- --preview --update-snapshots
           # 新規シーンのファイルは未追跡のままだと git diff に出ないので intent-to-add しておく
           git add --intent-to-add tests/snapshots
-          if ! git diff --exit-code -- tests/snapshots; then
-            {
-              echo '### UI snapshot diff'
-              echo '```diff'
-              git diff -- tests/snapshots
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::UI が変わりました。意図した変更なら 'cargo preview --update-snapshots' で更新してコミットしてください"
-            exit 1
+          if git diff --quiet -- tests/snapshots; then
+            exit 0
           fi
+          git --no-pager diff -- tests/snapshots
+          # main への push では落とさず追従コミットを積む。独立した 2 つの PR がそれぞれ
+          # 緑のままマージされて食い違うこと (semantic conflict) があり、そこで main を
+          # 赤いまま放置するより自動で直す方が良いため。PR 側は従来どおり落とす
+          # (スナップショットの差分は作者が意図して出すレビュー対象だから)
+          if [ "${{ github.event_name }}" = "push" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tests/snapshots
+            # [skip ci] は無限ループ避けの保険。描画が非決定になった時に
+            # 「push する → CI が走る → また push する」を繰り返さないため
+            git commit -q -m "chore: UI スナップショットを更新 [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}" ||
+              echo "::warning::UI スナップショットの自動更新を push できませんでした"
+            exit 0
+          fi
+          {
+            echo '### UI snapshot diff'
+            echo '```diff'
+            git diff -- tests/snapshots
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::UI が変わりました。意図した変更なら 'cargo preview --update-snapshots' で更新してコミットしてください"
+          exit 1
 
       # base との UI 差分を PR のコメントに出す。Actions のログを開かなくても、
       # 会話の流れの中で「この変更で画面がどう変わるか」を読めるようにするため。
