@@ -8,11 +8,11 @@ pub struct FinderMatch {
     score: i64,
 }
 
-/// Ctrl+p ファジーファインダーの状態。候補一覧は起動時に一度だけ構築し、
+/// Ctrl+p ファジーファインダーの状態。候補一覧は開いた時に受け取り、
 /// クエリ入力の都度 rescan で線形走査してスコアリングし直す
 /// (数千件規模でも実用速度で足りるため、索引構築等の最適化はしない)
 pub struct Finder {
-    // root からの相対パス文字列。起動時に一度だけ構築し、以降は不変
+    // root からの相対パス文字列。開いた時点の一覧で、背景走査の完了時にだけ差し替わる
     candidates: Vec<String>,
     pub query: String,
     // クエリでフィルタし、スコア降順 (クエリ空ならパス昇順) に並べたもの
@@ -34,6 +34,14 @@ impl Finder {
         };
         finder.rescan();
         finder
+    }
+
+    /// 候補を差し替える (背景走査の完了時)。クエリは打ち直させず、
+    /// 新しい候補で絞り込み直すだけにする
+    pub fn set_candidates(&mut self, candidates: Vec<String>) {
+        self.candidates = candidates;
+        self.candidates.sort();
+        self.rescan();
     }
 
     pub fn total(&self) -> usize {

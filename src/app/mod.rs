@@ -18,6 +18,7 @@ use crate::editor::EditState;
 use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
 use crate::gitview::GitState;
+use crate::index::FileIndex;
 use crate::issuesview::IssuesState;
 use crate::job;
 use crate::logview::LogState;
@@ -58,6 +59,8 @@ pub struct App {
     pub prs: PrsState,
     pub tree: Tree,
     pub viewer: Viewer,
+    /// Finder の候補。ツリーが遅延走査になったぶん、全ファイル一覧は別に持つ
+    pub file_index: FileIndex,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
     pub git: Option<GitStatus>,
     /// ステータスバー常時表示用の現在ブランチ + ahead/behind。非 git repo なら None。
@@ -85,7 +88,7 @@ pub struct App {
     dragging_split: Option<u16>,
     // 左ペインが画面幅に占める割合 (config に永続化)
     split_ratio: f32,
-    watcher: Option<FsWatcher>,
+    watcher: FsWatcher,
     last_rescan: Instant,
     /// ツリーの構造 (作成・削除・リネーム) が変わった疑いがあり、全走査 (tree.rescan) が要る
     rescan_pending: bool,
@@ -134,7 +137,8 @@ impl App {
     /// (config.github との合成は github_enabled の初期値としてのみ行う)
     pub fn new(root: PathBuf, config: Config, github_cli: bool) -> Self {
         let mut tree = Tree::new(&root, config.show_hidden);
-        // 監視の初期化に失敗しても (権限等) 監視なしで起動を続ける
+        // 再帰監視の登録は別スレッドで進む (起動を待たせない)。失敗しても
+        // 監視なしで動き続ける
         let watcher = FsWatcher::new(&root, config.show_hidden);
         let git = git::file_statuses(&root);
         let branch_status = git::branch_status(&root);
@@ -147,6 +151,7 @@ impl App {
         // Viewer::new() が入れた既定テーマのまま起動を続ける (パニックしない)
         viewer.set_theme(&config.theme);
         let github_enabled = github_cli || config.github;
+        let file_index = FileIndex::new(root.clone(), config.show_hidden);
         let mut app = Self {
             root,
             focus: Focus::Tree,
@@ -157,6 +162,7 @@ impl App {
             prs: PrsState::new(config.wrap_default),
             tree,
             viewer,
+            file_index,
             git,
             branch_status,
             notice: None,
@@ -244,15 +250,20 @@ impl App {
                 self.set_notice(message, is_error);
             }
         }
-        // PR の diff/CI 先読み (#54 で本文/コメントに続き、d/S の初回待ちを無くす)。
-        // タイマー未到達の間は advance_prefetch が None を返すだけなので、ここで changed を
-        // 立てない (毎 tick true を返すとアイドル時の CPU を焼く。ジョブが完了して poll 側の
-        // outcome.changed が立った時だけ再描画されれば十分)
+        // PR の diff/CI 先読み。タイマー未到達の間は advance_prefetch が None を返すだけなので、
+        // ここで changed を立てない (毎 tick true を返すとアイドル時の CPU を焼く)
         self.dispatch_pr_prefetch();
-        let Some(watcher) = &self.watcher else {
-            return changed;
-        };
-        let changed_paths = watcher.drain();
+        // 背景走査が終わったら、開いたままの Finder の候補も差し替える
+        // (走査中に開いた場合は読み込み済み分だけの暫定候補になっているため)
+        if self.file_index.poll() {
+            changed = true;
+            if let Mode::Finder(finder) = &mut self.mode
+                && let Some(files) = self.file_index.files()
+            {
+                finder.set_candidates(to_candidates(files));
+            }
+        }
+        let changed_paths = self.watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
 
         for change in &changed_paths {
@@ -293,8 +304,11 @@ impl App {
         // sync_deleted は tree.rescan (nodes を作り直す) の後に、かつ新しい git status
         // (refresh_git_status で取得済み) を使って呼ぶ必要があるため、この順序で並べる
         self.refresh_git_status();
-        self.tree.rescan(&self.root);
+        self.tree.rescan();
         self.tree.sync_deleted(&self.root, &self.deleted_paths());
+        // ツリーに現れない (未展開の) 変更も候補一覧には効くので、次に Finder を
+        // 開くときに歩き直させる。ここで走査を起こすと保存のたびに全走査になる
+        self.file_index.invalidate();
         self.after_status_refresh();
     }
 
@@ -619,7 +633,8 @@ impl App {
     }
 
     pub fn toggle_hidden(&mut self) {
-        let show_hidden = self.tree.toggle_hidden(&self.root);
+        let show_hidden = self.tree.toggle_hidden();
+        self.file_index.set_show_hidden(show_hidden);
         // toggle_hidden 内部の rescan で nodes が作り直されるため、削除ファイルの合成ノードも
         // 都度足し直さないと隠れてしまう (git status 自体は変わらないので既存 self.git を使う)
         self.tree.sync_deleted(&self.root, &self.deleted_paths());
@@ -774,6 +789,15 @@ fn summarize_remote_job(pending: &PendingRemoteJob, outcome: &git::GitOutcome) -
             }
         }
     }
+}
+
+// Finder の候補は相対パス文字列。FileIndex とツリー (走査完了前の代用) の
+// どちらから来ても同じ形に揃える
+pub(super) fn to_candidates(files: &[PathBuf]) -> Vec<String> {
+    files
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect()
 }
 
 // 最小幅を満たせない極端に狭い端末では下限を諦めて半分ずつにする

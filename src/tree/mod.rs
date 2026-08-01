@@ -11,6 +11,9 @@ use ratatui::widgets::ListState;
 use node::{Node, NodeKind};
 
 pub struct Tree {
+    // 展開時の遅延走査で走査起点を組み立てるため Tree 自身が root を持つ
+    // (呼び出し側が毎回渡す形だと「読み込みに root が要る」操作が増えるたびに引数が伝播する)
+    root: PathBuf,
     nodes: Vec<Node>,
     show_hidden: bool,
     // 表示を絞り込むパス集合 (対象ファイル + その祖先ディレクトリ)。None なら全表示。
@@ -25,9 +28,12 @@ pub struct Tree {
 }
 
 impl Tree {
+    /// 起動時に読むのは root 直下の 1 階層だけ。以下の階層はディレクトリを
+    /// 開いた時に読む (巨大なディレクトリでも起動が待たされないようにするため)
     pub fn new(root: &Path, show_hidden: bool) -> Self {
-        let nodes = scan::build_nodes(root, show_hidden);
+        let nodes = scan::read_dir(root, show_hidden);
         let mut tree = Self {
+            root: root.to_path_buf(),
             nodes,
             show_hidden,
             filter: None,
@@ -48,18 +54,18 @@ impl Tree {
             (None, Some(paths)) => {
                 self.saved_expanded = Some(scan::collect_expanded(&self.nodes));
                 let paths = paths.clone();
-                scan::expand_all(&mut self.nodes, &paths);
+                scan::expand_all(&mut self.nodes, &paths, self.show_hidden);
             }
             // 絞り込み中の張り替え (再走査): 新しく対象になったディレクトリだけ開く。
             // 既存のものに触らないので、ユーザーが畳んだ状態が保存のたびに開き直されない
             (Some(previous), Some(paths)) => {
                 let added: HashSet<PathBuf> = paths.difference(previous).cloned().collect();
-                scan::expand_all(&mut self.nodes, &added);
+                scan::expand_all(&mut self.nodes, &added, self.show_hidden);
             }
             // 絞り込み解除: 退避しておいた状態へ厳密に戻す (絞り込み中の開閉は持ち越さない)
             (Some(_), None) => {
                 if let Some(saved) = self.saved_expanded.take() {
-                    scan::set_expanded(&mut self.nodes, &saved);
+                    scan::set_expanded(&mut self.nodes, &saved, self.show_hidden);
                 }
             }
             (None, None) => {}
@@ -124,15 +130,22 @@ impl Tree {
     /// ファイルならそのパスを返す。
     pub fn toggle_or_open(&mut self) -> Option<PathBuf> {
         let index_path = self.visible.get(self.selected)?.index_path.clone();
+        let show_hidden = self.show_hidden;
         let node = scan::node_mut(&mut self.nodes, &index_path)?;
-        match &mut node.kind {
+        let opened = match &mut node.kind {
             NodeKind::Dir { expanded, .. } => {
                 *expanded = !*expanded;
-                self.rebuild_visible();
-                None
+                *expanded
             }
-            NodeKind::File => Some(node.path.clone()),
+            NodeKind::File => return Some(node.path.clone()),
+        };
+        // 開く時だけ走査する。畳む時に読む必要はないし、閉じたまま残った子は
+        // 次に開く時のキャッシュとしてそのまま使える
+        if opened {
+            scan::load(node, show_hidden);
         }
+        self.rebuild_visible();
+        None
     }
 
     /// 選択がディレクトリで未展開なら展開のみ行い選択は動かさない (l を連打して
@@ -213,15 +226,13 @@ impl Tree {
         true
     }
 
-    /// ファイルシステム変更を検知した際に再走査する。展開中ディレクトリと
+    /// ファイルシステム変更を検知した際に再走査する。読み込み済みの階層だけを
+    /// 読み直すので、走査量は起動時と同じく「開いている範囲」に比例する。
     /// 選択位置は path で覚えておき、再構築後に付け直す
     /// (走査順が変わりうるため index_path はそのまま使い回せない)。
-    pub fn rescan(&mut self, root: &Path) {
-        let expanded = scan::collect_expanded(&self.nodes);
+    pub fn rescan(&mut self) {
         let selected = self.selected_path();
-
-        self.nodes = scan::build_nodes(root, self.show_hidden);
-        scan::expand_all(&mut self.nodes, &expanded);
+        scan::refresh(&mut self.nodes, &self.root, self.show_hidden);
         self.rebuild_visible();
         self.restore_selection(selected);
     }
@@ -245,17 +256,18 @@ impl Tree {
     }
 
     /// 隠し項目の表示設定を切り替え、展開状態と選択位置を保ったまま再走査する。
-    pub fn toggle_hidden(&mut self, root: &Path) -> bool {
+    pub fn toggle_hidden(&mut self) -> bool {
         self.show_hidden = !self.show_hidden;
-        self.rescan(root);
+        self.rescan();
         self.show_hidden
     }
 
-    /// root 以下の全ファイルを相対パスで列挙する。Finder 起動時に一度だけ呼ばれ、
-    /// 折りたたまれているディレクトリの中身も対象にする (新たな走査はせず既存 nodes を使う)
-    pub fn collect_file_paths(&self, root: &Path) -> Vec<PathBuf> {
+    /// 読み込み済みのファイルを相対パスで列挙する。Finder の候補が
+    /// (root 全体を歩く FileIndex より先に) 必要になった時の暫定値で、
+    /// 新たな走査はせず既存 nodes をそのまま使う
+    pub fn collect_file_paths(&self) -> Vec<PathBuf> {
         let mut out = Vec::new();
-        scan::collect_files(&self.nodes, root, &mut out);
+        scan::collect_files(&self.nodes, &self.root, &mut out);
         out
     }
 

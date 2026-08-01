@@ -766,14 +766,13 @@ impl App {
         }
     }
 
-    // 候補は既存 tree の nodes から集めるだけで、新たな走査はしない
+    // 候補は root 全体を歩いた FileIndex から。走査がまだ終わっていなければ
+    // 待たずにツリーの読み込み済み分で開き、完了時に on_tick が差し替える
     fn open_finder(&mut self) {
-        let candidates = self
-            .tree
-            .collect_file_paths(&self.root)
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
+        let candidates = match self.file_index.request() {
+            Some(files) => super::to_candidates(files),
+            None => super::to_candidates(&self.tree.collect_file_paths()),
+        };
         self.mode = Mode::Finder(Finder::new(candidates));
     }
 

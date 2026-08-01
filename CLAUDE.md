@@ -37,11 +37,11 @@ LC_ALL=C grep -ao '<marker>' out.raw
 
 ### モジュール構成（1 型 1 責務 1 ファイル方針）
 - `app/` — mod.rs(App 状態・on_tick・レーン/ワークスペース遷移・notice), keys.rs(全キールーティング), mouse.rs, mode.rs(Focus/Lane/Mode/Workspace/InputKind/ConfirmAction)
-- `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(走査・rescan ヘルパー)
+- `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(1 階層走査・遅延ロード・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
 - `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), issues_pane.rs(issues タブの一覧+詳細), pr_pane.rs(pull requests タブの一覧+説明/diff/CI), remote_list_pane.rs(issues/PR が共有する一覧・プレーンテキスト詳細の描画部品), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
-- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit・branches/branch_status/switch 系・fetch/pull/push・truncate_diff) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーン・PR タブの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `issuesview.rs`(issues タブの一覧フィルタ・詳細キャッシュ・ジョブ管理の状態) / `prsview.rs`(pull requests タブの一覧フィルタ・説明/diff/CI 3 種のキャッシュ・ジョブ管理の状態) / `remotelist.rs`(issues/PR が共有する一覧フィルタ (`filter_rows`) と詳細の非同期キャッシュ (`DetailSlot`)) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
+- `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `index.rs`(FileIndex: Finder 候補の背景全走査) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git.rs`(git CLI ラッパー・読み取り run_git と書き込み run_git_write・commit・branches/branch_status/switch 系・fetch/pull/push・truncate_diff) / `gitview.rs`(GIT レーンの diff 表示状態。LOG レーン・PR タブの複数ファイル diff 組み立ても持つ) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `issuesview.rs`(issues タブの一覧フィルタ・詳細キャッシュ・ジョブ管理の状態) / `prsview.rs`(pull requests タブの一覧フィルタ・説明/diff/CI 3 種のキャッシュ・ジョブ管理の状態) / `remotelist.rs`(issues/PR が共有する一覧フィルタ (`filter_rows`) と詳細の非同期キャッシュ (`DetailSlot`)) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
 キーマップ飽和を避けるため、状態を3軸に分けている。**新しい機能を足す時はどの軸かをまず決める**。
@@ -81,6 +81,14 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 
 ### ペイン幅のドラッグリサイズ
 左右の比率は `App::split_ratio`（config に永続化）。桁数でなく割合で持つのは端末リサイズで配分を保つため。割合→実桁の換算は `App::tree_width` 1 箇所だけで、ドラッグ時の clamp（`clamp_tree_width`: 最小幅を満たせない狭い端末では半分ずつ）も同じ関数を通す。ドラッグは `on_split_mouse` がレーン・オーバーレイ判定より前に処理して消費する（幅変更はレーンと直交する操作。編集中でも効かせる）。掴んだ桁のオフセットを `dragging_split` に持つので Down の瞬間に境界が飛ばない。config への書き込みはボタンを離した時だけ（ドラッグ中に毎フレーム書かない）。
+
+### ツリー走査と FS 監視（起動をディレクトリの大きさから切り離す）
+巨大なディレクトリで開くのに数秒かかっていたため、**起動時に触るのは root 直下 1 階層だけ**にしてある。「起動時にツリー全体を歩く」処理を足さないこと（`App::new` の所要時間がツリーの大きさに比例しない、が守るべき性質）。
+- 走査は `scan::read_dir` の **1 階層ずつ**。`NodeKind::Dir` の `loaded` が未走査を表し、`scan::load` が展開の直前（`toggle_or_open` の開く側、`expand_all`）で子を読む。畳んだ子は捨てないので再展開はキャッシュヒットになる
+- 1 階層でも `WalkBuilder` を通すのは、既定の `parents(true)` が**祖先の .gitignore を遡って読む**ため。サブディレクトリ起点でも root 側の `*.log` / `/anchored` / `build/` がそのまま効く（この前提が崩れるなら一括走査に戻すしかない）。`require_git(false)` で非 git ディレクトリでも .gitignore を尊重
+- `rescan` は `scan::refresh` で**読み込み済みの階層だけ**を読み直し、展開状態と子を **name で**引き継ぐ（種別が変わったら引き継がない）。選択は **path で**保存・復元する（index_path は再走査で無効になる）。再走査コストも「今開いている範囲」に比例する
+- `toggle_hidden` は show_hidden を反転して `rescan` するだけ（読み直しの経路を 2 つ持たない）
+- 監視の開始（notify の再帰 watch 登録）も**ツリーの大きさに比例する**ため別スレッドに出し、`FsWatcher::drain` が毎 tick 受け取りに行く。登録完了までのイベントは取りこぼすが、それは監視開始前と同じ状態でしかない
 
 ### GitHub モードのタブバー（app/mouse.rs on_tab_mouse・ui/tab_bar.rs）
 タブごとの列範囲は `App::tab_areas`（`ui/tab_bar.rs` が毎フレーム書き戻す、`tree_area`/`splitter_area` と同じ ui→app のパターン）。クリック判定 `on_tab_mouse` はペイン境界のドラッグと同じ理由でレーン・オーバーレイ判定より前に処理して消費する（タブ移動はレーンと直交する操作）。`workspace_available` が false の間は `tab_areas` が全て空 Rect のままなので、判定コードを分岐させなくても自然に無効化される。
@@ -130,8 +138,14 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - **GIT レーンの絞り込み・diff は status ベースで足りる**ので、内容変更だけの tick でも `tree.set_filter`/`GitState::refresh` は毎回呼ぶ（`App::after_status_refresh`、rescan/rescan_status_only 共通）。「新しく変更されたファイルが絞り込みに現れる」という要求は `GitStatus.files`（`git status` の出力）だけで満たせ、ツリーの再走査は要らない。以前は「GIT レーンにいる間は変更が 1 件でもあれば無条件に rescan_pending を立てる」という特別扱いがあったが、この分類導入後は不要になった（全ての内容変更イベントが既に `after_status_refresh` を通るため）ので削除した
 - 削除・作成・リネームは常に structural 扱いで `rescan()`（全走査）側に回るため、`tree.sync_deleted`（削除ファイルの合成ノード追加）は `rescan_status_only` では呼ばない。内容変更だけの tick では新しく削除されたパスが発生しない前提
 
+### Finder の候補（index.rs）
+ツリーが遅延走査になったので、`Ctrl+p` の候補をツリーから集めると未展開の階層が丸ごと欠ける。`FileIndex` が root 全体を**別スレッドで 1 回歩いて**候補を持つ（無視設定は tree/scan.rs と揃える）。
+- 走査を起こすのは Finder を開いた時だけ（起動時に走らせると、使わないのに巨大ディレクトリを歩くことになる）
+- 走査完了前に開いた場合は**ツリーの読み込み済み分**で即座に開き、完了時に `on_tick` が `Finder::set_candidates` で差し替える（クエリは保つ）。タイトルの `scanning...` がその状態
+- FS 変更・隠しファイル切替では `invalidate` するだけ。ここで走査し直すと保存のたびに全走査になる（古い一覧は次に Finder を開くまで使い続ける）
+
 ### GIT レーン（gitview.rs + ui/git_pane.rs）
-- 左ペインは `Tree::set_filter` による**表示フィルタ**（変更ファイル + その祖先ディレクトリ）。集合は `GitStatus.files` と `changed_dirs` の和で、新しい走査はしない
+- 左ペインは `Tree::set_filter` による**表示フィルタ**（変更ファイル + その祖先ディレクトリ）。集合は `GitStatus.files` と `changed_dirs` の和で、ツリーの再走査はしない。ただし変更ファイルが未展開の階層にいることはあるので、`expand_all` は集合に含まれるディレクトリを**開く直前に読み込む**（`changed_dirs` が祖先を全部含むので root から辿れる）
 - 絞り込み中も `expanded` フラグを尊重するので h/l/H の開閉がそのまま効く。代わりに `set_filter` が**絞り込み開始時に元の展開状態を退避 → 対象を全展開**し、解除時に `scan::set_expanded` で厳密に戻す（GIT 内での開閉は VIEW に持ち越さない）。絞り込み中の再走査では「新しく対象になったディレクトリ」だけを開き、ユーザーが畳んだものは保存のたびに開き直さない
 - 右ペインは `git diff <base> -- <file>`（`git::DiffBase`: Head/Staged/Unstaged）を `TextPane` の行形式（span[0] = gutter、gutter は新側行番号・削除行は空欄）に組み替えたもの。untracked の `--no-index` フォールバックは Head/Unstaged のときだけ（Staged は「index にまだ無い」が正しい状態なので出さない）
 - **diff 基準（`GitState::base`）は GIT レーン内だけの一時状態**。`t` で HEAD → staged → unstaged と循環し、ペインタイトルに常に出す。`w`（折返し）と同じく config には保存しない。**`changed_lines`（VIEW の gutter マーク）・`baseline_lines`（EDIT のライブ diff）は意図的に HEAD 固定のまま**で `DiffBase` に連動させない（GIT レーンの操作で閲覧・編集の変更行マークが勝手に変わるのを避けるため）
