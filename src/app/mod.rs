@@ -244,6 +244,11 @@ impl App {
                 self.set_notice(message, is_error);
             }
         }
+        // PR の diff/CI 先読み (#54 で本文/コメントに続き、d/S の初回待ちを無くす)。
+        // タイマー未到達の間は advance_prefetch が None を返すだけなので、ここで changed を
+        // 立てない (毎 tick true を返すとアイドル時の CPU を焼く。ジョブが完了して poll 側の
+        // outcome.changed が立った時だけ再描画されれば十分)
+        self.dispatch_pr_prefetch();
         let Some(watcher) = &self.watcher else {
             return changed;
         };
