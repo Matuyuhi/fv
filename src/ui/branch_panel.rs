@@ -4,15 +4,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
-use crate::app::{App, Mode};
 use crate::branch::{BranchRow, BranchState};
 
 use super::centered_rect;
 
-pub(super) fn draw_branch(frame: &mut Frame, app: &mut App, area: Rect) {
-    let Mode::Branch(state) = &mut app.mode else {
-        return;
-    };
+pub(super) fn draw_branch(frame: &mut Frame, state: &mut BranchState, area: Rect) {
     let popup = centered_rect(70, 60, area);
     frame.render_widget(Clear, popup);
 

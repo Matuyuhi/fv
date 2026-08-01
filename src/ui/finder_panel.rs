@@ -4,20 +4,17 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
-use crate::app::{App, Mode};
 use crate::finder::Finder;
 
 use super::centered_rect;
 
-pub(super) fn draw_finder(frame: &mut Frame, app: &mut App, area: Rect) {
-    // 背景走査中は候補が読み込み済み分だけの暫定値なので、件数が増える途中であることを示す
-    let title = if app.file_index.scanning() {
+// scanning は FileIndex の背景走査中フラグ (候補が読み込み済み分だけの暫定値であることを示す)。
+// Finder 自身は走査の進行を知らないので、呼び出し側から渡してもらう
+pub(super) fn draw_finder(frame: &mut Frame, finder: &mut Finder, scanning: bool, area: Rect) {
+    let title = if scanning {
         "finder (Ctrl+p) scanning..."
     } else {
         "finder (Ctrl+p)"
-    };
-    let Mode::Finder(finder) = &mut app.mode else {
-        return;
     };
     let popup = centered_rect(60, 60, area);
     // 下のツリー/ビューアを隠すため、描画前に領域をクリアする

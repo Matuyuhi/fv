@@ -3,23 +3,21 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::widgets::Paragraph;
 
-use crate::app::{App, Focus};
 use crate::text;
-use crate::viewer::Content;
+use crate::viewer::{Content, Viewer};
 
 use super::pane_block;
 use super::text_pane::{LineWindow, TextPane};
 
-pub(super) fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
-    let focused = app.focus == Focus::Viewer;
+pub(super) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool, area: Rect) {
     // マウス・キー処理が次のフレームで読む実測値の書き戻し (ui→app 逆流の統一パターン)
-    app.viewer.viewport.height = area.height.saturating_sub(2) as usize;
-    app.viewer.viewport.width = area.width.saturating_sub(2) as usize;
+    viewer.viewport.height = area.height.saturating_sub(2) as usize;
+    viewer.viewport.width = area.width.saturating_sub(2) as usize;
     // 描画行の組み立て中は viewer.render を可変で借りたままになるので、Viewer 全体を
     // 借りるメソッド (background) はその前に済ませておく
-    let background = app.viewer.background();
+    let background = viewer.background();
 
-    let Some(open) = &app.viewer.current else {
+    let Some(open) = &viewer.current else {
         let paragraph = Paragraph::new("no file selected")
             .block(pane_block(String::from("viewer"), focused))
             .style(Style::default().fg(Color::DarkGray));
@@ -27,8 +25,8 @@ pub(super) fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     // hscroll > 0 の間はステータスバーではなくタイトル側に現在オフセットを出す
-    let title = if !app.viewer.viewport.wrap && app.viewer.viewport.hscroll > 0 {
-        format!("{}  →{}", open.title, app.viewer.viewport.hscroll)
+    let title = if !viewer.viewport.wrap && viewer.viewport.hscroll > 0 {
+        format!("{}  →{}", open.title, viewer.viewport.hscroll)
     } else {
         open.title.clone()
     };
@@ -52,18 +50,17 @@ pub(super) fn draw_viewer(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     let gutter_width = text::gutter_width(doc.line_count());
     // ハイライトはここで初めて走る。組み立てるのは画面に映る 1 枚分だけ (viewer::render)
-    let (rows, first) =
-        app.viewer
-            .render
-            .rows(&app.viewer.highlighter, doc.source(), &app.viewer.viewport);
+    let (rows, first) = viewer
+        .render
+        .rows(&viewer.highlighter, doc.source(), &viewer.viewport);
     let pane = TextPane {
         window: LineWindow { rows, first },
         changed_lines: &open.changed_lines,
-        search: app.viewer.search.as_ref(),
+        search: viewer.search.as_ref(),
         cursor: None,
         gutter_width,
     };
-    let visible = pane.visible(&app.viewer.viewport);
+    let visible = pane.visible(&viewer.viewport);
     let paragraph = Paragraph::new(visible)
         .block(block)
         .style(Style::default().bg(background));
