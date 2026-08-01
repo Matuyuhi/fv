@@ -8,10 +8,12 @@
 //! `RemoteItem::body` (一覧取得時点で受け取り済み) から `issuesview::build_body_lines` で
 //! ヘッダー + 本文を組み立て、コメントだけ `gh pr view --comments` の非同期 1 往復で取りに行く
 //! (`description` フィールドの役割はコメントキャッシュに変わった)。diff と CI ステータスは
-//! 一覧に含まれないデータなので、従来通り取得が要る
+//! 一覧に含まれないデータなので取得が要るが、`d`/`S` を押した瞬間の 1 往復待ちを無くすため
+//! PR を開いた時点でバックグラウンド先読みする (`PrefetchStage` 節参照)
 
 use std::path::Path;
 use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
 
 use ratatui::text::Line;
 
@@ -78,6 +80,20 @@ pub enum DetailView {
     Checks,
 }
 
+/// Enter/l/クリックで PR を開いた ~400ms 後に diff → CI の順で静かに先読みする状態機械。
+/// Enter 連打で一覧を流し読みする使い方で無駄弾を撃たないよう、`Pending` の間は何も撃たず
+/// タイマーが切れるまで待つ。同時に走らせるジョブを高々1本にするため、diff のジョブが
+/// 終わるまで CI のジョブは起動しない (`DiffInFlight` → `ChecksInFlight` の順に一方向に進む)
+#[derive(Clone, Copy)]
+enum PrefetchStage {
+    Idle,
+    Pending(u64, Instant),
+    DiffInFlight(u64),
+    ChecksInFlight(u64),
+}
+
+const PREFETCH_DELAY: Duration = Duration::from_millis(400);
+
 /// diff 表示用に組み立て済みのデータ。gitview::render_commit の戻り値 (LOG レーンの
 /// CommitDiff と同じ形) に、打ち切りが発生したかどうかを添えたもの
 pub struct PrDiffData {
@@ -119,6 +135,13 @@ pub struct PrsState {
     checks: DetailSlot<Vec<Line<'static>>>,
     open_rx: Option<Receiver<Result<(), String>>>,
 
+    /// diff/CI の先読み状態機械 (`PrefetchStage` 参照)
+    prefetch: PrefetchStage,
+    /// 打ち切り notice を「実際に diff を表示した時」に一度だけ出すための既通知集合。
+    /// 先読み経由で静かにキャッシュへ入った場合はここに入れず、後から `d` で表示した
+    /// 瞬間に初めて通知する (poll 完了時に notice を出す既存経路と合流させる、後述)
+    notified_truncation: std::collections::HashSet<u64>,
+
     /// 説明/CI は issues の詳細と同じくプロースなので常時 wrap 固定の Viewport を共有する。
     /// diff だけ GIT/LOG と同じ wrap トグル・hscroll・hunk ジャンプを持つため別の Viewport にする
     /// (別ドキュメントなので位置を共有する意味がなく、表示を切り替えても互いの読み位置を壊さない)
@@ -148,6 +171,8 @@ impl PrsState {
             diff: DetailSlot::new(),
             checks: DetailSlot::new(),
             open_rx: None,
+            prefetch: PrefetchStage::Idle,
+            notified_truncation: std::collections::HashSet::new(),
             text_viewport: Viewport::new(true),
             diff_viewport: Viewport::new(wrap),
         }
@@ -253,6 +278,97 @@ impl PrsState {
             vp.scroll = 0;
             vp.hscroll = 0;
         }
+    }
+
+    /// App::open_selected_pr (Enter/l/クリック) だけが呼ぶ。j/k による選択移動では呼ばれない
+    /// ため、先読みはキーリピートで撃たれない。同じ PR を開き直しても最初からやり直す
+    /// (直前の先読みが CI 待ちの途中でも、対象がずれていなければ実害は無くタイマーが
+    /// リセットされるだけ)
+    pub fn note_opened(&mut self, number: u64) {
+        self.prefetch = PrefetchStage::Pending(number, Instant::now());
+    }
+
+    /// on_tick から毎 tick 呼ぶ。先読みの状態機械を高々 1 段階だけ進め、ジョブを起動すべき
+    /// なら (number, view) を返す (App::dispatch_pr_prefetch が job::spawn する)。
+    /// `DetailSlot::request` の既存の重複防止をそのまま使うので、既にキャッシュ済み・
+    /// 取得中の対象へは重複して起動しない
+    pub fn advance_prefetch(&mut self) -> Option<(u64, DetailView)> {
+        match self.prefetch {
+            PrefetchStage::Idle => None,
+            PrefetchStage::Pending(number, started) => {
+                // 別の PR を開き直していたら、古い対象への先読みはもう意味が無い
+                if self.open_number != Some(number) {
+                    self.prefetch = PrefetchStage::Idle;
+                    return None;
+                }
+                if started.elapsed() < PREFETCH_DELAY {
+                    return None;
+                }
+                self.start_diff_prefetch(number)
+            }
+            PrefetchStage::DiffInFlight(number) => {
+                if self.diff.loading(number) {
+                    return None; // diff のジョブがまだ終わっていない
+                }
+                if self.open_number != Some(number) {
+                    self.prefetch = PrefetchStage::Idle;
+                    return None;
+                }
+                self.start_checks_prefetch(number)
+            }
+            PrefetchStage::ChecksInFlight(number) => {
+                if self.checks.loading(number) {
+                    return None;
+                }
+                self.prefetch = PrefetchStage::Idle;
+                None
+            }
+        }
+    }
+
+    fn start_diff_prefetch(&mut self, number: u64) -> Option<(u64, DetailView)> {
+        if self.diff.request(number) {
+            self.prefetch = PrefetchStage::DiffInFlight(number);
+            return Some((number, DetailView::Diff));
+        }
+        // 既にキャッシュ済み・取得中なら diff は撃たず、続けて CI を試す
+        self.start_checks_prefetch(number)
+    }
+
+    fn start_checks_prefetch(&mut self, number: u64) -> Option<(u64, DetailView)> {
+        if self.checks.request(number) {
+            self.prefetch = PrefetchStage::ChecksInFlight(number);
+            return Some((number, DetailView::Checks));
+        }
+        self.prefetch = PrefetchStage::Idle;
+        None
+    }
+
+    /// diff を実際に表示している瞬間 (`d` を押した直後、または先読み済みキャッシュへの
+    /// 表示切替) だけ打ち切り notice を出す。先読みがバックグラウンドで完了した時点
+    /// (view はまだ Description) では素通りし、番号ごとに 1 度だけ通知する
+    fn truncation_notice_if_needed(&mut self, number: u64) -> Option<(String, bool)> {
+        if self.view != DetailView::Diff || self.open_number != Some(number) {
+            return None;
+        }
+        if !self.diff.get(number).is_some_and(|d| d.truncated) {
+            return None;
+        }
+        if !self.notified_truncation.insert(number) {
+            return None;
+        }
+        Some((
+            "diff が大きいため表示を打ち切りました (20000 行 / 2MB)".to_string(),
+            true,
+        ))
+    }
+
+    /// App::switch_pr_view (d) が dispatch_pr_fetch の直後に呼ぶ。先読みで既にキャッシュ済み
+    /// の diff を初めて表示する瞬間はジョブが起動しない (request が false)ため、poll 側の
+    /// 通知だけでは打ち切りを知らせ損なう。ここで現在表示中の対象に対して同じ判定をかける
+    pub fn truncation_notice_for_current(&mut self) -> Option<(String, bool)> {
+        let number = self.open_number?;
+        self.truncation_notice_if_needed(number)
     }
 
     /// App::dispatch_pr_fetch が呼ぶ。今の (open_number, view) が未キャッシュ・未取得中なら
@@ -538,12 +654,9 @@ impl PrsState {
                 self.diff_viewport.scroll = 0;
                 self.diff_viewport.hscroll = 0;
             }
-            if self.diff.get(number).is_some_and(|d| d.truncated) {
-                outcome.notice = Some((
-                    "diff が大きいため表示を打ち切りました (20000 行 / 2MB)".to_string(),
-                    true,
-                ));
-            }
+            // 先読み経由 (view がまだ Description) の完了では通知しない。実際に表示した
+            // 瞬間の通知は truncation_notice_for_current 側 (App::switch_pr_view) が兼ねる
+            outcome.notice = self.truncation_notice_if_needed(number);
         }
         if let Some(rx) = &self.open_rx
             && let Ok(result) = rx.try_recv()

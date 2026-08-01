@@ -596,13 +596,16 @@ impl App {
     }
 
     /// Enter/l/クリック共通: 選択中 PR を説明表示で開く (既に別の PR/表示を開いていても
-    /// Description へ揃える。新しい対象を選ぶ操作なので既定表示に戻すのが自然)
+    /// Description へ揃える。新しい対象を選ぶ操作なので既定表示に戻すのが自然)。
+    /// diff/CI の先読み (`d`/`S` を押した時の待ち時間を無くす) はこの明示操作だけを起点にする
+    /// — j/k の選択移動では note_opened を呼ばないため、キーリピートで gh を連打しない
     pub(super) fn open_selected_pr(&mut self) {
         let Some(number) = self.prs.selected_number() else {
             return;
         };
         self.prs
             .set_open(number, crate::prsview::DetailView::Description);
+        self.prs.note_opened(number);
         self.dispatch_pr_fetch();
     }
 
@@ -618,6 +621,33 @@ impl App {
         };
         self.prs.set_open(number, view);
         self.dispatch_pr_fetch();
+        // 先読みで diff が既にキャッシュ済みだと dispatch_pr_fetch はジョブを起動しない
+        // (=poll での通知が発火しない) ため、表示に切り替えた瞬間にここで打ち切りを知らせる
+        if let Some((message, is_error)) = self.prs.truncation_notice_for_current() {
+            self.set_notice(message, is_error);
+        }
+    }
+
+    /// on_tick から毎 tick 呼ぶ。開いている PR の diff/CI を静かに 1 段階だけ先読みする。
+    /// advance_prefetch が None を返す間 (タイマー未到達・既に先読み済み等) は何もしない
+    pub(super) fn dispatch_pr_prefetch(&mut self) {
+        let Some((number, view)) = self.prs.advance_prefetch() else {
+            return;
+        };
+        let root = self.root.clone();
+        match view {
+            crate::prsview::DetailView::Diff => {
+                let rx = crate::job::spawn(move || crate::prsview::fetch_diff(&root, number));
+                self.prs.begin_diff_fetch(rx);
+            }
+            crate::prsview::DetailView::Checks => {
+                let rx = crate::job::spawn(move || crate::prsview::fetch_checks(&root, number));
+                self.prs.begin_checks_fetch(rx);
+            }
+            // 先読みは diff/CI だけが対象 (Description は本文がネットワーク不要、
+            // コメントは開いた瞬間に dispatch_pr_fetch が既に取りに行っている)
+            crate::prsview::DetailView::Description => {}
+        }
     }
 
     // 現在の (open_number, view) が未キャッシュ・未取得中なら対応する gh コマンドの job を
