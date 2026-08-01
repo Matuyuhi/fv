@@ -446,12 +446,9 @@ impl App {
         let Some(open) = &self.viewer.current else {
             return false;
         };
-        let Some(state) = EditState::open(
-            &open.path.clone(),
-            &self.viewer.highlighter,
-            self.viewer.viewport.scroll,
-            &self.root,
-        ) else {
+        let Some(state) =
+            EditState::open(&open.path.clone(), self.viewer.viewport.scroll, &self.root)
+        else {
             return false;
         };
         self.lane = Lane::Edit(state);
@@ -621,7 +618,7 @@ impl App {
     /// (paste 有効化前は生キー入力として届いていた挙動の維持)
     pub fn on_paste(&mut self, text: &str) {
         if let Lane::Edit(state) = &mut self.lane {
-            state.paste(text, &self.viewer.highlighter, &mut self.viewer.viewport);
+            state.paste(text, &mut self.viewer.viewport);
             return;
         }
         if let Mode::Commit { .. } = &self.mode {

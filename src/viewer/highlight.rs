@@ -1,21 +1,17 @@
 use std::path::Path;
 
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{Color as SyntectColor, FontStyle, Theme, ThemeSet};
-use syntect::parsing::{SyntaxReference, SyntaxSet};
-use syntect::util::LinesWithEndings;
+use ratatui::text::Span;
+use syntect::highlighting::{
+    Color as SyntectColor, FontStyle, HighlightIterator, HighlightState,
+    Highlighter as ThemeHighlighter, Style as SyntectStyle, Theme, ThemeSet,
+};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 
 use crate::text;
 
-/// 編集中はキーストローク毎に全文を再ハイライトするため、閲覧時の
-/// MAX_HIGHLIGHT_BYTES より大幅に低い閾値で早めにプレーン表示へ逃がす
-const EDIT_HIGHLIGHT_BYTES: usize = 256 * 1024;
-
-/// syntect によるハイライトとテーマ管理。閲覧 (content.rs の load) と
-/// 編集 (EditState::rebuild) の両方が同じ実体を使う。cache は持たない —
-/// 何をいつキャッシュするかは呼び出し側 (Viewer) の責務
+/// syntect のシンタックス定義とテーマの置き場。ハイライト結果も行の状態も持たない —
+/// 何をどこまで計算するかは呼び出し側 (render.rs の HighlightCache) の責務
 pub struct Highlighter {
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
@@ -54,7 +50,7 @@ impl Highlighter {
         &self.theme_name
     }
 
-    /// テーマ差し替え。ハイライト済み Line の無効化 (cache 破棄・再生成) は呼び出し側が行う
+    /// テーマ差し替え。組み立て済みの行・パーサ状態の破棄は呼び出し側が行う
     pub fn set_theme(&mut self, name: &str) -> bool {
         let Some(mut theme) = self.theme_set.themes.get(name).cloned() else {
             return false;
@@ -65,88 +61,104 @@ impl Highlighter {
         true
     }
 
-    /// 編集バッファの描画行を生成する (editor 用)。cache は経由しない —
-    /// 再生成はキー入力起因の 1 回きりで、「再描画毎の再ハイライト禁止」には反しない
-    pub fn highlight_text(&self, path: &Path, text: &str) -> Vec<Line<'static>> {
-        let gutter_width = text::gutter_width(text.lines().count());
-        if text.len() > EDIT_HIGHLIGHT_BYTES {
-            plain_lines(text, gutter_width)
-        } else {
-            self.highlight_lines(path, text, gutter_width)
+    /// 行単位で再開できるハイライトの実行単位を作る。テーマ側の Highlighter (セレクタの
+    /// 展開) はここで 1 回だけ組み立て、行ごとの状態は LineState として呼び出し側が持ち回る
+    pub(super) fn session<'a>(&'a self, path: &Path, first_line: &str) -> Session<'a> {
+        Session {
+            syntax_set: &self.syntax_set,
+            theme: ThemeHighlighter::new(&self.theme),
+            syntax: find_syntax(&self.syntax_set, path, first_line),
         }
-    }
-
-    pub(super) fn highlight_lines(
-        &self,
-        path: &Path,
-        text: &str,
-        gutter_width: usize,
-    ) -> Vec<Line<'static>> {
-        let syntax = self.find_syntax(path, text);
-        let mut highlighter = HighlightLines::new(syntax, &self.theme);
-        let mut lines = Vec::new();
-        for (i, raw) in LinesWithEndings::from(text).enumerate() {
-            let mut spans = vec![gutter_span(i + 1, gutter_width)];
-            match highlighter.highlight_line(raw, &self.syntax_set) {
-                Ok(ranges) => {
-                    for (style, segment) in ranges {
-                        let segment = text::normalize(segment);
-                        if segment.is_empty() {
-                            continue;
-                        }
-                        spans.push(Span::styled(segment, convert_style(style)));
-                    }
-                }
-                // 文法定義とファイル内容の組み合わせによってはパースが失敗しうる。
-                // その行だけ無色で出し、表示自体は継続する
-                Err(_) => spans.push(Span::raw(text::normalize(raw))),
-            }
-            lines.push(Line::from(spans));
-        }
-        if lines.is_empty() {
-            lines.push(Line::from(gutter_span(1, gutter_width)));
-        }
-        lines
-    }
-
-    fn find_syntax(&self, path: &Path, text: &str) -> &SyntaxReference {
-        if let Some(ext) = path.extension().and_then(|e| e.to_str())
-            && let Some(syntax) = self.syntax_set.find_syntax_by_extension(ext)
-        {
-            return syntax;
-        }
-        // Makefile 等、拡張子なしのファイル名そのものが文法定義に登録されている
-        if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
-            && let Some(syntax) = self.syntax_set.find_syntax_by_extension(file_name)
-        {
-            return syntax;
-        }
-        let first_line = text.lines().next().unwrap_or("");
-        self.syntax_set
-            .find_syntax_by_first_line(first_line)
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text())
     }
 }
 
-pub(super) fn plain_lines(text: &str, gutter_width: usize) -> Vec<Line<'static>> {
-    let mut lines: Vec<Line> = text
-        .lines()
-        .enumerate()
-        .map(|(i, raw)| {
-            Line::from(vec![
-                gutter_span(i + 1, gutter_width),
-                Span::raw(text::normalize(raw)),
-            ])
-        })
-        .collect();
-    if lines.is_empty() {
-        lines.push(Line::from(gutter_span(1, gutter_width)));
+fn find_syntax<'a>(
+    syntax_set: &'a SyntaxSet,
+    path: &Path,
+    first_line: &str,
+) -> &'a SyntaxReference {
+    if let Some(ext) = path.extension().and_then(|e| e.to_str())
+        && let Some(syntax) = syntax_set.find_syntax_by_extension(ext)
+    {
+        return syntax;
     }
-    lines
+    // Makefile 等、拡張子なしのファイル名そのものが文法定義に登録されている
+    if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
+        && let Some(syntax) = syntax_set.find_syntax_by_extension(file_name)
+    {
+        return syntax;
+    }
+    syntax_set
+        .find_syntax_by_first_line(first_line)
+        .unwrap_or_else(|| syntax_set.find_syntax_plain_text())
+}
+
+/// 1 ファイル分のハイライト実行単位。行を 1 本ずつ食わせて LineState を進める
+pub(super) struct Session<'a> {
+    syntax_set: &'a SyntaxSet,
+    theme: ThemeHighlighter<'a>,
+    syntax: &'a SyntaxReference,
+}
+
+/// ある行を解析する直前のパーサ状態。Clone して途中経過を保存できるので、
+/// 文書の先頭からやり直さずに任意の行からハイライトを再開できる
+/// (これが「ファイル全体を毎回ハイライトしない」ことの土台)
+#[derive(Clone)]
+pub(super) struct LineState {
+    parse: ParseState,
+    highlight: HighlightState,
+}
+
+impl Session<'_> {
+    pub(super) fn start(&self) -> LineState {
+        LineState {
+            parse: ParseState::new(self.syntax),
+            highlight: HighlightState::new(&self.theme, ScopeStack::new()),
+        }
+    }
+
+    /// raw (行末の改行を含む) を 1 行ハイライトし、描画用の span を spans へ積む
+    pub(super) fn line(&self, raw: &str, state: &mut LineState, spans: &mut Vec<Span<'static>>) {
+        self.scan(raw, state, |style, segment| {
+            let segment = text::normalize(segment);
+            if segment.is_empty() {
+                return;
+            }
+            spans.push(match style {
+                Some(style) => Span::styled(segment, convert_style(style)),
+                None => Span::raw(segment),
+            });
+        });
+    }
+
+    /// 画面に映らない行を状態だけ進める (可視範囲より手前の助走)。span を組み立てない分だけ
+    /// 文字列の確保が丸ごと省ける
+    pub(super) fn skip(&self, raw: &str, state: &mut LineState) {
+        self.scan(raw, state, |_, _| {});
+    }
+
+    // 文法定義とファイル内容の組み合わせによってはパースが失敗しうる。その行だけ
+    // style なし (無色) の 1 セグメントとして流し、表示自体は継続する
+    fn scan(
+        &self,
+        raw: &str,
+        state: &mut LineState,
+        mut emit: impl FnMut(Option<SyntectStyle>, &str),
+    ) {
+        match state.parse.parse_line(raw, self.syntax_set) {
+            Ok(ops) => {
+                let iter = HighlightIterator::new(&mut state.highlight, &ops, raw, &self.theme);
+                for (style, segment) in iter {
+                    emit(Some(style), segment);
+                }
+            }
+            Err(_) => emit(None, raw),
+        }
+    }
 }
 
 // gutter_width は末尾空白込みの全体幅なので、数字の右詰め幅はそこから 1 引いた値
-fn gutter_span(number: usize, gutter_width: usize) -> Span<'static> {
+pub(super) fn gutter_span(number: usize, gutter_width: usize) -> Span<'static> {
     let digits = gutter_width.saturating_sub(1);
     Span::styled(
         format!("{number:>digits$} "),
@@ -154,7 +166,7 @@ fn gutter_span(number: usize, gutter_width: usize) -> Span<'static> {
     )
 }
 
-fn convert_style(style: syntect::highlighting::Style) -> Style {
+fn convert_style(style: SyntectStyle) -> Style {
     let fg = style.foreground;
     let mut converted = Style::default().fg(Color::Rgb(fg.r, fg.g, fg.b));
     if style.font_style.contains(FontStyle::BOLD) {

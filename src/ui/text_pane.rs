@@ -9,13 +9,35 @@ use crate::viewer::{SearchState, Viewport};
 const MATCH_BG: Color = Color::Rgb(80, 80, 0);
 const CURRENT_MATCH_BG: Color = Color::Rgb(255, 220, 0);
 
+/// TextPane に渡す可視ウィンドウ。文書全体ではなく「vp.scroll から height 論理行」だけを
+/// 持つ形にしてあるのは、大きなファイルを丸ごとハイライトせずに済ませる
+/// (viewer::HighlightCache が可視範囲だけを組み立てる) ため
+pub(super) struct LineWindow<'a> {
+    /// rows[0] が論理行 first にあたる
+    pub rows: &'a [Line<'static>],
+    pub first: usize,
+}
+
+impl<'a> LineWindow<'a> {
+    /// 全行を既にメモリに持っている呼び出し側 (diff 系ペイン) 用の切り出し。
+    /// wrap 中でも 1 論理行は最低 1 視覚行を占めるので、height 論理行あれば画面は必ず埋まる
+    pub(super) fn slice(lines: &'a [Line<'static>], vp: &Viewport) -> Self {
+        let first = vp.scroll.min(lines.len().saturating_sub(1));
+        let end = (first + vp.height).min(lines.len());
+        Self {
+            rows: &lines[first..end],
+            first,
+        }
+    }
+}
+
 /// 閲覧 (viewer_pane) と編集 (editor_pane) で共通のテキスト描画パイプライン。
 /// 行加工順は mark_changed_line → highlight_matches → (hscroll | char 単位 wrap) →
 /// cursor overlay で固定。順序を入れ替えると検索マッチ・カーソルの絶対桁がズレる
 /// (CLAUDE.md の桁位置整合インバリアント)。
 /// 閲覧は search だけ、編集は cursor だけを Some にする — 両方を同時に使うモードはない
 pub(super) struct TextPane<'a> {
-    pub lines: &'a [Line<'static>],
+    pub window: LineWindow<'a>,
     pub changed_lines: &'a Option<HashSet<usize>>,
     pub search: Option<&'a SearchState>,
     /// ブロックカーソルの (論理行, 表示桁)
@@ -28,17 +50,16 @@ impl TextPane<'_> {
     /// viewport に収まる分の描画行を組み立てる。Paragraph::scroll / Paragraph::wrap は
     /// 使わない (u16 上限と、折返し位置が外から計算できない問題をどちらも避ける)
     pub fn visible(&self, vp: &Viewport) -> Vec<Line<'static>> {
-        let start = vp.scroll.min(self.lines.len().saturating_sub(1));
         if vp.wrap {
-            return self.wrapped(start, vp);
+            return self.wrapped(vp);
         }
-        let end = (start + vp.height).min(self.lines.len());
-        (start..end)
-            .map(|i| {
-                let line = self.marked_and_highlighted(i);
+        (0..self.window.rows.len())
+            .take(vp.height)
+            .map(|offset| {
+                let line = self.marked_and_highlighted(offset);
                 let line = hscroll_line(&line, vp.hscroll);
                 match self.cursor {
-                    Some((cursor_line, col)) if cursor_line == i => {
+                    Some((cursor_line, col)) if cursor_line == self.window.first + offset => {
                         overlay_cursor(line, col.saturating_sub(vp.hscroll))
                     }
                     _ => line,
@@ -50,16 +71,18 @@ impl TextPane<'_> {
     // wrap 時の描画: 論理行を width で char 単位に自前分割する。折返し位置を
     // カーソル追従 (editor の ensure_visible) とクリック座標 (click_at) の視覚行数
     // 計算 (text::wrap_rows) と一致させるため、単語境界 wrap は使わない
-    fn wrapped(&self, start: usize, vp: &Viewport) -> Vec<Line<'static>> {
+    fn wrapped(&self, vp: &Viewport) -> Vec<Line<'static>> {
         let width = vp.width.saturating_sub(self.gutter_width).max(1);
         let mut rows: Vec<Line> = Vec::new();
-        let mut i = start;
-        while rows.len() < vp.height && i < self.lines.len() {
+        for offset in 0..self.window.rows.len() {
+            if rows.len() >= vp.height {
+                break;
+            }
             // マーカーは先頭の視覚行の gutter にだけ付く (続き行は pad で置き換わる)
-            let line = self.marked_and_highlighted(i);
+            let line = self.marked_and_highlighted(offset);
             let mut chunks = wrap_line(&line, width, self.gutter_width);
             if let Some((cursor_line, col)) = self.cursor
-                && cursor_line == i
+                && cursor_line == self.window.first + offset
             {
                 let row = col / width;
                 // 折返し境界ちょうど (行末が width の倍数) に立った場合は空の続き行に置く
@@ -69,14 +92,16 @@ impl TextPane<'_> {
                 chunks[row] = overlay_cursor(std::mem::take(&mut chunks[row]), col % width);
             }
             rows.extend(chunks);
-            i += 1;
         }
         rows.truncate(vp.height);
         rows
     }
 
-    fn marked_and_highlighted(&self, i: usize) -> Line<'static> {
-        let line = mark_changed_line(&self.lines[i], i, self.changed_lines);
+    // offset はウィンドウ内の位置。変更行マーク・検索マッチは文書全体での論理行
+    // (first + offset) で引く
+    fn marked_and_highlighted(&self, offset: usize) -> Line<'static> {
+        let i = self.window.first + offset;
+        let line = mark_changed_line(&self.window.rows[offset], i, self.changed_lines);
         match self.search {
             Some(search) => highlight_matches(&line, i, search),
             None => line,

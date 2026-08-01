@@ -9,11 +9,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::text::Line;
 
 use crate::git;
 use crate::text;
-use crate::viewer::{Highlighter, Viewer, Viewport};
+use crate::viewer::{HighlightCache, Viewer, Viewport};
 
 /// これを超えるファイルは編集対象にしない (メモリ・再ハイライトの両面で現実的でないため)
 const MAX_EDIT_BYTES: u64 = 10 * 1024 * 1024;
@@ -23,9 +22,10 @@ pub enum EditOutcome {
     Exit,
 }
 
-/// インライン編集の状態。閲覧側とは「Viewport (スクロール共有) と Highlighter
-/// (再ハイライト) だけを借りる」関係に留め、Viewer の cache・履歴・検索には触らない。
-/// 保存 (save) だけは cache の即時更新のため Viewer::reload を呼ぶ
+/// インライン編集の状態。閲覧側とは「Viewport (スクロール共有) だけを借りる」関係に留め、
+/// Viewer の cache・履歴・検索には触らない。保存 (save) だけは cache の即時更新のため
+/// Viewer::reload を呼ぶ。ハイライトは描画時に可視範囲だけ組み立てるので、編集操作の
+/// 経路 (handle_key/paste) は Highlighter を一切借りない
 pub struct EditState {
     pub path: PathBuf,
     pub buffer: EditBuffer,
@@ -33,10 +33,9 @@ pub struct EditState {
     pub cursor: (usize, usize),
     // 上下移動で維持する目標列。短い行を跨いでも元の列に戻れるようにする (vim 相当)
     desired_col: usize,
-    /// 描画キャッシュ。編集操作の度に再生成し、カーソル移動だけでは触らない
-    pub lines: Vec<Line<'static>>,
-    /// 行番号 gutter の char 幅 (末尾空白込み)。マウス座標変換とカーソル追従が参照する
-    pub gutter_width: usize,
+    /// 可視範囲の描画キャッシュ。編集は「変更行以降を無効化する」だけで、
+    /// 実際に組み直すのは次の描画で画面に映る行だけ
+    pub render: HighlightCache,
     /// 保存エラー・discard 確認などステータスバーに出す一時メッセージ
     pub notice: Option<String>,
     confirm_discard: bool,
@@ -48,32 +47,33 @@ pub struct EditState {
 
 impl EditState {
     /// 編集セッションを開始する。非 UTF-8・巨大ファイル・読込失敗は None (呼び出し側で no-op)
-    pub fn open(
-        path: &Path,
-        highlighter: &Highlighter,
-        start_line: usize,
-        root: &Path,
-    ) -> Option<Self> {
+    pub fn open(path: &Path, start_line: usize, root: &Path) -> Option<Self> {
         let size = fs::metadata(path).ok()?.len();
         if size > MAX_EDIT_BYTES {
             return None;
         }
         let buffer = EditBuffer::load(path).ok()?;
         let cursor_line = start_line.min(buffer.line_count() - 1);
+        let mut render = HighlightCache::new();
+        render.reset(path, false);
         let mut state = Self {
             path: path.to_path_buf(),
             buffer,
             cursor: (cursor_line, 0),
             desired_col: 0,
-            lines: Vec::new(),
-            gutter_width: 0,
+            render,
             notice: None,
             confirm_discard: false,
             baseline: git::baseline_lines(root, path),
             changed_lines: None,
         };
-        state.rebuild(highlighter);
+        state.refresh_changed_lines();
         Some(state)
+    }
+
+    /// 行番号 gutter の char 幅 (末尾空白込み)。行数だけで決まるので状態として持たない
+    pub fn gutter_width(&self) -> usize {
+        text::gutter_width(self.buffer.line_count())
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, viewer: &mut Viewer) -> EditOutcome {
@@ -109,12 +109,11 @@ impl EditState {
         // 端末により word 移動は Ctrl+矢印 / Alt+矢印 のどちらでも届くため両方受ける
         let word = mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         // 保存だけは cache 再読込のため Viewer 全体が要る。先に処理して抜けることで、
-        // 以降の操作は highlighter/viewport の 2 フィールドしか借りないことを型で保証する
+        // 以降の操作は viewport しか借りないことを型で保証する
         if code == KeyCode::Char('s') && (ctrl || cmd) {
             self.save(viewer);
             return EditOutcome::Continue;
         }
-        let hl = &viewer.highlighter;
         let vp = &mut viewer.viewport;
         match code {
             KeyCode::Esc => {
@@ -132,31 +131,31 @@ impl EditState {
             KeyCode::Char('z') if (ctrl || cmd) && shift => {
                 if let Some(cursor) = self.buffer.redo() {
                     self.cursor = cursor;
-                    self.after_edit(hl, vp);
+                    self.after_edit(vp);
                 }
             }
             KeyCode::Char('z') if ctrl || cmd => {
                 if let Some(cursor) = self.buffer.undo() {
                     self.cursor = cursor;
-                    self.after_edit(hl, vp);
+                    self.after_edit(vp);
                 }
             }
             KeyCode::Char('y') if ctrl || cmd => {
                 if let Some(cursor) = self.buffer.redo() {
                     self.cursor = cursor;
-                    self.after_edit(hl, vp);
+                    self.after_edit(vp);
                 }
             }
-            KeyCode::Char('k') if ctrl => self.delete_line(hl, vp),
+            KeyCode::Char('k') if ctrl => self.delete_line(vp),
             KeyCode::Enter => {
                 self.cursor = self.buffer.insert_block(self.cursor, "\n");
-                self.after_edit(hl, vp);
+                self.after_edit(vp);
             }
-            KeyCode::Backspace => self.backspace(hl, vp),
-            KeyCode::Delete => self.delete_forward(hl, vp),
+            KeyCode::Backspace => self.backspace(vp),
+            KeyCode::Delete => self.delete_forward(vp),
             KeyCode::Tab => {
                 self.cursor = self.buffer.insert_typed(self.cursor, '\t');
-                self.after_edit(hl, vp);
+                self.after_edit(vp);
             }
             // mac 慣習: Cmd+←/→ は行頭・行末
             KeyCode::Left if cmd => self.move_to((self.cursor.0, 0), vp),
@@ -182,18 +181,18 @@ impl EditState {
             // Cmd/Alt 付きは未割当ショートカットの可能性が高いので文字として挿入しない
             KeyCode::Char(c) if !ctrl && !cmd && !mods.contains(KeyModifiers::ALT) => {
                 self.cursor = self.buffer.insert_typed(self.cursor, c);
-                self.after_edit(hl, vp);
+                self.after_edit(vp);
             }
             _ => {}
         }
         EditOutcome::Continue
     }
 
-    /// bracketed paste の一括挿入。undo 1 単位・再ハイライト 1 回に畳む
-    pub fn paste(&mut self, text: &str, highlighter: &Highlighter, viewport: &mut Viewport) {
+    /// bracketed paste の一括挿入。undo 1 単位に畳む
+    pub fn paste(&mut self, text: &str, viewport: &mut Viewport) {
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
         self.cursor = self.buffer.insert_block(self.cursor, &text);
-        self.after_edit(highlighter, viewport);
+        self.after_edit(viewport);
     }
 
     /// マウスクリック。row/col はコンテンツ領域 (枠線の内側) 相対の画面座標
@@ -215,12 +214,12 @@ impl EditState {
             }
             (
                 line,
-                remaining * width + col.saturating_sub(self.gutter_width),
+                remaining * width + col.saturating_sub(self.gutter_width()),
             )
         } else {
             (
                 vp.scroll + row,
-                vp.hscroll + col.saturating_sub(self.gutter_width),
+                vp.hscroll + col.saturating_sub(self.gutter_width()),
             )
         };
         let line = line.min(self.buffer.line_count() - 1);
@@ -244,7 +243,7 @@ impl EditState {
         }
     }
 
-    fn backspace(&mut self, hl: &Highlighter, vp: &mut Viewport) {
+    fn backspace(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         if col > 0 {
             self.buffer.delete((line, col - 1), (line, col));
@@ -256,10 +255,10 @@ impl EditState {
         } else {
             return;
         }
-        self.after_edit(hl, vp);
+        self.after_edit(vp);
     }
 
-    fn delete_forward(&mut self, hl: &Highlighter, vp: &mut Viewport) {
+    fn delete_forward(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         if col < self.buffer.line_len(line) {
             self.buffer.delete((line, col), (line, col + 1));
@@ -268,11 +267,11 @@ impl EditState {
         } else {
             return;
         }
-        self.after_edit(hl, vp);
+        self.after_edit(vp);
     }
 
     /// Ctrl+k: カーソル行を丸ごと削除。最終行は内容だけ消す (バッファは常に 1 行以上を保つ)
-    fn delete_line(&mut self, hl: &Highlighter, vp: &mut Viewport) {
+    fn delete_line(&mut self, vp: &mut Viewport) {
         let (line, _) = self.cursor;
         if line + 1 < self.buffer.line_count() {
             self.buffer.delete((line, 0), (line + 1, 0));
@@ -283,7 +282,7 @@ impl EditState {
             return;
         }
         self.cursor = (line.min(self.buffer.line_count() - 1), 0);
-        self.after_edit(hl, vp);
+        self.after_edit(vp);
     }
 
     fn move_left(&mut self, vp: &mut Viewport) {
@@ -365,17 +364,19 @@ impl EditState {
         self.ensure_visible(vp);
     }
 
-    // 編集操作の後始末: 目標列の同期・描画キャッシュ再生成・カーソル追従
-    fn after_edit(&mut self, hl: &Highlighter, vp: &mut Viewport) {
+    // 編集操作の後始末: 目標列の同期・描画キャッシュの無効化・カーソル追従。
+    // ここでハイライトは走らせない (次の描画で可視範囲だけ組み直される)
+    fn after_edit(&mut self, vp: &mut Viewport) {
         self.desired_col = self.cursor.1;
-        self.rebuild(hl);
+        if let Some(line) = self.buffer.take_touched() {
+            self.render.invalidate_from(line);
+        }
+        self.refresh_changed_lines();
         self.ensure_visible(vp);
     }
 
-    fn rebuild(&mut self, hl: &Highlighter) {
-        self.lines = hl.highlight_text(&self.path, &self.buffer.display_text());
-        self.gutter_width = text::gutter_width(self.buffer.line_count());
-        // 保存を待たず、未保存バッファの状態で変更行マークを更新する
+    // 保存を待たず、未保存バッファの状態で変更行マークを更新する
+    fn refresh_changed_lines(&mut self) {
         self.changed_lines = self
             .baseline
             .as_ref()
@@ -412,7 +413,7 @@ impl EditState {
 
     // gutter を除いたコンテンツ部の桁数。wrap の折返し幅と hscroll のクランプ幅を兼ねる
     fn content_width(&self, vp: &Viewport) -> usize {
-        vp.width.saturating_sub(self.gutter_width).max(1)
+        vp.width.saturating_sub(self.gutter_width()).max(1)
     }
 
     fn display_len(&self, line: usize) -> usize {

@@ -7,7 +7,7 @@ use crate::gitview::{self, GitState};
 
 use super::diff_boundary::{sticky_line, widen_boundary_bands};
 use super::pane_block;
-use super::text_pane::TextPane;
+use super::text_pane::{LineWindow, TextPane};
 
 // GitState は App の中にあるので、&App と同時には借りられない。
 // 必要な値 (フォーカス・背景色) だけ呼び出し側で取り出して渡す
@@ -65,7 +65,7 @@ pub(super) fn draw_git(
     }
 
     let pane = TextPane {
-        lines: git.lines(),
+        window: LineWindow::slice(git.lines(), &git.viewport),
         // diff 自体が変更の表示なので、閲覧側の変更行マークは使わない。カーソルも同様。
         // 検索 (#31) は inline 表示 (単一ファイル/まとめ diff とも) でだけ有効にする
         changed_lines: &None,
@@ -137,14 +137,14 @@ fn draw_side_by_side(
     vp.wrap = false;
 
     let left_pane = TextPane {
-        lines: left_lines,
+        window: LineWindow::slice(left_lines, &vp),
         changed_lines: &None,
         search: None,
         cursor: None,
         gutter_width: left_gutter,
     };
     let right_pane = TextPane {
-        lines: right_lines,
+        window: LineWindow::slice(right_lines, &vp),
         changed_lines: &None,
         search: None,
         cursor: None,

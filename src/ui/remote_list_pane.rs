@@ -13,7 +13,7 @@ use crate::remotelist::ListMatch;
 use crate::viewer::Viewport;
 
 use super::pane_block;
-use super::text_pane::TextPane;
+use super::text_pane::{LineWindow, TextPane};
 
 /// 左ペイン: 一覧。row_line が行の型ごとの表示テキスト組み立てを担う
 /// (issue_line/pr_line。「一覧行の表示テキストを組み立てる関数を型ごとに差し替える」形)
@@ -131,7 +131,7 @@ pub(super) fn draw_text_detail(
         return;
     }
     let pane = TextPane {
-        lines,
+        window: LineWindow::slice(lines, viewport),
         changed_lines: &None,
         search: None,
         cursor: None,

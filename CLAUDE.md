@@ -52,7 +52,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
   - keys.rs は**「どのキーを誰に渡すか」だけ**を持ち、操作の中身は上記 4 ファイルへ置く。keys.rs が肥大化して優先順位が読めなくなるのを避けるための分割なので、新しい操作を足す時もこの境界を守る（キーの追加は keys.rs、実行の中身は用途別ファイル）。モジュールを跨いで呼ぶメソッドだけ `pub(super)` にする
   - 書き込み系操作の後の即時再取得は `App::rescan_now`（rescan + デバウンスのタイマー/保留フラグのリセット）に集約する。呼び出し側で 4 行を複製しない
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(1 階層走査・遅延ロード・rescan ヘルパー)
-- `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
+- `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect 一式とテーマ + 行単位で再開できる Session/LineState), render.rs(HighlightCache: 可視範囲だけを組み立てる遅延ハイライト), content.rs(読込・Content/TextDoc/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
 - `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), issues_pane.rs(issues タブの一覧+詳細), pr_pane.rs(pull requests タブの一覧+説明/diff/CI), remote_list_pane.rs(issues/PR が共有する一覧・プレーンテキスト詳細の描画部品), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
 - `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
@@ -75,7 +75,9 @@ LC_ALL=C grep -ao '<marker>' out.raw
 
 ### 閲覧と編集の関係（後付けにしない）
 - `Viewport`（scroll/hscroll/wrap/実測サイズ）は閲覧・編集で**同じ実体を共有**する。モード遷移で位置が飛ばない根拠はここ。「wrap 中は hscroll = 0」のインバリアントは Viewport のメソッドと EditState::ensure_visible が守る（モード出口での手当てはしない）
-- `Highlighter` は syntect 一式の置き場。EditState は Viewer 全体ではなく **Highlighter と Viewport だけを借りる**（保存だけは cache 即時更新のため `Viewer::reload` を呼ぶ）。editor に新しい操作を足す時もこの依存範囲を広げない
+- `Highlighter` は syntect のシンタックス定義とテーマの置き場で、ハイライト結果も行の状態も持たない。EditState は Viewer 全体ではなく **Viewport だけを借りる**（保存だけは cache 即時更新のため `Viewer::reload` を呼ぶ）。編集操作の経路（`handle_key`/`paste`）は Highlighter に触れず、借りるのは描画時（`ui/editor_pane.rs`）だけ。editor に新しい操作を足す時もこの依存範囲を広げない
+- **ハイライトは「画面に映る 1 枚分」だけを描画時に組み立てる**（`viewer/render.rs` の `HighlightCache`）。閲覧・編集がそれぞれ 1 つ持ち、`TextPane` へは文書全体ではなく可視ウィンドウ（`ui/text_pane.rs` の `LineWindow`）を渡す。syntect は前の行の状態に依存する逐次処理なので、任意の行から再開できるよう `CHECKPOINT_STRIDE`(128) 行ごとにパーサ状態（`LineState` = ParseState + HighlightState）を保存し、可視範囲の直前の checkpoint から助走する。これで「開くコストがファイルの大きさに比例する」「編集の度に全再ハイライトする」の 2 つが同じ 1 つの仕組みで消える。checkpoint は要求された範囲まで歩く過程で埋まるので、末尾へジャンプした時だけ一度全体を歩き、以後は常に助走 ≤128 行で済む
+- 無効化は 3 通りだけ: `reset`（ファイルを開く/読み直す）・`invalidate_all`（テーマ切替）・`invalidate_from(line)`（編集）。`invalidate_from` が「line より手前から始まる checkpoint は行番号がずれないので残せる」ことを使って、変更行より前を再ハイライトしないことを担保する。編集の起点はカーソル位置ではなく `EditBuffer::take_touched`（挿入・削除プリミティブが記録した最小の行）から取る — undo/redo は任意の位置に飛ぶため
 - 描画は `ui/text_pane.rs` の `TextPane` に一本化（閲覧 = search あり cursor なし / 編集 = cursor あり search なし）。行加工順は `mark_changed_line → highlight_matches → (hscroll | char 単位 wrap) → cursor overlay` 固定
 - wrap は閲覧・編集とも **char 単位の自前分割**（`Paragraph::wrap` は単語境界 wrap で折返し位置が外から計算できないため全面的に不使用）。視覚行数は描画（text_pane）・カーソル追従（ensure_visible）・クリック座標（click_at）の 3 者が `text::wrap_rows` を共有し、ズレると即カーソル位置バグになる
 
@@ -85,7 +87,7 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 
 ### 桁位置の整合インバリアント（複数ファイルに跨る前提）
 - 各行 `Line` の **span[0] は行番号 gutter**。検索ハイライト・水平スクロールは span[1..] を char 単位で走査する
-- `Content::Text { lines, plain }` の plain は normalize 済み（改行除去・タブ→スペース4）で、**char インデックスが描画桁と 1:1 対応**する。検索マッチの (line, start_col, end_col) はこの前提で ui 側の bg 重ねに直結する
+- `Content::Text(TextDoc)` の `plain` は normalize 済み（改行除去・タブ→スペース4）で、**char インデックスが描画桁と 1:1 対応**する。検索マッチの (line, start_col, end_col) はこの前提で ui 側の bg 重ねに直結する。`TextDoc` はハイライト済みの `Line` を持たず（`raw` = syntect へ渡す生の行 と `plain` の 2 本だけ）、色は `HighlightCache` が可視範囲ぶんだけ後から付ける。だからテーマを切り替えても `HashMap<PathBuf, Rc<Content>>` の cache は捨てなくてよい
 - タブ幅・gutter 幅・表示桁⇔char 座標の換算は **`text.rs` が唯一の定義**。閲覧（content.rs の normalize）と編集（カーソル・クリック座標）が別々に持つとここが最初に壊れる
 - 大文字小文字の畳み込みは ASCII 限定（`to_ascii_lowercase`）。Unicode の完全 case folding は char 数が変わり桁対応が壊れるため意図的に使っていない（viewer/search.rs と finder.rs の両方）
 - text_pane の行加工順は `mark_changed_line → highlight_matches → hscroll_line` 固定。hscroll を先にすると検索マッチの絶対桁がズレる
@@ -237,13 +239,13 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - `Lane::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）
 - `EditBuffer` は disk から**生テキストを独立ロード**する。viewer の `plain` はタブ展開済みで保存に使えない。CRLF・末尾改行を記憶し `to_text()` で復元（保存でファイルを壊さないための核）。undo/redo は Insert/Delete 2 種の op の逆適用で、連続タイピングは coalesce（カーソル移動・改行・保存・ペーストで区切る）
 - カーソルは端末カーソルでなく REVERSED スタイル重ね（全角・タブの画面幅計算を回避）。検索ハイライトと同時には使わない（TextPane の search と cursor は排他）
-- 編集の度に `Highlighter::highlight_text` で全再ハイライト（256KB 超はプレーン行に切替）。キー入力起因の 1 回きりの再生成であり「再描画毎の再ハイライト禁止」には反しない。`Content` cache は編集中は使わず、保存時の `viewer.reload()` で更新する
-- `display_text()` は常に末尾 \n 付き（LinesWithEndings の行数を `lines.len()` に一致させ、末尾空行の描画欠けを防ぐ）
+- 編集は `HighlightCache::invalidate_from(変更行)` を呼ぶだけで、実際に色を付け直すのは次の描画で画面に映る行のみ（「閲覧と編集の関係」節）。キーストローク毎にファイル全体を舐めないので、閲覧側と別の「編集中はプレーン表示に落とす」閾値も要らなくなった。`Content` cache は編集中は使わず、保存時の `viewer.reload()` で更新する
+- `EditBuffer::source()` は最終行にも改行がある扱いで固定する（`str::lines` の行数を `lines.len()` に一致させ、末尾空行の描画欠けを防ぐ）。閲覧側（`TextDoc::source`）は元ファイルの末尾改行の有無をそのまま伝える
 - 変更行マーク `▎` は編集中も出る。ただし viewer と違い**未保存バッファのライブ diff**: 編集開始時に `git.rs::baseline_lines`（HEAD → 初期 repo は index。changed_lines と同じ基準）を 1 回取得し、以後は編集の度に editor/diff.rs（prefix/suffix トリム + LCS 自前実装）で再計算する。git CLI をキーストローク毎に呼ばない
 - 既知の制約: 外部変更との競合は last-write-wins（保存が上書きする）。非 UTF-8・10MB 超は編集不可（`e` が no-op）
 
 ### 一時通知（App::notice と EditState.notice）
-`App.notice: Option<(String, Instant, bool)>` は全レーン共通の一時通知で、GIT の書き込み結果などレーンを離れても見せたいメッセージに使う。`EditState.notice`（EDIT レーン専用・保存エラーや discard 確認に使用）とは役割を分けたまま両方残す — EditState 側は「Highlighter と Viewport だけを借りる」依存範囲の制約があり、App 全体の状態を持たせると設計が崩れるため統合しない。期限切れは `on_tick` でのみ判定し（`watcher` が無い環境でも on_tick 冒頭で判定するので消えなくなることはない）、再描画のたびにタイマーを触らない点は他のデバウンス系の方針と揃えている。ステータスバーでは `Mode::Confirm` の prompt → `App.notice` → レーン別ヒントの優先順で 1 行に出す
+`App.notice: Option<(String, Instant, bool)>` は全レーン共通の一時通知で、GIT の書き込み結果などレーンを離れても見せたいメッセージに使う。`EditState.notice`（EDIT レーン専用・保存エラーや discard 確認に使用）とは役割を分けたまま両方残す — EditState 側は「Viewport だけを借りる」依存範囲の制約があり、App 全体の状態を持たせると設計が崩れるため統合しない。期限切れは `on_tick` でのみ判定し（`watcher` が無い環境でも on_tick 冒頭で判定するので消えなくなることはない）、再描画のたびにタイマーを触らない点は他のデバウンス系の方針と揃えている。ステータスバーでは `Mode::Confirm` の prompt → `App.notice` → レーン別ヒントの優先順で 1 行に出す
 
 ### git 連携（git.rs）
 git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。porcelain -z の rename は `XY new\0old\0` の 2 パス形式。`git diff HEAD` は HEAD 無し repo で fail するため素の diff にフォールバックする。全失敗を Option で吸収し panic しない。
@@ -275,4 +277,4 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
 ## スタイル
 
 - コメントは Why のみ・日本語。What の説明やコード写経コメントは書かない
-- ハイライトのキャッシュ（`HashMap<PathBuf, Rc<Content>>`）を素通りする描画パスを足さない（再描画毎の再ハイライト禁止）
+- 再描画のコストを画面の大きさより上に持ち上げない。文書全体に比例する処理（全行の再ハイライト・全行分の `Line` 組み立て）を描画パスやキー処理に足さないこと。テキストは `HighlightCache`（可視範囲＋checkpoint）、ツリーは `tree_pane::visible_window` が既にこれを守っている
