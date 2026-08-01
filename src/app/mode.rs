@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use crate::branch::BranchState;
-use crate::editor::EditState;
-use crate::finder::Finder;
-use crate::gitview::GitState;
-use crate::logview::LogState;
+use crate::component::branch::BranchState;
+use crate::component::editor::EditState;
+use crate::component::finder::Finder;
+use crate::component::gitlane::GitState;
+use crate::component::log::LogState;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -14,7 +14,7 @@ pub enum Focus {
 
 // Search と Goto (:N 行ジャンプ) の入力を kind で分ける。Filter は issues/PR タブ (#33/#34) の
 // 一覧絞り込み用で、Search と違い「常設のフィルタ状態を編集する」ものなので Esc の意味が違う
-// (Search は cancel で全消去、Filter は編集前のクエリへ復元。issuesview::IssuesState 参照)
+// (Search は cancel で全消去、Filter は編集前のクエリへ復元。issues::IssuesState 参照)
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InputKind {
     Search,
@@ -23,7 +23,7 @@ pub enum InputKind {
 }
 
 // 設定画面の行ラベル。行の並び・件数はこの配列が唯一の情報源で、
-// keys.rs (選択移動・selected の意味) と ui/settings_panel.rs (表示) の両方がここを参照する
+// keys.rs (選択移動・selected の意味) と shell/settings.rs (表示) の両方がここを参照する
 pub const SETTINGS_ROWS: [&str; 5] = [
     "hidden files",
     "icons",
@@ -95,7 +95,7 @@ pub enum Mode {
         error: Option<String>,
     },
     // ブランチ一覧オーバーレイ (`b`)。Lane と直交する独立オーバーレイなので Finder と同じ
-    // 位置付けで、状態 (絞り込み候補・選択位置) は BranchState (branch.rs) に持たせる
+    // 位置付けで、状態 (絞り込み候補・選択位置) は BranchState (component/branch/mod.rs) に持たせる
     Branch(BranchState),
 }
 

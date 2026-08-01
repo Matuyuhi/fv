@@ -1,7 +1,7 @@
 //! Workspace::Issues / PullRequests のキー処理と、gh を叩くジョブの起動。
 //! Viewer タブ (Lane/ツリー/オーバーレイ) とは文脈を共有しないので、キールーティングも
 //! on_key から丸ごとここへ分岐する (app/keys.rs の Workspace 判定を参照)。
-//! 一覧・詳細それぞれのスクロールは issuesview.rs / prsview.rs の状態側に委ねる。
+//! 一覧・詳細それぞれのスクロールは component/issues/mod.rs / component/prs/mod.rs の状態側に委ねる。
 
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -84,7 +84,7 @@ impl App {
     }
 
     // 詳細ペインのスクロール。GIT/LOG の diff ペインと同じ操作感だが、折返しは常時 ON 固定
-    // (issuesview::IssuesState 参照) なので w/h/l/0 は割り当てない
+    // (issues::IssuesState 参照) なので w/h/l/0 は割り当てない
     fn on_issues_detail_key(&mut self, key: KeyEvent, ctrl: bool) {
         if self.pending_g {
             self.pending_g = false;
@@ -129,10 +129,10 @@ impl App {
         let root = self.root.clone();
         // Line 化 (build_detail_lines) はここ (バックグラウンドスレッド) で済ませておく。
         // DetailSlot<Vec<Line>> は組み立て済みデータを持つ想定で、詳細キャッシュのスレッド
-        // 構成を増やさないため (issuesview::IssuesState::begin_comments_fetch 参照)
+        // 構成を増やさないため (issues::IssuesState::begin_comments_fetch 参照)
         let rx = crate::job::spawn(move || {
             let result = crate::github::issue_comments(&root, number)
-                .map(|raw| crate::issuesview::build_detail_lines(&raw));
+                .map(|raw| crate::component::issues::build_detail_lines(&raw));
             (number, result)
         });
         self.issues.begin_comments_fetch(rx);
@@ -199,11 +199,11 @@ impl App {
             // d/S は開いている (または選択中の) PR の表示だけを切り替える。Ctrl+d は
             // 半ページスクロールなので !ctrl で明示的に除外する
             KeyCode::Char('d') if !ctrl => {
-                self.switch_pr_view(crate::prsview::DetailView::Diff);
+                self.switch_pr_view(crate::component::prs::DetailView::Diff);
                 return;
             }
             KeyCode::Char('S') => {
-                self.switch_pr_view(crate::prsview::DetailView::Checks);
+                self.switch_pr_view(crate::component::prs::DetailView::Checks);
                 return;
             }
             _ => {}
@@ -282,14 +282,14 @@ impl App {
             return;
         };
         self.prs
-            .set_open(number, crate::prsview::DetailView::Description);
+            .set_open(number, crate::component::prs::DetailView::Description);
         self.prs.note_opened(number);
         self.dispatch_pr_fetch();
     }
 
     /// d/S: 表示だけを切り替える。まだ何も開いていなければ選択中の行を対象にする
     /// (Enter を経由しなくても d/S だけで読み始められるようにするため)
-    fn switch_pr_view(&mut self, view: crate::prsview::DetailView) {
+    fn switch_pr_view(&mut self, view: crate::component::prs::DetailView) {
         let Some(number) = self
             .prs
             .open_number()
@@ -314,17 +314,19 @@ impl App {
         };
         let root = self.root.clone();
         match view {
-            crate::prsview::DetailView::Diff => {
-                let rx = crate::job::spawn(move || crate::prsview::fetch_diff(&root, number));
+            crate::component::prs::DetailView::Diff => {
+                let rx =
+                    crate::job::spawn(move || crate::component::prs::fetch_diff(&root, number));
                 self.prs.begin_diff_fetch(rx);
             }
-            crate::prsview::DetailView::Checks => {
-                let rx = crate::job::spawn(move || crate::prsview::fetch_checks(&root, number));
+            crate::component::prs::DetailView::Checks => {
+                let rx =
+                    crate::job::spawn(move || crate::component::prs::fetch_checks(&root, number));
                 self.prs.begin_checks_fetch(rx);
             }
             // 先読みは diff/CI だけが対象 (Description は本文がネットワーク不要、
             // コメントは開いた瞬間に dispatch_pr_fetch が既に取りに行っている)
-            crate::prsview::DetailView::Description => {}
+            crate::component::prs::DetailView::Description => {}
         }
     }
 
@@ -337,16 +339,19 @@ impl App {
         };
         let root = self.root.clone();
         match view {
-            crate::prsview::DetailView::Description => {
-                let rx = crate::job::spawn(move || crate::prsview::fetch_comments(&root, number));
+            crate::component::prs::DetailView::Description => {
+                let rx =
+                    crate::job::spawn(move || crate::component::prs::fetch_comments(&root, number));
                 self.prs.begin_comments_fetch(rx);
             }
-            crate::prsview::DetailView::Diff => {
-                let rx = crate::job::spawn(move || crate::prsview::fetch_diff(&root, number));
+            crate::component::prs::DetailView::Diff => {
+                let rx =
+                    crate::job::spawn(move || crate::component::prs::fetch_diff(&root, number));
                 self.prs.begin_diff_fetch(rx);
             }
-            crate::prsview::DetailView::Checks => {
-                let rx = crate::job::spawn(move || crate::prsview::fetch_checks(&root, number));
+            crate::component::prs::DetailView::Checks => {
+                let rx =
+                    crate::job::spawn(move || crate::component::prs::fetch_checks(&root, number));
                 self.prs.begin_checks_fetch(rx);
             }
         }

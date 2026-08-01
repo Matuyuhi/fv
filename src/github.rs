@@ -252,7 +252,7 @@ pub fn pr_comments(root: &Path, number: u64) -> Result<Vec<String>, String> {
 }
 
 // `gh <kind> view <n> --comments` はコメント一覧だけを出す (本文は出ない)。コメントが 0 件でも
-// 失敗ではなく空 Vec を返す — 呼び出し側 (issuesview/prsview) が「(no comments)」を出し分ける
+// 失敗ではなく空 Vec を返す — 呼び出し側 (component::issues / component::prs) が「(no comments)」を出し分ける
 fn comments(root: &Path, kind: &str, number: u64) -> Result<Vec<String>, String> {
     let number = number.to_string();
     let stdout = run_gh(root, [kind, "view", &number, "--comments"])?;
@@ -260,7 +260,7 @@ fn comments(root: &Path, kind: &str, number: u64) -> Result<Vec<String>, String>
 }
 
 /// `d`: 差分。出力は `git diff` と同じ unified diff 形式なので、行の組み立ては
-/// 呼び出し側 (prsview.rs) が gitview::render_commit にそのまま渡して再利用する
+/// 呼び出し側 (component/prs/mod.rs) が gitlane::render_commit にそのまま渡して再利用する
 /// (GIT/LOG レーンの複数ファイル diff レンダラを 2 箇所に複製しない)
 pub fn pr_diff(root: &Path, number: u64) -> Result<String, String> {
     run_gh(root, ["pr", "diff", &number.to_string()])
