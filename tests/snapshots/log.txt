@@ -1,0 +1,35 @@
+log — LOG レーン: コミット一覧 + 選択コミットの diff (110x32)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌log (3)────────────────────────┐┌xxxxxxx  refactor: ペインの描画を text_pane に一本化───────────────────────┐
+│▶ xxxxxxx  2 hours ago      fv ││   commit xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx                         │
+│  xxxxxxx  26 hours ago     fv ││   Author: fv preview <preview@example.com>                                │
+│  xxxxxxx  3 days ago       fv ││   Date:   <date>                                                          │
+│                               ││                                                                           │
+│                               ││       refactor: ペインの描画を text_pane に一本化                         │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││   ── src/ui.rs                                                            │
+│                               ││   @@ -6,6 +6,7 @@ pub fn render(title: &str, items: &[String], selected: u│
+│                               ││ 6      out.push('\n');                                                    │
+│                               ││ 7      for (i, item) in items.iter().enumerate() {                        │
+│                               ││ 8          let mut line = String::new();                                  │
+│                               ││ 9 +        line.push_str(&format!("{:>4} ", i + 1));                      │
+│                               ││10          if i == selected {                                             │
+│                               ││11              line.push_str("> ");                                       │
+│                               ││12          } else {                                                       │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+│                               ││                                                                           │
+└───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
+ VIEW  EDIT  GIT [LOG]  main  3 commits  j/k: move  Enter/l: diff  gg/G: top/bottom  Tab: focus  Shift+Tab: mo
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

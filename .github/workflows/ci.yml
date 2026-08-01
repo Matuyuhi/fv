@@ -15,6 +15,12 @@ jobs:
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # contents: write は main への push でスナップショットを追従コミットするためだけに使う
+    # (PR の実行では push しない)。fork からの PR では GITHUB_TOKEN が
+    # 権限指定に関わらず読み取り専用になるので、コメントも push も静かに諦める
+    permissions:
+      contents: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -68,5 +74,59 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      # feature を付けて回す。今あるユニットテスト (スナップショットの正規化) が
+      # preview 側にあり、既定ビルドでは 1 件も実行されないため
       - name: Test
-        run: cargo test --verbose
+        run: cargo test --verbose --features preview
+
+      # UI のスナップショット差分。プレビュー (preview/) の全シーンを描き直して、
+      # コミット済みのテキストと突き合わせる。
+      #
+      # **差分があっても PR は落とさない**。差分そのものは次のステップが PR コメントとして
+      # 出すので、赤い × は「見せる」目的には何も足していない。作者に更新コミットを強いる
+      # だけになる。コミット済みテキストとのズレは main への push 時に自動追従で解消する
+      # (PR で更新し忘れても、マージ後の main は必ず現在の描画と一致する)。
+      #
+      # 代償として、描画が非決定になった場合に「毎回 main へ追従コミットが積まれる」形で
+      # しか気づけなくなる (落ちていた頃は PR で即座に分かった)。正規化のユニットテストと
+      # 履歴に残る chore コミットの目立ちで足りるという判断
+      - name: UI snapshots
+        run: |
+          cargo run --quiet --features preview -- --preview --update-snapshots
+          # 新規シーンのファイルは未追跡のままだと git diff に出ないので intent-to-add しておく
+          git add --intent-to-add tests/snapshots
+          if git diff --quiet -- tests/snapshots; then
+            exit 0
+          fi
+          git --no-pager diff -- tests/snapshots
+          # main への push: 追従コミットを積む。独立した 2 つの PR がそれぞれ緑のまま
+          # マージされて食い違うこと (semantic conflict) もここで吸収される
+          if [ "${{ github.event_name }}" = "push" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tests/snapshots
+            # [skip ci] は無限ループ避けの保険。描画が非決定になった時に
+            # 「push する → CI が走る → また push する」を繰り返さないため
+            git commit -q -m "chore: UI スナップショットを更新 [skip ci]"
+            git push origin "HEAD:${{ github.ref_name }}" ||
+              echo "::warning::UI スナップショットの自動更新を push できませんでした"
+            exit 0
+          fi
+          # PR: 落とさず知らせるだけ。差分の中身は次のステップが PR コメントに出す
+          {
+            echo '### UI snapshot diff'
+            echo '```diff'
+            git diff -- tests/snapshots
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::UI が変わりました。差分は PR のコメントを参照 (手元で反映するなら 'cargo preview --update-snapshots')"
+
+      # base との UI 差分を PR のコメントに出す。Actions のログを開かなくても、
+      # 会話の流れの中で「この変更で画面がどう変わるか」を読めるようにするため。
+      # スナップショットが古くて前のステップが落ちた場合こそ見たいので always()
+      - name: Comment UI diff
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/ci-ui-diff-comment.sh

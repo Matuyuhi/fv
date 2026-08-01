@@ -1,0 +1,35 @@
+view — VIEW レーン: ファイルを開いた既定の画面 (110x32)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌fv-preview-fixture─────────────┐┌src/main.rs────────────────────────────────────────────────────────────────┐
+│▸ assets                       ││ 1 mod app;                                                                │
+│▸ docs                         ││ 2 mod ui;                                                                 │
+│▾ src                          ││ 3                                                                         │
+│  ▸ app                        ││ 4 use std::error::Error;                                                  │
+│     M main.rs                 ││ 5 use std::path::PathBuf;                                                 │
+│    ?? new_lane.rs             ││ 6                                                                         │
+│    M  ui.rs                   ││ 7 use app::App;                                                           │
+│  README.md                    ││ 8                                                                         │
+│                               ││ 9 fn main() -> Result<(), Box<dyn Error>> {                               │
+│                               ││10     let root = std::env::args().nth(1).unwrap_or_else(|| ".".to_string()│
+│                               ││11     let mut app = App::new("sample-app");                               │
+│                               ││12▎    let mode = Lane::Git;                                               │
+│                               ││13     app.items = collect(&PathBuf::from(root))?;                         │
+│                               ││14▎                                                                        │
+│                               ││15▎    // 起動直後は GIT レーンに入る                                      │
+│                               ││16▎    app.enter_lane(mode);                                               │
+│                               ││17     println!("{}", app.render());                                       │
+│                               ││18     Ok(())                                                              │
+│                               ││19 }                                                                       │
+│                               ││20                                                                         │
+│                               ││21 fn collect(root: &PathBuf) -> Result<Vec<String>, Box<dyn Error>> {     │
+│                               ││22     let mut items = Vec::new();                                         │
+│                               ││23     for entry in std::fs::read_dir(root)? {                             │
+│                               ││24         let entry = entry?;                                             │
+│                               ││25         items.push(entry.file_name().to_string_lossy().into_owned());   │
+│                               ││26     }                                                                   │
+│                               ││27     items.sort();                                                       │
+│                               ││28     Ok(items)                                                           │
+│                               ││29 }                                                                       │
+└───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
+[VIEW] EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: qui
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
