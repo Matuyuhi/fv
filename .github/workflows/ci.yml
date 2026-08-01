@@ -60,6 +60,11 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
+      # preview は dev 専用 feature（既定 off）なので、上の clippy では 1 行も型検査されない。
+      # 放置すると気づかないうちにコンパイルできなくなるため、有効化した側も必ず見る。
+      - name: Clippy (preview feature)
+        run: cargo clippy --all-targets --features preview -- -D warnings
+
       - name: Build
         run: cargo build --verbose
 
