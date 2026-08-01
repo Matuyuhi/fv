@@ -91,7 +91,7 @@ The tree is filtered down to changed files with the directory hierarchy preserve
 | `w` | Toggle wrap (diff only, not persisted) |
 | `r` | Rescan (also refreshes git status) |
 
-Only files present on disk are listed, so deleted files do not show up. Changes under hidden directories (for example `.github/`) need `a` or `--hidden`.
+Files that are deleted but not yet committed are listed as well, so they can still be selected and reviewed. Changes under hidden directories (for example `.github/`) need `a` or `--hidden`.
 
 ## Development
 
