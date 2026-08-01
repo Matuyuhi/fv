@@ -1,0 +1,35 @@
+git-all — GIT レーン: 全ファイルまとめ diff (sticky header 付き) (110x32)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌changes (4)────────────────────┐┌all changes (4 files)  [HEAD]──────────────────────────────────────────────┐
+│▾ docs                         ││docs/old.md (deleted)                                                      │
+│     D old.md                  ││   ── docs/old.md (deleted)                                                │
+│▾ src                          ││   @@ -1,3 +0,0 @@                                                         │
+│     M main.rs                 ││   -# 旧仕様                                                               │
+│    ?? new_lane.rs             ││   -                                                                       │
+│    M  ui.rs                   ││   -削除予定のメモ。                                                       │
+│                               ││   ── src/main.rs                                                          │
+│                               ││   @@ -9,8 +9,11 @@ use app::App;                                          │
+│                               ││ 9  fn main() -> Result<(), Box<dyn Error>> {                              │
+│                               ││10      let root = std::env::args().nth(1).unwrap_or_else(|| ".".to_string(│
+│                               ││11      let mut app = App::new("sample-app");                              │
+│                               ││   -    let mode = Lane::View;                                             │
+│                               ││12 +    let mode = Lane::Git;                                              │
+│                               ││13      app.items = collect(&PathBuf::from(root))?;                        │
+│                               ││14 +                                                                       │
+│                               ││15 +    // 起動直後は GIT レーンに入る                                     │
+│                               ││16 +    app.enter_lane(mode);                                              │
+│                               ││17      println!("{}", app.render());                                      │
+│                               ││18      Ok(())                                                             │
+│                               ││19  }                                                                      │
+│                               ││   ── src/ui.rs                                                            │
+│                               ││   @@ -2,7 +2,7 @@                                                         │
+│                               ││ 2                                                                         │
+│                               ││ 3  pub fn render(title: &str, items: &[String], selected: usize) -> String│
+│                               ││ 4      let mut out = String::new();                                       │
+│                               ││   -    out.push_str(title);                                               │
+│                               ││ 5 +    out.push_str(title.trim());                                        │
+│                               ││ 6      out.push('\n');                                                    │
+│                               ││ 7      for (i, item) in items.iter().enumerate() {                        │
+└───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
+ VIEW  EDIT [GIT] LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  }/{: file  w: wrap  
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

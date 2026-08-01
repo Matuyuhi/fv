@@ -1,0 +1,35 @@
+git-side — GIT レーン: side-by-side diff (140x32)
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌changes (4)─────────────────────────────┐┌src/main.rs  [HEAD]  [side-by-side]─────────────────────────────────────────────────────────────┐
+│▾ docs                                  ││   @@ -9,8 +9,11 @@ use app::App;              │   @@ -9,8 +9,11 @@ use app::App;               │
+│     D old.md                           ││ 9  fn main() -> Result<(), Box<dyn Error>> {  │ 9  fn main() -> Result<(), Box<dyn Error>> {   │
+│▾ src                                   ││10      let root = std::env::args().nth(1).unwr│10      let root = std::env::args().nth(1).unwra│
+│     M main.rs                          ││11      let mut app = App::new("sample-app");  │11      let mut app = App::new("sample-app");   │
+│    ?? new_lane.rs                      ││12 -    let mode = Lane::View;                 │12 +    let mode = Lane::Git;                   │
+│    M  ui.rs                            ││13      app.items = collect(&PathBuf::from(root│13      app.items = collect(&PathBuf::from(root)│
+│                                        ││                                               │14 +                                            │
+│                                        ││                                               │15 +    // 起動直後は GIT レーンに入る          │
+│                                        ││                                               │16 +    app.enter_lane(mode);                   │
+│                                        ││14      println!("{}", app.render());          │17      println!("{}", app.render());           │
+│                                        ││15      Ok(())                                 │18      Ok(())                                  │
+│                                        ││16  }                                          │19  }                                           │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+│                                        ││                                               │                                                │
+└────────────────────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────────┘
+ VIEW  EDIT [GIT] LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  w: wrap  Tab: focus  Shift+Tab: mode  ?: help     
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

@@ -70,3 +70,22 @@ jobs:
 
       - name: Test
         run: cargo test --verbose
+
+      # UI のスナップショット差分。プレビュー (preview/) の全シーンを描き直し、
+      # コミット済みのテキストと 1 バイトでも違えば落とす。画像ではなくテキストなので、
+      # 失敗した時に「どの行がどう変わったか」がそのまま diff として読める。
+      - name: UI snapshots
+        run: |
+          cargo run --quiet --features preview -- --preview --update-snapshots
+          # 新規シーンのファイルは未追跡のままだと git diff に出ないので intent-to-add しておく
+          git add --intent-to-add tests/snapshots
+          if ! git diff --exit-code -- tests/snapshots; then
+            {
+              echo '### UI snapshot diff'
+              echo '```diff'
+              git diff -- tests/snapshots
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::UI が変わりました。意図した変更なら 'cargo preview --update-snapshots' で更新してコミットしてください"
+            exit 1
+          fi

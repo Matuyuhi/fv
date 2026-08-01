@@ -22,6 +22,7 @@ cargo preview                       # シーン一覧 (= cargo run --features pr
 cargo preview git log               # 複数シーンを縦に並べて描き出す
 cargo preview all --size 140x40
 scripts/preview-watch.sh git        # 保存のたびに再ビルド + 再描画
+cargo preview --update-snapshots    # tests/snapshots/ を更新 (UI を変えたらコミットする)
 ```
 
 プレビューは **dev 専用の feature**（既定 off）。製品ビルドにはシーン定義も合成リポジトリ生成も入らず、`--preview` 自体が unknown option になる。
@@ -269,7 +270,7 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
 - **利用者の config を書き換えない**。プレビューのキー列には `w`（折返し）のように `persist_config` を呼ぶものがあるため、`XDG_CONFIG_HOME` を使い捨てディレクトリへ差し替えてから App を作る（`isolate_config`、スレッドを 1 つも起こしていない時点で `set_var` する）
 - issues/PR タブだけはキーで状態を作れない（gh の応答が要る）ので、`begin_list_fetch` + `poll` に自前の `Receiver` を流し込む形で公開 API 越しに注入する。`github::check_available` も呼ばず `github_available` を直接立てる（gh の有無で絵が変わらないようにするため）
 - 全角文字の桁送りだけは `preview/render.rs` に近似の幅計算を持つ（ratatui は全角の 2 セル目を空白へ reset するだけなので、そのまま出すと空白が 1 つ挟まる）。**これはプレビュー出力を端末の桁送りに合わせるためだけのもので、アプリ本体の桁計算（text.rs が唯一の定義）には使わない**
-- 出力は実行のたびにバイト一致はしない（コミット SHA と日時が変わる）。スナップショット比較のためではなく目視のための機能として割り切っている
+- **スナップショット（`--update-snapshots` / preview/snapshot.rs）**: 全シーンを `tests/snapshots/<scene>.txt` に焼き、CI が描き直して `git diff --exit-code` で落とす（比較器は Rust 側に持たない）。画像にしないのは **PR の diff がそのまま UI の差分になる**ため（バイナリのスクリーンショットだと「変わりました」以上のことが読めない）。実行のたびに変わるのはコミット SHA と `Date:` の絶対日時だけなので、そこだけ**桁数を保ったままマスク**する（桁がずれるとスナップショットが目視用の画面として読めなくなる）。日付は 1 文字ずつ潰すだけでは足りない — 日にちの桁（1 → 10）で長さが変わり後続が全部ずれるため、タイムゾーン `+0900` の終端までを「固定文字列 + 空白詰め」で置き換えて後ろの罫線を同じ桁に残す。git の相対日時（`3 days ago`）は gettext の翻訳対象なので `LC_ALL=C` も `isolate_env` で固定する（日本語ロケールの手元と C ロケールの CI で食い違わせない）
 
 ## スタイル
 

@@ -10,6 +10,7 @@ mod fixture;
 mod keys;
 mod render;
 mod scene;
+mod snapshot;
 
 use std::error::Error;
 use std::io::{self, IsTerminal, Write};
@@ -33,6 +34,9 @@ pub struct Options {
     pub size: Option<(u16, u16)>,
     /// None なら出力先が端末かどうかで決める (パイプ・リダイレクトでは色を落とす)
     pub color: Option<bool>,
+    /// stdout ではなく tests/snapshots/ へ書き出す (CI の UI 差分検出用)。
+    /// シーン無指定は一覧ではなく全シーンの意味になる
+    pub update_snapshots: bool,
 }
 
 impl Options {
@@ -46,6 +50,7 @@ impl Options {
     ) -> Result<bool, Box<dyn Error>> {
         match arg {
             "--preview" => self.enabled = true,
+            "--update-snapshots" => self.update_snapshots = true,
             "--color" => self.color = Some(true),
             "--no-color" => self.color = Some(false),
             "--size" => {
@@ -73,30 +78,61 @@ fn parse_size(value: &str) -> Result<(u16, u16), Box<dyn Error>> {
 
 pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let mut out = io::stdout();
-    if options.scenes.is_empty() {
+    // シーン無指定: 通常は一覧を出すだけ。スナップショット更新は「全部」の意味にする
+    // (cargo preview --update-snapshots だけで CI と同じものが出せるように)
+    if options.scenes.is_empty() && !options.update_snapshots {
         print_catalog(&mut out)?;
         return Ok(());
     }
     let selected = resolve_scenes(&options.scenes)?;
-    let color = options.color.unwrap_or_else(|| out.is_terminal());
-    isolate_config();
+    // スナップショットは色を持たない (ANSI を含めると git diff が読めなくなるため)
+    let color = !options.update_snapshots && options.color.unwrap_or_else(|| out.is_terminal());
+    isolate_env();
     let root = fixture::build()?;
 
-    for scene in selected {
+    for scene in &selected {
         let size = options.size.or(scene.size).unwrap_or(DEFAULT_SIZE);
-        let body = draw_scene(scene, &root, size, color);
-        write!(
-            out,
-            "{}",
-            render::card(scene.name, scene.description, size.0, size.1, &body, color)
-        )?;
+        let mut body = draw_scene(scene, &root, size, color);
+        if options.update_snapshots {
+            body = snapshot::normalize(&body);
+        }
+        let card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
+        if options.update_snapshots {
+            snapshot::write(scene.name, &card)?;
+        } else {
+            write!(out, "{card}")?;
+        }
+    }
+    if options.update_snapshots {
+        report_snapshots(&mut out, &selected)?;
     }
     out.flush()?;
     Ok(())
 }
 
+// 更新モードの結果表示。全シーンを書いた時だけ、消えたシーンの残骸も掃除する
+// (部分更新でそれをやると、指定しなかったシーンのスナップショットまで消えてしまう)
+fn report_snapshots(
+    out: &mut impl Write,
+    selected: &[&scene::Scene],
+) -> Result<(), Box<dyn Error>> {
+    let names: Vec<&str> = selected.iter().map(|s| s.name).collect();
+    if selected.len() == scene::SCENES.len() {
+        for path in snapshot::prune(&names)? {
+            writeln!(out, "removed {}", path.display())?;
+        }
+    }
+    writeln!(
+        out,
+        "wrote {} snapshots to {}",
+        names.len(),
+        snapshot::dir().display()
+    )?;
+    Ok(())
+}
+
 fn resolve_scenes(names: &[String]) -> Result<Vec<&'static scene::Scene>, Box<dyn Error>> {
-    if names.iter().any(|name| name == "all") {
+    if names.is_empty() || names.iter().any(|name| name == "all") {
         return Ok(scene::SCENES.iter().collect());
     }
     names
@@ -108,13 +144,18 @@ fn resolve_scenes(names: &[String]) -> Result<Vec<&'static scene::Scene>, Box<dy
         .collect()
 }
 
-// 設定の読み書きを使い捨てのディレクトリへ逃がす。プレビュー中のキー列には w (折返し) の
-// ように persist_config を呼ぶものがあり、そのままだと利用者の ~/.config/fv/config を
-// 書き換えてしまう。App::new より前 = スレッドを 1 つも起こしていない時点で呼ぶ
-fn isolate_config() {
+// プレビューの出力を実行環境から切り離す。App::new より前 = スレッドを 1 つも
+// 起こしていない時点で呼ぶ
+fn isolate_env() {
     let scratch = std::env::temp_dir().join("fv-preview-config");
     unsafe {
+        // 設定の読み書きを使い捨てのディレクトリへ逃がす。プレビューのキー列には w (折返し) の
+        // ように persist_config を呼ぶものがあり、そのままだと利用者の ~/.config/fv/config を
+        // 書き換えてしまう
         std::env::set_var("XDG_CONFIG_HOME", &scratch);
+        // git の相対日時 ("3 days ago") は gettext の翻訳対象。日本語ロケールの手元と
+        // C ロケールの CI で表示が変わると、UI が同じでもスナップショットが食い違う
+        std::env::set_var("LC_ALL", "C");
     }
 }
 
