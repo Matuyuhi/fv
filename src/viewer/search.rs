@@ -92,10 +92,10 @@ impl Viewer {
         let Some(open) = &self.current else {
             return Vec::new();
         };
-        let Content::Text { plain, .. } = open.content.as_ref() else {
+        let Content::Text(doc) = open.content.as_ref() else {
             return Vec::new();
         };
-        search_matches(plain, query)
+        search_matches(&doc.plain, query)
     }
 
     // ファイルを開き直した/reload した際、同じクエリでマッチを再計算する。

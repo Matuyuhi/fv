@@ -17,7 +17,7 @@ use super::diff_boundary::{sticky_line, widen_boundary_bands};
 use super::issues_pane::{highlight_span, short_date};
 use super::pane_block;
 use super::remote_list_pane::{draw_remote_list, draw_text_detail};
-use super::text_pane::TextPane;
+use super::text_pane::{LineWindow, TextPane};
 
 const AUTHOR_THRESHOLD: u16 = 60;
 const BRANCH_THRESHOLD: u16 = 80;
@@ -194,7 +194,7 @@ fn draw_pr_diff(
         return;
     }
     let pane = TextPane {
-        lines: prs.lines(),
+        window: LineWindow::slice(prs.lines(), &prs.diff_viewport),
         changed_lines: &None,
         search: None,
         cursor: None,

@@ -3,20 +3,40 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use ratatui::text::Line;
-
-use super::{Viewer, highlight};
-use crate::text::{TAB_EXPANDED, gutter_width};
+use super::render::LineSource;
+use crate::text::TAB_EXPANDED;
 
 pub enum Content {
-    // plain は normalize 済み (タブ展開後) の行文字列。lines の span と桁位置が一致するので、
-    // 検索マッチの char 列インデックスをそのままハイライト適用に使い回せる
-    Text {
-        lines: Vec<Line<'static>>,
-        plain: Vec<String>,
-    },
+    Text(TextDoc),
     Binary,
     Error(String),
+}
+
+/// 表示対象のテキスト。ハイライト済みの Line は持たない — 画面に映る範囲だけを
+/// HighlightCache (render.rs) が都度組み立てるので、ここは行のテキストだけを持つ。
+/// この型が cache (path → Rc<Content>) の中身なので、テーマを変えても捨てる必要がない
+pub struct TextDoc {
+    // 生の行 (タブ・EOL 未加工)。syntect へ渡す唯一の入力
+    raw: Vec<String>,
+    /// normalize 済み (タブ展開後) の行。char インデックスが描画桁と 1:1 対応するので、
+    /// 検索マッチの (line, start_col, end_col) はこちらの座標で表せる
+    pub plain: Vec<String>,
+    trailing_newline: bool,
+    /// 巨大ファイルは syntect を通さずプレーン表示にする
+    pub plain_only: bool,
+}
+
+impl TextDoc {
+    pub fn source(&self) -> LineSource<'_> {
+        LineSource {
+            lines: &self.raw,
+            trailing_newline: self.trailing_newline,
+        }
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.plain.len()
+    }
 }
 
 pub struct Open {
@@ -27,36 +47,30 @@ pub struct Open {
     pub changed_lines: Option<HashSet<usize>>,
 }
 
-impl Viewer {
-    pub(super) fn load(&self, path: &Path) -> Content {
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(e) => return Content::Error(format!("failed to read: {e}")),
-        };
-        let sniff = &bytes[..bytes.len().min(super::BINARY_SNIFF_BYTES)];
-        if sniff.contains(&0) {
-            return Content::Binary;
-        }
-        let text = String::from_utf8_lossy(&bytes);
-        let width = gutter_width(text.lines().count());
-        let lines = if bytes.len() > super::MAX_HIGHLIGHT_BYTES {
-            highlight::plain_lines(&text, width)
-        } else {
-            self.highlighter.highlight_lines(path, &text, width)
-        };
-        let plain = plain_text_lines(&text);
-        Content::Text { lines, plain }
+pub(super) fn load(path: &Path) -> Content {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) => return Content::Error(format!("failed to read: {e}")),
+    };
+    let sniff = &bytes[..bytes.len().min(super::BINARY_SNIFF_BYTES)];
+    if sniff.contains(&0) {
+        return Content::Binary;
     }
-}
-
-// highlight_lines/plain_lines と同じ行分割・タブ展開を行い、桁位置を一致させる
-fn plain_text_lines(text: &str) -> Vec<String> {
-    let mut lines: Vec<String> = text
-        .lines()
+    let text = String::from_utf8_lossy(&bytes);
+    // str::lines は \n で割って行末の \r も落とす。行数は「末尾改行の後ろに空行を作らない」
+    // という描画側の前提と一致する
+    let mut raw: Vec<String> = text.lines().map(str::to_string).collect();
+    if raw.is_empty() {
+        raw.push(String::new());
+    }
+    let plain = raw
+        .iter()
         .map(|line| line.replace('\t', TAB_EXPANDED))
         .collect();
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    lines
+    Content::Text(TextDoc {
+        trailing_newline: text.ends_with('\n'),
+        plain_only: bytes.len() > super::MAX_HIGHLIGHT_BYTES,
+        raw,
+        plain,
+    })
 }

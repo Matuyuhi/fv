@@ -1,10 +1,12 @@
 mod content;
 mod highlight;
+mod render;
 mod search;
 mod viewport;
 
 pub use content::{Content, Open};
 pub use highlight::Highlighter;
+pub use render::{HighlightCache, LineSource};
 pub use search::SearchState;
 pub(crate) use search::{Match, search_matches};
 pub use viewport::Viewport;
@@ -36,11 +38,15 @@ pub const THEME_NAMES: [&str; 7] = [
 ];
 
 pub struct Viewer {
-    /// ハイライトエンジン。編集 (EditState) は Viewer 全体でなくこれだけを借りる
+    /// シンタックス定義とテーマの置き場。編集 (EditState) も描画時にこれだけを借りる
     pub highlighter: Highlighter,
     /// スクロール・折返し状態。閲覧と編集で同じ実体を共有する
     pub viewport: Viewport,
-    // ハイライト済み行のキャッシュ。ファイルを開き直しても再計算しない
+    /// 開いているファイルの可視範囲だけを組み立てる描画キャッシュ。
+    /// 描画時に ui が直接触る (ui→app の書き戻しと同じく、他フィールドと独立に借りるため)
+    pub render: HighlightCache,
+    // 読み込み済みテキストのキャッシュ。ハイライトは焼き込まれていないので、
+    // テーマを変えてもここは捨てなくてよい
     cache: HashMap<PathBuf, Rc<Content>>,
     pub current: Option<Open>,
     // ファイルごとではなく viewer に1つだけ持つ検索状態
@@ -63,6 +69,7 @@ impl Viewer {
         Self {
             highlighter: Highlighter::new(),
             viewport: Viewport::new(false),
+            render: HighlightCache::new(),
             cache: HashMap::new(),
             current: None,
             search: None,
@@ -81,20 +88,13 @@ impl Viewer {
         self.highlighter.theme_name()
     }
 
-    /// テーマ切替。ハイライトは Content に焼き込み済みのため、切り替えたら
-    /// cache を丸ごと破棄して開いているファイルを再ハイライトする
-    /// (再描画毎の再ハイライト禁止ルールへの違反ではなく、cache key = path だけでは
-    /// もう内容を一意に決められなくなったことに対する正当な無効化)
+    /// テーマ切替。Content にはハイライトが焼き込まれていないので、捨てるのは
+    /// 描画キャッシュ (次の描画で可視範囲だけ組み直される) だけでよい
     pub fn set_theme(&mut self, name: &str) -> bool {
         if !self.highlighter.set_theme(name) {
             return false;
         }
-        self.cache.clear();
-        if let Some(path) = self.current.as_ref().map(|open| open.path.clone()) {
-            let root = self.root.clone();
-            let scroll = self.viewport.scroll;
-            self.set_current(&path, &root, scroll);
-        }
+        self.render.invalidate_all();
         true
     }
 
@@ -172,11 +172,12 @@ impl Viewer {
         let content = match self.cache.get(path) {
             Some(cached) => Rc::clone(cached),
             None => {
-                let loaded = Rc::new(self.load(path));
+                let loaded = Rc::new(content::load(path));
                 self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
                 loaded
             }
         };
+        self.render.reset(path, plain_only(&content));
         self.viewport.scroll = scroll;
         // ファイルを跨ぐたびに水平位置はリセットする (wrap は跨いで維持する設定なのでここでは触らない)
         self.viewport.hscroll = 0;
@@ -197,8 +198,9 @@ impl Viewer {
         if !is_current {
             return;
         }
-        let loaded = Rc::new(self.load(path));
+        let loaded = Rc::new(content::load(path));
         self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
+        self.render.reset(path, plain_only(&loaded));
         let changed_lines = git::changed_lines(&self.root, path);
         if let Some(open) = &mut self.current {
             open.content = loaded;
@@ -232,9 +234,10 @@ impl Viewer {
         let Some(open) = &self.current else {
             return 0;
         };
-        let Content::Text { plain, .. } = open.content.as_ref() else {
+        let Content::Text(doc) = open.content.as_ref() else {
             return 0;
         };
+        let plain = &doc.plain;
         let start = self.viewport.scroll.min(plain.len());
         let end = (self.viewport.scroll + self.viewport.height.max(1)).min(plain.len());
         let max_width = plain[start..end]
@@ -271,7 +274,7 @@ impl Viewer {
     pub fn line_count(&self) -> usize {
         match &self.current {
             Some(open) => match open.content.as_ref() {
-                Content::Text { lines, .. } => lines.len(),
+                Content::Text(doc) => doc.line_count(),
                 _ => 0,
             },
             None => 0,
@@ -287,7 +290,16 @@ impl Viewer {
     pub fn is_text(&self) -> bool {
         matches!(
             self.current.as_ref().map(|open| open.content.as_ref()),
-            Some(Content::Text { .. })
+            Some(Content::Text(_))
         )
+    }
+}
+
+// 巨大ファイルは syntect を通さない。判定自体は load が済ませているので、
+// ここは HighlightCache へ渡すための取り出しだけ
+fn plain_only(content: &Content) -> bool {
+    match content {
+        Content::Text(doc) => doc.plain_only,
+        _ => false,
     }
 }

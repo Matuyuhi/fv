@@ -2,6 +2,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::viewer::LineSource;
+
 // 編集の最小単位。char 挿入・改行・行削除・ペーストを全部この 2 種で表現すると、
 // undo/redo は「逆 op の適用」(Insert の逆 = 同範囲の Delete) だけになる
 enum EditOp {
@@ -22,6 +24,9 @@ pub struct EditBuffer {
     // undo 末尾 op へタイピングを追記してよいか。カーソル移動・保存・ペースト・
     // 改行で false に戻し、undo の粒度を「入力のまとまり」にする
     coalesce: bool,
+    // 前回の take_touched 以降の変更が最初に触れた行。ハイライトの再開点になる。
+    // カーソル位置から推測しないのは、undo/redo が任意の位置に飛ぶため
+    touched: Option<usize>,
 }
 
 impl EditBuffer {
@@ -48,6 +53,7 @@ impl EditBuffer {
             undo: Vec::new(),
             redo: Vec::new(),
             coalesce: false,
+            touched: None,
         })
     }
 
@@ -72,6 +78,20 @@ impl EditBuffer {
         &self.lines
     }
 
+    /// ハイライト用の行ソース。最終行にも改行がある扱いで固定するのは、末尾が空行の
+    /// バッファでもその行が 1 行として描画から欠けないようにするため
+    pub fn source(&self) -> LineSource<'_> {
+        LineSource {
+            lines: &self.lines,
+            trailing_newline: true,
+        }
+    }
+
+    /// 前回以降の変更が最初に触れた行を取り出す (以降のハイライトを作り直す起点)
+    pub fn take_touched(&mut self) -> Option<usize> {
+        self.touched.take()
+    }
+
     /// タイピングのまとまりをここで区切る。カーソル移動・クリック等の編集以外の操作から呼ぶ
     pub fn seal(&mut self) {
         self.coalesce = false;
@@ -84,15 +104,6 @@ impl EditBuffer {
         if self.trailing_newline {
             text.push_str(eol);
         }
-        text
-    }
-
-    /// ハイライト用テキスト。常に \n 区切り + 末尾 \n にすることで、
-    /// LinesWithEndings / str::lines の行数が lines.len() と必ず一致する
-    /// (末尾が空行のバッファでもその行が描画から欠けない)
-    pub fn display_text(&self) -> String {
-        let mut text = self.lines.join("\n");
-        text.push('\n');
         text
     }
 
@@ -205,6 +216,7 @@ impl EditBuffer {
     // undo 記録なしの適用プリミティブ。戻り値は挿入テキスト末尾の位置
     fn apply_insert(&mut self, at: (usize, usize), text: &str) -> (usize, usize) {
         let (line, col) = at;
+        self.touch(line);
         let byte = byte_of(&self.lines[line], col);
         if !text.contains('\n') {
             self.lines[line].insert_str(byte, text);
@@ -228,6 +240,7 @@ impl EditBuffer {
     fn apply_delete(&mut self, from: (usize, usize), to: (usize, usize)) -> String {
         let (l1, c1) = from;
         let (l2, c2) = to;
+        self.touch(l1);
         if l1 == l2 {
             let b1 = byte_of(&self.lines[l1], c1);
             let b2 = byte_of(&self.lines[l1], c2);
@@ -244,6 +257,10 @@ impl EditBuffer {
         }
         self.lines[l1].push_str(&tail);
         removed
+    }
+
+    fn touch(&mut self, line: usize) {
+        self.touched = Some(self.touched.map_or(line, |prev| prev.min(line)));
     }
 }
 

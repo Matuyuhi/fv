@@ -7,7 +7,7 @@ use crate::logview::LogState;
 
 use super::diff_boundary::{sticky_line, widen_boundary_bands};
 use super::pane_block;
-use super::text_pane::TextPane;
+use super::text_pane::{LineWindow, TextPane};
 
 // 左ペイン: コミット一覧。ツリーではなく LogState が持つ commits を直接描く
 pub(super) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool, area: Rect) {
@@ -84,7 +84,7 @@ pub(super) fn draw_log_diff(
         return;
     }
     let pane = TextPane {
-        lines: log.lines(),
+        window: LineWindow::slice(log.lines(), &log.viewport),
         changed_lines: &None,
         search: None,
         cursor: None,

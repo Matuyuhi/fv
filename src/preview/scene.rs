@@ -43,6 +43,16 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "wrap",
+        description: "VIEW レーン: 折返し表示 (w) — 続き行の gutter pad",
+        // 折返しが実際に起きる幅でないと意味がないので、narrow と同じ狭い端末で撮る
+        size: Some((64, 18)),
+        setup: |app| {
+            open(app, "src/main.rs");
+            send(app, "<Tab>w");
+        },
+    },
+    Scene {
         name: "view-binary",
         description: "VIEW レーン: 非テキストファイルのフォールバック",
         size: None,

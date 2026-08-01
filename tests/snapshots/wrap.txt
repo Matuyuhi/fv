@@ -1,0 +1,21 @@
+wrap — VIEW レーン: 折返し表示 (w) — 続き行の gutter pad (64x18)
+┌────────────────────────────────────────────────────────────────┐
+┌fv-preview-fixtur┐┌src/main.rs────────────────────────────────┐
+│▸ assets         ││ 1 mod app;                                │
+│▸ docs           ││ 2 mod ui;                                 │
+│▾ src            ││ 3                                         │
+│  ▸ app          ││ 4 use std::error::Error;                  │
+│     M main.rs   ││ 5 use std::path::PathBuf;                 │
+│    ?? new_lane.r││ 6                                         │
+│    M  ui.rs     ││ 7 use app::App;                           │
+│  README.md      ││ 8                                         │
+│                 ││ 9 fn main() -> Result<(), Box<dyn Error>> │
+│                 ││   {                                       │
+│                 ││10     let root = std::env::args().nth(1).u│
+│                 ││   nwrap_or_else(|| ".".to_string());      │
+│                 ││11     let mut app = App::new("sample-app")│
+│                 ││   ;                                       │
+│                 ││12▎    let mode = Lane::Git;               │
+└─────────────────┘└───────────────────────────────────────────┘
+[VIEW] EDIT  GIT  LOG   main  j/k: scroll  w: wrap  /: search  e
+└────────────────────────────────────────────────────────────────┘
