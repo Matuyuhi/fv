@@ -144,6 +144,12 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - 走査完了前に開いた場合は**ツリーの読み込み済み分**で即座に開き、完了時に `on_tick` が `Finder::set_candidates` で差し替える（クエリは保つ）。タイトルの `scanning...` がその状態
 - FS 変更・隠しファイル切替では `invalidate` するだけ。ここで走査し直すと保存のたびに全走査になる（古い一覧は次に Finder を開くまで使い続ける）
 
+### ツリーペインの描画（ui/tree_pane.rs）
+- **`ListItem` の組み立ては画面に映る行数に比例させる**（以前は `tree.visible` 全体に比例していた。展開済みの巨大なツリーで `j` を押しっぱなしにすると 1 回の再描画あたり `visible` 全件ぶんの `format!`/`Vec` 確保が走り、キー入力への追従が目に見えて遅れていた）。`ListState` の scroll/offset 管理は ratatui の `List` に任せず自前に持ち替えた（下記 A 案）。B 案（組み立て済み `Vec<ListItem>` をキャッシュし内容が変わった時だけ作り直す）も検討したが、A 案の方が「常に O(画面行数)」を型で保証できて strictly 強く、`List::new` が `Vec<ListItem>` を所有として消費する ratatui の API 上、キャッシュを毎フレーム使い回すにも結局クローンが要って B 案の優位性が薄れるため見送った
+- ツリーの行は高さが常に 1 (`row.name` に改行は入らない) という前提があるので、ratatui `List` が内部でやる「選択行を含む最小限のウィンドウを保つ」スクロール計算 (`get_items_bounds`、非公開 API) は、offset を起点に selected が入るまで前後にスライドさせるだけの O(1) の式に厳密に置き換えられる（`tree_pane::visible_window`）。この式は ratatui 側のテストケース (`selected_item_ensures_selected_item_is_visible_when_offset_is_*`) の期待値と突き合わせて導出した。可変高さ行 (`repeat_highlight_symbol`・複数行アイテム等) は使っていないので、この前提が崩れる変更 (行を複数行にする等) をする時はこの等価性も一緒に見直すこと
+- `[first, last)` の絶対 offset は `app.tree.list_state`（`offset_mut()`）に書き戻す。`app/mouse.rs::click_tree_row` がクリック行の絶対 index 換算にこの offset を読むため（`tree_area`/`viewport.height` などと同じ ui→app の書き戻しパターン）。`List` 自体には `[first, last)` にスライスした部分列と、それに合わせて相対化した選択位置を持つ使い捨ての `ListState` を渡す — `List::new` が受け取った `Vec<ListItem>` をそのままインデックス 0 起点として扱うため、絶対値の `list_state` をそのまま渡すと選択位置も offset も二重にずれる
+- 選択のハイライトは `List::highlight_style` が描画時に当てるだけで `ListItem` 自体には焼き込まれないため、`j`/`k` で選択が動くだけなら（＝ウィンドウの範囲が変わらなければ）以前と同じ行の `ListItem` を作り直しても意味が無い。今回のウィンドウ縮小と合わせて、実質的に「画面外の行は最初から作らない」形になっている
+
 ### GIT レーン（gitview.rs + ui/git_pane.rs）
 - 左ペインは `Tree::set_filter` による**表示フィルタ**（変更ファイル + その祖先ディレクトリ）。集合は `GitStatus.files` と `changed_dirs` の和で、ツリーの再走査はしない。ただし変更ファイルが未展開の階層にいることはあるので、`expand_all` は集合に含まれるディレクトリを**開く直前に読み込む**（`changed_dirs` が祖先を全部含むので root から辿れる）
 - 絞り込み中も `expanded` フラグを尊重するので h/l/H の開閉がそのまま効く。代わりに `set_filter` が**絞り込み開始時に元の展開状態を退避 → 対象を全展開**し、解除時に `scan::set_expanded` で厳密に戻す（GIT 内での開閉は VIEW に持ち越さない）。絞り込み中の再走査では「新しく対象になったディレクトリ」だけを開き、ユーザーが畳んだものは保存のたびに開き直さない

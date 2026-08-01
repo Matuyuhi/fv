@@ -1,7 +1,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{List, ListItem};
+use ratatui::widgets::{List, ListItem, ListState};
 
 use crate::app::{App, Focus};
 use crate::git::{FileStatus, StatusKind};
@@ -18,10 +18,35 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| app.root.display().to_string())
     };
+    let block = pane_block(title, app.focus == Focus::Tree);
+    let inner = block.inner(area);
+
+    let total = app.tree.visible.len();
+    let selected = (total > 0).then_some(app.tree.selected);
+    app.tree.list_state.select(selected);
+
+    // 行の高さは gutter 込みでも常に 1 (name に改行は入らない) なので、ratatui の
+    // List が内部でやる「選択行を含む最小限のウィンドウ計算」は同じ結果になる
+    // O(1) の式に置き換えられる。ここで [first, last) を確定させ、ListItem は
+    // その範囲だけ組み立てる (visible 全体ではなく画面に映る行数に比例させるのが目的)
+    let max_height = inner.height as usize;
+    let (first, last) = if total == 0 || max_height == 0 {
+        (0, 0)
+    } else {
+        visible_window(
+            total,
+            max_height,
+            *app.tree.list_state.offset_mut(),
+            selected,
+        )
+    };
+    // list_state.offset() は app/mouse.rs::click_tree_row がクリック行の絶対 index 換算に使う
+    // (ui→app の書き戻しパターン、tree_area 等と同じ)。ratatui 標準の List に描画を任せると
+    // ウィンドウ切り出し分だけ相対化されてしまうため、絶対値をこちらで書き戻す
+    *app.tree.list_state.offset_mut() = first;
+
     let git = app.git.as_ref();
-    let items: Vec<ListItem> = app
-        .tree
-        .visible
+    let items: Vec<ListItem> = app.tree.visible[first..last]
         .iter()
         .map(|row| {
             // アイコン有効時は folder の開閉アイコンが展開状態を兼ねるためマーカー不要
@@ -71,16 +96,44 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             ListItem::new(label).style(style)
         })
         .collect();
-    let list = List::new(items)
-        .block(pane_block(title, app.focus == Focus::Tree))
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
-    let selected = (!app.tree.visible.is_empty()).then_some(app.tree.selected);
-    app.tree.list_state.select(selected);
-    frame.render_stateful_widget(list, area, &mut app.tree.list_state);
+    let list = List::new(items).block(block).highlight_style(
+        Style::default()
+            .bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    );
+    // items は [first, last) だけの部分列なので、List に渡す選択位置もその中の相対位置に
+    // 直す必要がある。絶対値は app.tree.list_state (offset() 経由でクリック判定が読む) 側に
+    // 既に書き戻し済みなので、ここは使い捨ての一時 state で構わない
+    let mut render_state = ListState::default();
+    if let Some(sel) = selected {
+        render_state.select(Some(sel - first));
+    }
+    frame.render_stateful_widget(list, area, &mut render_state);
+}
+
+/// ratatui `List` が内部で行う「選択行を含む最小限のウィンドウ」計算 (get_items_bounds) と
+/// 等価な結果を返す。ツリーの行は全て高さ1 (name に改行は入らない) なので、あちらのような
+/// 可変高さ対応のループは要らず、offset を起点に selected が入るまでスライドするだけの
+/// O(1) 計算に落とせる。selected が既にウィンドウ内なら offset をそのまま保つのがポイントで、
+/// ここを毎回 selected 中心に作り直すと「選択が動くたびに画面が揺れる」挙動になってしまう
+fn visible_window(
+    total: usize,
+    max_height: usize,
+    offset: usize,
+    selected: Option<usize>,
+) -> (usize, usize) {
+    let offset = offset.min(total - 1);
+    let index_to_display = selected.map(|s| s.min(total - 1)).unwrap_or(offset);
+    let mut first = offset;
+    let mut last = (offset + max_height).min(total);
+    if index_to_display >= last {
+        first = index_to_display + 1 - max_height.min(index_to_display + 1);
+        last = (first + max_height).min(total);
+    } else if index_to_display < first {
+        first = index_to_display;
+        last = (first + max_height).min(total);
+    }
+    (first, last)
 }
 
 // ツリーの行頭に置く XY (index 側 + worktree 側) + 空白のマーカー。
