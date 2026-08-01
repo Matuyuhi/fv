@@ -148,7 +148,7 @@ impl App {
         let branch_status = git::branch_status(&root);
         // 削除ファイルは WalkBuilder の走査に出てこないため、起動時点でも合成ノードを足しておく
         // (GIT レーンへ入る前でも status 表示・将来の選択に矛盾が出ないように)
-        tree.sync_deleted(&root, &deleted_paths_of(&git));
+        tree.sync_deleted(&deleted_paths_of(&git));
         let mut viewer = Viewer::new();
         viewer.viewport.wrap = config.wrap_default;
         // 設定ファイルのテーマ名が壊れていても set_theme が false を返すだけで、
@@ -307,7 +307,7 @@ impl App {
         // (refresh_git_status で取得済み) を使って呼ぶ必要があるため、この順序で並べる
         self.refresh_git_status();
         self.tree.rescan();
-        self.tree.sync_deleted(&self.root, &self.deleted_paths());
+        self.tree.sync_deleted(&self.deleted_paths());
         // ツリーに現れない (未展開の) 変更も候補一覧には効くので、次に Finder を
         // 開くときに歩き直させる。ここで走査を起こすと保存のたびに全走査になる
         self.file_index.invalidate();
@@ -654,7 +654,7 @@ impl App {
         self.file_index.set_show_hidden(show_hidden);
         // toggle_hidden 内部の rescan で nodes が作り直されるため、削除ファイルの合成ノードも
         // 都度足し直さないと隠れてしまう (git status 自体は変わらないので既存 self.git を使う)
-        self.tree.sync_deleted(&self.root, &self.deleted_paths());
+        self.tree.sync_deleted(&self.deleted_paths());
         // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。
         self.watcher = FsWatcher::new(&self.root, show_hidden);
         self.reset_rescan_debounce();
