@@ -126,6 +126,9 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - `rescan` は展開状態と選択を **path で**保存・復元する（index_path は再走査で無効になる）
 - **削除された（worktree または index で `D`）が未コミットのファイルは合成ノードとして Tree に足す**（`Tree::sync_deleted`）。WalkBuilder は実ファイルしか見ないため、`rm` 等で既に消えたパスは通常の走査に一切出てこず、このままでは GIT レーンで選択も stage/unstage もできない。Tree は本来 git を知らない設計だが、削除ファイルの可視化だけはこの橋渡しが無いと表現できないため例外的に許容する。`App::rescan` / `App::new` / `toggle_hidden` が nodes を作り直す（＝合成ノードも失う）都度、最新の git status から呼び直す設計で、専用の同期タイマーは作らない
 - watch.rs のイベントフィルタは「`.` 始まり成分の除外 + root .gitignore の `matched_path_or_any_parents`」（`matched` だと `target/` が配下パスに効かない）。ツリー再走査は 500ms デバウンスで、git status の再取得もこれに相乗りする（別タイマーを作らない）
+- **`FsWatcher::drain` はイベントを「構造変化 (作成・削除・リネーム)」と「内容だけの変更 (Modify(Data))」に分類して返す**（`watch::Change { path, structural }`）。ファイルの中身が変わってもツリーの行構成（どのパスが存在するか）は変わらないため、`App::on_tick` は structural なイベントが 1 件も無ければ `tree.rescan`（WalkBuilder の全走査）を丸ごとスキップし、`App::rescan_status_only`（git status の再取得 + GIT レーンの絞り込み・diff 更新だけ）で済ませる。大きい repo では「AI が高速に書き換え続ける」ような内容変更の連打が全走査の主なコストだったため、ここを削るのが効く。`Modify(Metadata)` は従来通り完全無視、種別が判別できない Modify は安全側 (structural) に倒す — 誤って全走査を省略し表示が古いまま固定される事故より、たまに余計な全走査をする方が無害なため
+- **GIT レーンの絞り込み・diff は status ベースで足りる**ので、内容変更だけの tick でも `tree.set_filter`/`GitState::refresh` は毎回呼ぶ（`App::after_status_refresh`、rescan/rescan_status_only 共通）。「新しく変更されたファイルが絞り込みに現れる」という要求は `GitStatus.files`（`git status` の出力）だけで満たせ、ツリーの再走査は要らない。以前は「GIT レーンにいる間は変更が 1 件でもあれば無条件に rescan_pending を立てる」という特別扱いがあったが、この分類導入後は不要になった（全ての内容変更イベントが既に `after_status_refresh` を通るため）ので削除した
+- 削除・作成・リネームは常に structural 扱いで `rescan()`（全走査）側に回るため、`tree.sync_deleted`（削除ファイルの合成ノード追加）は `rescan_status_only` では呼ばない。内容変更だけの tick では新しく削除されたパスが発生しない前提
 
 ### GIT レーン（gitview.rs + ui/git_pane.rs）
 - 左ペインは `Tree::set_filter` による**表示フィルタ**（変更ファイル + その祖先ディレクトリ）。集合は `GitStatus.files` と `changed_dirs` の和で、新しい走査はしない
