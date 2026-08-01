@@ -1,29 +1,38 @@
+use std::path::Path;
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{List, ListItem, ListState};
 
-use crate::app::{App, Focus};
-use crate::git::{FileStatus, StatusKind};
+use crate::git::{FileStatus, GitStatus, StatusKind};
+use crate::tree::Tree;
 
 use super::pane_block;
 
-pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
+pub(super) fn draw_tree(
+    frame: &mut Frame,
+    tree: &mut Tree,
+    git: Option<&GitStatus>,
+    root: &Path,
+    icons: bool,
+    focused: bool,
+    area: Rect,
+) {
     // GIT レーンでは絞り込み中であることをタイトルで示す (行が減った理由が分かるように)
-    let title = if app.tree.is_filtered() {
-        format!("changes ({})", app.tree.visible_files())
+    let title = if tree.is_filtered() {
+        format!("changes ({})", tree.visible_files())
     } else {
-        app.root
-            .file_name()
+        root.file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| app.root.display().to_string())
+            .unwrap_or_else(|| root.display().to_string())
     };
-    let block = pane_block(title, app.focus == Focus::Tree);
+    let block = pane_block(title, focused);
     let inner = block.inner(area);
 
-    let total = app.tree.visible.len();
-    let selected = (total > 0).then_some(app.tree.selected);
-    app.tree.list_state.select(selected);
+    let total = tree.visible.len();
+    let selected = (total > 0).then_some(tree.selected);
+    tree.list_state.select(selected);
 
     // 行の高さは gutter 込みでも常に 1 (name に改行は入らない) なので、ratatui の
     // List が内部でやる「選択行を含む最小限のウィンドウ計算」は同じ結果になる
@@ -33,24 +42,18 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
     let (first, last) = if total == 0 || max_height == 0 {
         (0, 0)
     } else {
-        visible_window(
-            total,
-            max_height,
-            *app.tree.list_state.offset_mut(),
-            selected,
-        )
+        visible_window(total, max_height, *tree.list_state.offset_mut(), selected)
     };
     // list_state.offset() は app/mouse.rs::click_tree_row がクリック行の絶対 index 換算に使う
     // (ui→app の書き戻しパターン、tree_area 等と同じ)。ratatui 標準の List に描画を任せると
     // ウィンドウ切り出し分だけ相対化されてしまうため、絶対値をこちらで書き戻す
-    *app.tree.list_state.offset_mut() = first;
+    *tree.list_state.offset_mut() = first;
 
-    let git = app.git.as_ref();
-    let items: Vec<ListItem> = app.tree.visible[first..last]
+    let items: Vec<ListItem> = tree.visible[first..last]
         .iter()
         .map(|row| {
             // アイコン有効時は folder の開閉アイコンが展開状態を兼ねるためマーカー不要
-            let marker = if app.icons {
+            let marker = if icons {
                 ""
             } else if row.is_dir {
                 if row.expanded { "▾ " } else { "▸ " }
@@ -60,7 +63,7 @@ pub(super) fn draw_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             // ディレクトリは git.files に直接エントリを持たないため自然に None になる
             let file_status = git.and_then(|g| g.files.get(&row.path).copied());
             let prefix = file_status.map(status_prefix).unwrap_or_default();
-            let icon = if app.icons {
+            let icon = if icons {
                 let glyph = if row.is_dir {
                     super::icons::dir_icon(row.expanded)
                 } else {

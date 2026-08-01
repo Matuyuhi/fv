@@ -54,7 +54,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(1 階層走査・遅延ロード・rescan ヘルパー)
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect 一式とテーマ + 行単位で再開できる Session/LineState), render.rs(HighlightCache: 可視範囲だけを組み立てる遅延ハイライト), content.rs(読込・Content/TextDoc/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
-- `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), issues_pane.rs(issues タブの一覧+詳細), pr_pane.rs(pull requests タブの一覧+説明/diff/CI), remote_list_pane.rs(issues/PR が共有する一覧・プレーンテキスト詳細の描画部品), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
+- `ui/` — mod.rs(draw・レイアウト・各 View への値の取り出し), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), issues_pane.rs(issues タブの一覧+詳細), pr_pane.rs(pull requests タブの一覧+説明/diff/CI), remote_list_pane.rs(issues/PR が共有する一覧・プレーンテキスト詳細の描画部品), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
 - `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
 - `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `index.rs`(FileIndex: Finder 候補の背景全走査) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・branch.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `gitview/`(GIT レーンの diff 表示状態。mod.rs が GitState (今どの diff をどう見ているか) と定数/Kind/各 *Diff 構造体、render.rs が inline の行組み立て (render_inline / LOG レーン・PR タブと共有する render_commit)、side.rs が side-by-side (#30)、word.rs が word-level 差分の範囲計算 (#29)) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `issuesview.rs`(issues タブの一覧フィルタ・詳細キャッシュ・ジョブ管理の状態) / `prsview.rs`(pull requests タブの一覧フィルタ・説明/diff/CI 3 種のキャッシュ・ジョブ管理の状態) / `remotelist.rs`(issues/PR が共有する一覧フィルタ (`filter_rows`) と詳細の非同期キャッシュ (`DetailSlot`)) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
 
@@ -92,6 +92,13 @@ Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → 
 - 大文字小文字の畳み込みは ASCII 限定（`to_ascii_lowercase`）。Unicode の完全 case folding は char 数が変わり桁対応が壊れるため意図的に使っていない（viewer/search.rs と finder.rs の両方）
 - text_pane の行加工順は `mark_changed_line → highlight_matches → hscroll_line` 固定。hscroll を先にすると検索マッチの絶対桁がズレる
 - gutter の変更行マーク `▎` は「gutter 末尾の空白 1 文字を置き換える」方式で char 数を維持している
+
+### 描画の依存範囲（View は自分の状態しか受け取らない）
+各ペイン・オーバーレイの `draw_*` は **そのコンポーネントの状態 + 描画に要るスカラ（`focused` / `background` 等）だけ**を引数に取り、`&App` は受け取らない。理由は 2 つある。
+- **借用**: `GitState` も `EditState` も `App` の中にあるので、`&App` と `&mut app.lane` は同時に取れない。呼び出し側（`ui::draw`）が先に必要な値を取り出してから子へ渡す形にしないとそもそもコンパイルが通らない（`ui/git_pane.rs` の先頭コメントがこの経緯）
+- **範囲を型で縛る**: View が触れる状態が引数の型で決まるので、「このペインを直すのにどこを見ればいいか」がシグネチャだけで分かる。App 全体を渡すと、あとから無関係なフィールドを読み始めても誰も気づけない
+
+例外は **シェル側の画面**（`status_bar` / `settings_panel` / `confirm` / `commit` / `tab_bar`）で、これらは本質的に App 全体の状態・設定を横断して見せるものなので `&App` のままにしてある。「専用の状態型を持つか」が境界の目安で、`Mode::Finder(Finder)` / `Mode::Branch(BranchState)` のように状態型がある側はコンポーネント扱い、`Mode::Commit { .. }` のように `Mode` の中に直接フィールドを持つ側はシェル扱いになる。
 
 ### 描画は自前スライス
 `Paragraph::scroll` は u16 上限で使わない。`lines[scroll..scroll+height]` を毎フレームスライスして描画する（text_pane）。ui は `viewport.height` / `viewport.width` / `tree_area` / `viewer_area` / `splitter_area` を毎フレーム App/Viewport に書き戻し、キー・マウス処理側がそれを読む（ui→app の逆流はこのパターンに統一）。

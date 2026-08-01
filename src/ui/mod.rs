@@ -56,8 +56,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 
     status_bar::draw_status_bar(frame, app, status);
-    if matches!(app.mode, Mode::Finder(_)) {
-        finder_panel::draw_finder(frame, app, full);
+    // 自分の状態だけで描けるオーバーレイ (Finder/Branch) は、その状態だけを渡す。
+    // Help/Settings/Confirm/Commit は App 全体の設定・Mode の中身をそのまま見せる
+    // 「シェル側の画面」なので &App のままにしてある (status_bar と同じ扱い)
+    let scanning = app.file_index.scanning();
+    if let Mode::Finder(finder) = &mut app.mode {
+        finder_panel::draw_finder(frame, finder, scanning, full);
     }
     if matches!(app.mode, Mode::Help) {
         help::draw_help(frame, full);
@@ -71,8 +75,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if matches!(app.mode, Mode::Commit { .. }) {
         commit::draw_commit(frame, app, full);
     }
-    if matches!(app.mode, Mode::Branch(_)) {
-        branch_panel::draw_branch(frame, app, full);
+    if let Mode::Branch(state) = &mut app.mode {
+        branch_panel::draw_branch(frame, state, full);
     }
 }
 
@@ -107,19 +111,31 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
         }
         return;
     }
-    tree_pane::draw_tree(frame, app, left);
-    // 右ペインの中身はレーンで決まる (VIEW: ファイル / EDIT: 編集バッファ / GIT: diff)
-    if matches!(app.lane, Lane::Edit(_)) {
-        editor_pane::draw_editor(frame, app, right);
+    tree_pane::draw_tree(
+        frame,
+        &mut app.tree,
+        app.git.as_ref(),
+        &app.root,
+        app.icons,
+        app.focus == Focus::Tree,
+        left,
+    );
+    // 右ペインの中身はレーンで決まる (VIEW: ファイル / EDIT: 編集バッファ / GIT: diff)。
+    // どのレーンの描画も「そのレーンの状態 + 必要なスカラ」しか受け取らない — App 全体を
+    // 渡さないことで、View が触れる状態の範囲を型で縛る
+    let focused = app.focus == Focus::Viewer;
+    if let Lane::Edit(edit) = &mut app.lane {
+        // EDIT は Viewport (スクロール共有) と Highlighter を Viewer から借りる関係なので
+        // Viewer も渡す (app.lane と app.viewer は互いに素なフィールドなので同時に借りられる)
+        editor_pane::draw_editor(frame, edit, &mut app.viewer, right);
     } else if matches!(app.lane, Lane::Git(_)) {
         // GitState は app.lane の中にあるので、先に必要な値を取り出してから借りる
-        let focused = app.focus == Focus::Viewer;
         let background = app.viewer.background();
         if let Lane::Git(git) = &mut app.lane {
             git_pane::draw_git(frame, git, focused, background, right);
         }
     } else {
-        viewer_pane::draw_viewer(frame, app, right);
+        viewer_pane::draw_viewer(frame, &mut app.viewer, focused, right);
     }
 }
 
