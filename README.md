@@ -93,6 +93,35 @@ The tree is filtered down to changed files with the directory hierarchy preserve
 
 Only files present on disk are listed, so deleted files do not show up. Changes under hidden directories (for example `.github/`) need `a` or `--hidden`.
 
+## Development
+
+### UI previews
+
+Like Jetpack Compose `@Preview` or SwiftUI previews, you can render a single frame of any
+screen straight to stdout — no need to launch the TUI and click your way to the state you
+are working on:
+
+```sh
+fv --preview                      # list the available scenes
+fv --preview git                  # render one scene
+fv --preview git log commit       # render several, stacked
+fv --preview all --size 140x40    # everything, at a specific terminal size
+```
+
+Every scene runs against a throwaway sample repository (created under `$TMPDIR`) that always
+has staged, unstaged, untracked and deleted files plus a few commits, so the output does not
+depend on the state of your working tree. Scenes are built by feeding real key presses to the
+app, and rendered by the same `ui::draw` the real terminal uses — there is no preview-only
+drawing path.
+
+For the edit-and-look loop, re-render on every save:
+
+```sh
+scripts/preview-watch.sh git      # rebuilds and redraws whenever src/ changes
+```
+
+Add a scene in `src/preview/scene.rs`; a scene is a name, a description and a key script.
+
 ## License
 
 Apache-2.0

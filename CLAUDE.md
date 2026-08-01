@@ -15,6 +15,15 @@ cargo clippy
 cargo fmt
 ```
 
+見た目の確認は TUI を起動せず**静的プレビュー**で回せる（Compose の `@Preview` / SwiftUI Preview 相当。詳細は「UI プレビュー」節）:
+
+```sh
+cargo run -- --preview              # シーン一覧
+cargo run -- --preview git log      # 複数シーンを縦に並べて描き出す
+cargo run -- --preview all --size 140x40
+scripts/preview-watch.sh git        # 保存のたびに再ビルド + 再描画
+```
+
 テストは現状なし。動作確認は pty 経由のスモークテストで行う:
 
 ```sh
@@ -43,6 +52,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect・テーマ), content.rs(読込・Content/Open), search.rs
 - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS。行単位のライブ diff と gitview の word-level diff が共有する `pub(crate)`)
 - `ui/` — mod.rs(draw・レイアウト), tree_pane.rs, text_pane.rs(閲覧・編集・diff 共通の描画コア), viewer_pane.rs, editor_pane.rs, git_pane.rs, log_pane.rs(LOG レーンのコミット一覧+diff), issues_pane.rs(issues タブの一覧+詳細), pr_pane.rs(pull requests タブの一覧+説明/diff/CI), remote_list_pane.rs(issues/PR が共有する一覧・プレーンテキスト詳細の描画部品), status_bar.rs, tab_bar.rs(Workspace タブバー), finder_panel.rs, branch_panel.rs(ブランチ一覧オーバーレイ), help.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)
+- `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
 - `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `finder.rs`(ファジーマッチ自前実装) / `index.rs`(FileIndex: Finder 候補の背景全走査) / `branch.rs`(BranchState: ブランチ一覧オーバーレイの絞り込み・選択状態) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・branch.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `gitview/`(GIT レーンの diff 表示状態。mod.rs が GitState (今どの diff をどう見ているか) と定数/Kind/各 *Diff 構造体、render.rs が inline の行組み立て (render_inline / LOG レーン・PR タブと共有する render_commit)、side.rs が side-by-side (#30)、word.rs が word-level 差分の範囲計算 (#29)) / `logview.rs`(LOG レーンのコミット一覧・ページング・選択 diff の状態) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `issuesview.rs`(issues タブの一覧フィルタ・詳細キャッシュ・ジョブ管理の状態) / `prsview.rs`(pull requests タブの一覧フィルタ・説明/diff/CI 3 種のキャッシュ・ジョブ管理の状態) / `remotelist.rs`(issues/PR が共有する一覧フィルタ (`filter_rows`) と詳細の非同期キャッシュ (`DetailSlot`)) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify)
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
@@ -248,6 +258,16 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
 - 失敗時のメッセージ抽出は `run_git_write` 共通の `first_line`（stderr 先頭の非空行）ではなく専用の `remote_error_line` を使う。`git pull --ff-only` の失敗は stderr に fetch の進捗行 (`From ...`) や `hint:` 行が本当の失敗理由より先に出るため、先頭行だと `fatal: Not possible to fast-forward` が隠れてしまう。`fatal:`/`error:` で始まる行を優先して拾い、無ければ従来通り先頭の非空行にフォールバックする
 - `P`（push）だけ `Mode::Confirm`（`ConfirmAction::Push`）を経由させる。fetch/pull はローカルを (ff の範囲でしか) 変えないが push はリモートの履歴・ブランチ構成を変えるため。upstream が無ければ確認オーバーレイの時点で `--set-upstream origin <branch>` になることを prompt に出す。未保存の EDIT バッファは拒否まではせず prompt に警告行を足すだけ（issue の要求）だが、`open_commit`/`open_branch` と同じ理由で `Lane::Edit` が印字キーを全て文字入力にするため型上ここへは実際には来ない（belt and suspenders）
 - 完了後の反映は他の書き込み系操作と同じ `App::rescan` に相乗りさせる（専用の同期パスを作らない）。ahead/behind・GIT レーンの diff・ツリーの status 表示が一度に揃う
+
+### UI プレビュー（preview/）
+「実装 → 保存 → 見た目を確認」を TUI の起動・操作なしで回すための開発用の入口（`fv --preview <scene>...`）。ratatui の `TestBackend`（メモリ上の Buffer）へ `ui::draw` をそのまま通し、Buffer を ANSI 付きの文字列に落として stdout に出す。
+- **描画側にプレビュー専用の分岐を一切足さない**。プレビューにだけ都合の良い経路を作ると「プレビューでは直っているのに実物が直っていない」が起きるため、`ui/` 以下は 1 行も変えずに済む形（TestBackend + 既存の `ui::draw`）を選んでいる。同じ理由でシーンの状態は原則**キー列**（`preview/keys.rs` の `"<S-Tab>"` 等の DSL）で組み立てる — App の内部を直接いじると `app/keys.rs` の優先順位を通らない状態が描けてしまい、実機で再現できない絵になる
+- 描画は「**描画 → setup → 描画**」の 2 回。`viewport.height` やペインの Rect は ui が App へ書き戻す構造（「描画は自前スライス」節）なので、1 回目で実測値を入れてからキー列を流さないと `Ctrl+d` のような高さ依存の操作がシーンごとにぶれる
+- シーンが見るのは**必ず合成リポジトリ**（`preview/fixture.rs` が `$TMPDIR/fv-preview-fixture` に作り直す）。実プロジェクトを開くと「今の作業状態」で絵が変わって差分で比べられないため。staged / unstaged / untracked / 削除の 4 種と 3 コミットが常に揃い、コミット日時は実行時刻からの固定オフセット（相対日時の表示が毎回同じ見え方になる）。固定パスを消す以上、目印ファイル（`.fv-preview-fixture`）が無いディレクトリは消さない
+- **利用者の config を書き換えない**。プレビューのキー列には `w`（折返し）のように `persist_config` を呼ぶものがあるため、`XDG_CONFIG_HOME` を使い捨てディレクトリへ差し替えてから App を作る（`isolate_config`、スレッドを 1 つも起こしていない時点で `set_var` する）
+- issues/PR タブだけはキーで状態を作れない（gh の応答が要る）ので、`begin_list_fetch` + `poll` に自前の `Receiver` を流し込む形で公開 API 越しに注入する。`github::check_available` も呼ばず `github_available` を直接立てる（gh の有無で絵が変わらないようにするため）
+- 全角文字の桁送りだけは `preview/render.rs` に近似の幅計算を持つ（ratatui は全角の 2 セル目を空白へ reset するだけなので、そのまま出すと空白が 1 つ挟まる）。**これはプレビュー出力を端末の桁送りに合わせるためだけのもので、アプリ本体の桁計算（text.rs が唯一の定義）には使わない**
+- 出力は実行のたびにバイト一致はしない（コミット SHA と日時が変わる）。スナップショット比較のためではなく目視のための機能として割り切っている
 
 ## スタイル
 
