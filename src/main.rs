@@ -10,6 +10,10 @@ mod index;
 mod issuesview;
 mod job;
 mod logview;
+// 開発用の静的プレビュー (preview/mod.rs)。製品ビルドには含めないため既定では無効で、
+// 見た目を確認する時だけ `cargo preview <scene>` (= --features preview) で有効化する
+#[cfg(feature = "preview")]
+mod preview;
 mod prsview;
 mod remotelist;
 mod text;
@@ -50,7 +54,20 @@ enum Command {
     },
     Help,
     Version,
+    /// 実装中の見た目確認用に 1 フレームだけ描き出す (preview/mod.rs)
+    #[cfg(feature = "preview")]
+    Preview(preview::Options),
 }
+
+// --preview 系のヘルプ行。feature を切った製品ビルドでは受け付けないので出さない
+#[cfg(feature = "preview")]
+const PREVIEW_USAGE: &str = "\n       fv --preview [scene]... [--size WxH]";
+#[cfg(not(feature = "preview"))]
+const PREVIEW_USAGE: &str = "";
+#[cfg(feature = "preview")]
+const PREVIEW_HELP: &str = "      --preview   render UI scenes to stdout instead of starting the TUI (no args: list scenes)\n      --size WxH  preview size in columns x rows\n      --no-color  preview without ANSI colors\n";
+#[cfg(not(feature = "preview"))]
+const PREVIEW_HELP: &str = "";
 
 fn main() -> Result<(), Box<dyn Error>> {
     match parse_command(env::args().skip(1))? {
@@ -59,9 +76,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
+        #[cfg(feature = "preview")]
+        Command::Preview(options) => preview::run(options)?,
         Command::Run {
             root,
             config,
@@ -143,12 +162,24 @@ fn run(
 }
 
 fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn Error>> {
-    let mut root = None;
+    let mut args = args;
     let mut cli_hidden = false;
     let mut cli_icons = None;
     let mut cli_github = false;
+    // --preview 指定時は位置引数の意味がディレクトリからシーン名に変わるため、
+    // 確定させるのは全部読んでから (フラグが後ろに来ても効くようにする)
+    #[cfg(feature = "preview")]
+    let mut preview = preview::Options::default();
+    let mut positional: Vec<String> = Vec::new();
 
-    for arg in args {
+    // for ループにしないのは --size WxH がループの中で次の引数を取りに行くため
+    // (preview feature が無効なビルドでは body から args が消えるので clippy が for を勧めてくる)
+    #[allow(clippy::while_let_on_iterator)]
+    while let Some(arg) = args.next() {
+        #[cfg(feature = "preview")]
+        if preview.take_flag(&arg, &mut args)? {
+            continue;
+        }
         match arg.as_str() {
             "--version" | "-V" => return Ok(Command::Version),
             "--help" | "-h" => return Ok(Command::Help),
@@ -157,15 +188,24 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
             "--no-icons" => cli_icons = Some(false),
             "--github" => cli_github = true,
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
-            _ => {
-                if root.replace(PathBuf::from(arg)).is_some() {
-                    return Err("only one directory can be specified".into());
-                }
-            }
+            _ => positional.push(arg),
         }
     }
 
-    let root = resolve_root(root.unwrap_or_else(|| PathBuf::from(".")))?;
+    #[cfg(feature = "preview")]
+    if preview.enabled {
+        preview.scenes = positional;
+        return Ok(Command::Preview(preview));
+    }
+    if positional.len() > 1 {
+        return Err("only one directory can be specified".into());
+    }
+    let root = resolve_root(
+        positional
+            .pop()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(".")),
+    )?;
     let config = resolve_config(cli_hidden, cli_icons);
     Ok(Command::Run {
         root,

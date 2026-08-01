@@ -1,0 +1,6 @@
+[alias]
+# 静的プレビュー (preview/mod.rs) は製品ビルドに含めない dev 専用 feature なので、
+# 毎回 --features を書かずに済むよう別名を用意する:
+#   cargo preview            # シーン一覧
+#   cargo preview git log    # 複数シーンを縦に並べる
+preview = "run --quiet --features preview -- --preview"

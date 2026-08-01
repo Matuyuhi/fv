@@ -6,6 +6,11 @@ description = "Read-only TUI code viewer with syntax highlighting and git status
 license = "Apache-2.0"
 repository = "https://github.com/Matuyuhi/fv"
 
+[features]
+# 開発用の静的プレビュー (`cargo preview <scene>` / `--preview`)。製品ビルドに
+# 合成リポジトリ生成やシーン定義を含めないため既定では無効にしてある
+preview = []
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
