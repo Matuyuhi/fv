@@ -36,22 +36,22 @@ impl FsWatcher {
         })
     }
 
-    /// 溜まったイベントのパスを非ブロッキングで全部取り出す。
+    /// 溜まったイベントを非ブロッキングで全部取り出す。
     /// .git 配下や .gitignore にマッチするパスはここで除外する。
-    pub fn drain(&self) -> Vec<PathBuf> {
-        let mut paths = Vec::new();
+    pub fn drain(&self) -> Vec<Change> {
+        let mut changes = Vec::new();
         while let Ok(res) = self.rx.try_recv() {
             let Ok(event) = res else { continue };
-            if !changes_content(&event.kind) {
+            let Some(structural) = classify(&event.kind) else {
                 continue;
-            }
+            };
             for path in event.paths {
                 if !self.is_ignored(&path) {
-                    paths.push(path);
+                    changes.push(Change { path, structural });
                 }
             }
         }
-        paths
+        changes
     }
 
     fn is_ignored(&self, path: &Path) -> bool {
@@ -78,19 +78,32 @@ impl FsWatcher {
     }
 }
 
-/// 中身が変わったと見なすイベントだけ通す。**Access と Modify(Metadata) を落とすのが要点**で、
-/// 通してしまうと「開いているファイルを reload する → 読んだことで atime が更新されて
-/// また通知が来る → reload」の自走ループになり、何もしていないのに再ハイライトと
-/// git 呼び出しを 100ms ごとに繰り返して CPU を焼き続ける。
+/// 中身が変わったと見なすイベントだけ通し、**ツリーの構造 (作成・削除・リネーム) を変えるか**
+/// を Some の中身 (structural) で表す。None は完全に無視するイベント (Access・chmod 等)。
+/// **Access と Modify(Metadata) を落とすのが要点**で、通してしまうと「開いているファイルを
+/// reload する → 読んだことで atime が更新されてまた通知が来る → reload」の自走ループになり、
+/// 何もしていないのに再ハイライトと git 呼び出しを 100ms ごとに繰り返して CPU を焼き続ける。
 /// chmod だけの変更 (Metadata) がツリーの status に反映されなくなるが、
-/// 内容を伴う操作なら別のイベントが必ず来るので実害は無い
-fn changes_content(kind: &EventKind) -> bool {
+/// 内容を伴う操作なら別のイベントが必ず来るので実害は無い。
+/// Modify(Data) だけ structural=false にする — ファイルの中身が変わってもツリーの行構成
+/// (どのパスが存在するか) は変わらないため、呼び出し側はここだけ WalkBuilder の全走査を
+/// 省略できる。種別が判別できない Modify (Rename 以外の Any 等) は「構造が変わったかもしれない」
+/// 側に倒し、全走査をスキップして表示が古いまま固定される事故を避ける
+fn classify(kind: &EventKind) -> Option<bool> {
     match kind {
-        EventKind::Create(_) | EventKind::Remove(_) => true,
-        EventKind::Modify(ModifyKind::Metadata(_)) => false,
-        EventKind::Modify(_) => true,
-        _ => false,
+        EventKind::Create(_) | EventKind::Remove(_) => Some(true),
+        EventKind::Modify(ModifyKind::Metadata(_)) => None,
+        EventKind::Modify(ModifyKind::Data(_)) => Some(false),
+        EventKind::Modify(_) => Some(true),
+        _ => None,
     }
+}
+
+/// FS 監視 1 件分の変更。`structural` は呼び出し側 (App::on_tick) が全走査を要するか
+/// (作成・削除・リネーム) か、git status の再取得だけで足りる内容変更かを判定するのに使う
+pub struct Change {
+    pub path: PathBuf,
+    pub structural: bool,
 }
 
 fn build_gitignore(root: &Path) -> Option<Gitignore> {

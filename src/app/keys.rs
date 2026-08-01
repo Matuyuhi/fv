@@ -799,6 +799,7 @@ impl App {
                 self.rescan();
                 self.last_rescan = Instant::now();
                 self.rescan_pending = false;
+                self.status_pending = false;
             }
             _ => {}
         }
@@ -1046,6 +1047,7 @@ impl App {
             self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            self.status_pending = false;
         } else {
             let message = if outcome.message.is_empty() {
                 "git の実行に失敗しました".to_string()
@@ -1257,6 +1259,7 @@ impl App {
             self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            self.status_pending = false;
         } else if let Mode::Commit { error, .. } = &mut self.mode {
             // 通常コミット (Mode::Commit のまま) の失敗はオーバーレイ内にエラーを出し、
             // 書きかけのメッセージを保ったまま再試行できるようにする
@@ -1394,6 +1397,7 @@ impl App {
             self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            self.status_pending = false;
             self.refresh_git_diff_selection();
             self.set_notice("変更を破棄しました", false);
         } else {
@@ -1441,6 +1445,7 @@ impl App {
             self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            self.status_pending = false;
             self.refresh_git_diff_selection();
             self.set_notice("変更を stash に退避しました", false);
         } else {
@@ -1478,6 +1483,7 @@ impl App {
         self.rescan();
         self.last_rescan = Instant::now();
         self.rescan_pending = false;
+        self.status_pending = false;
         self.refresh_git_diff_selection();
         if outcome.ok {
             self.set_notice("stash を復元しました", false);
@@ -1653,6 +1659,7 @@ impl App {
         self.rescan();
         self.last_rescan = Instant::now();
         self.rescan_pending = false;
+        self.status_pending = false;
         let branch = self
             .branch_status
             .as_ref()
