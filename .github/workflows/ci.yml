@@ -15,6 +15,11 @@ jobs:
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # UI 差分を PR にコメントするぶんだけ書き込みを足す (fork からの PR では
+    # GITHUB_TOKEN が読み取り専用のままなので、コメントは静かに諦める)
+    permissions:
+      contents: read
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -91,3 +96,13 @@ jobs:
             echo "::error::UI が変わりました。意図した変更なら 'cargo preview --update-snapshots' で更新してコミットしてください"
             exit 1
           fi
+
+      # base との UI 差分を PR のコメントに出す。Actions のログを開かなくても、
+      # 会話の流れの中で「この変更で画面がどう変わるか」を読めるようにするため。
+      # スナップショットが古くて前のステップが落ちた場合こそ見たいので always()
+      - name: Comment UI diff
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/ci-ui-diff-comment.sh
