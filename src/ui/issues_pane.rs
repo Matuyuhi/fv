@@ -118,8 +118,10 @@ pub(super) fn highlight_span(
     spans
 }
 
-// 右ペイン: 選択 issue の詳細 (`gh issue view` のプレーン出力)。TextPane に一本化されている
-// 既存の描画パイプラインをそのまま使う (gutter_width は 0、search/cursor は使わない)
+// 右ペイン: 選択 issue の詳細。本文 (header + body) は rows から即座に組み立て済みなので
+// loading/error で全体をブロックしない (常に false/None を渡す) — コメントの取得中/失敗は
+// issues.lines() の中に埋め込まれている (issuesview::build_detail_display 参照)。TextPane に
+// 一本化されている既存の描画パイプラインをそのまま使う (gutter_width は 0、search/cursor は使わない)
 pub(super) fn draw_issues_detail(
     frame: &mut Frame,
     issues: &mut IssuesState,
@@ -136,8 +138,8 @@ pub(super) fn draw_issues_detail(
         frame,
         title,
         "Enter / l / クリック: 詳細を開く",
-        issues.detail_loading_current(),
-        issues.detail_error(),
+        false,
+        None,
         issues.lines(),
         &issues.viewport,
         focused,
