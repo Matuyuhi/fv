@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn hashes_are_masked_without_changing_width() {
         let line = "▶ 7bd8ba2  commit 3674252a115234f083666b8957d81d9ef3c3cbfb".to_string();
-        let masked = normalize(&[line.clone()]);
+        let masked = normalize(std::slice::from_ref(&line));
         assert_eq!(masked[0].chars().count(), line.chars().count());
         assert_eq!(
             masked[0],
@@ -192,6 +192,6 @@ mod tests {
     #[test]
     fn leaves_hex_looking_words_alone() {
         let line = "acceded deface".to_string();
-        assert_eq!(normalize(&[line.clone()])[0], line);
+        assert_eq!(normalize(std::slice::from_ref(&line))[0], line);
     }
 }
