@@ -28,6 +28,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         on_off(app.icons),
         on_off(app.viewer.viewport.wrap),
         app.viewer.theme_name().to_string(),
+        on_off(app.github_enabled),
     ];
     let items: Vec<ListItem> = SETTINGS_ROWS
         .iter()

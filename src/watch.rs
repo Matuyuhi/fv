@@ -3,6 +3,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::thread;
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use notify::event::{EventKind, ModifyKind};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 /// root を再帰監視し、変更パスをためておくキューを持つ。
@@ -49,23 +50,26 @@ impl FsWatcher {
         }
     }
 
-    /// 溜まったイベントのパスを非ブロッキングで全部取り出す。
+    /// 溜まったイベントを非ブロッキングで全部取り出す。
     /// .git 配下や .gitignore にマッチするパスはここで除外する。
-    pub fn drain(&mut self) -> Vec<PathBuf> {
+    pub fn drain(&mut self) -> Vec<Change> {
         self.adopt();
         let State::Active(active) = &self.state else {
             return Vec::new();
         };
-        let mut paths = Vec::new();
+        let mut changes = Vec::new();
         while let Ok(res) = active.rx.try_recv() {
             let Ok(event) = res else { continue };
+            let Some(structural) = classify(&event.kind) else {
+                continue;
+            };
             for path in event.paths {
                 if !self.is_ignored(&path) {
-                    paths.push(path);
+                    changes.push(Change { path, structural });
                 }
             }
         }
-        paths
+        changes
     }
 
     // 別スレッドでの監視開始を待たずに毎 tick 覗きに行く (届いていなければ何もしない)
@@ -102,6 +106,34 @@ impl FsWatcher {
             None => false,
         }
     }
+}
+
+/// 中身が変わったと見なすイベントだけ通し、**ツリーの構造 (作成・削除・リネーム) を変えるか**
+/// を Some の中身 (structural) で表す。None は完全に無視するイベント (Access・chmod 等)。
+/// **Access と Modify(Metadata) を落とすのが要点**で、通してしまうと「開いているファイルを
+/// reload する → 読んだことで atime が更新されてまた通知が来る → reload」の自走ループになり、
+/// 何もしていないのに再ハイライトと git 呼び出しを 100ms ごとに繰り返して CPU を焼き続ける。
+/// chmod だけの変更 (Metadata) がツリーの status に反映されなくなるが、
+/// 内容を伴う操作なら別のイベントが必ず来るので実害は無い。
+/// Modify(Data) だけ structural=false にする — ファイルの中身が変わってもツリーの行構成
+/// (どのパスが存在するか) は変わらないため、呼び出し側はここだけ WalkBuilder の全走査を
+/// 省略できる。種別が判別できない Modify (Rename 以外の Any 等) は「構造が変わったかもしれない」
+/// 側に倒し、全走査をスキップして表示が古いまま固定される事故を避ける
+fn classify(kind: &EventKind) -> Option<bool> {
+    match kind {
+        EventKind::Create(_) | EventKind::Remove(_) => Some(true),
+        EventKind::Modify(ModifyKind::Metadata(_)) => None,
+        EventKind::Modify(ModifyKind::Data(_)) => Some(false),
+        EventKind::Modify(_) => Some(true),
+        _ => None,
+    }
+}
+
+/// FS 監視 1 件分の変更。`structural` は呼び出し側 (App::on_tick) が全走査を要するか
+/// (作成・削除・リネーム) か、git status の再取得だけで足りる内容変更かを判定するのに使う
+pub struct Change {
+    pub path: PathBuf,
+    pub structural: bool,
 }
 
 impl Active {

@@ -117,8 +117,10 @@ impl Viewer {
 
 // smart-case (クエリが全て小文字なら大小無視、大文字を含めば区別) の部分一致検索。
 // 大小無視の比較は ASCII の範囲だけ行う (to_ascii_lowercase は char 数を変えないため、
-// plain の char 列インデックスと桁位置が確実に一致する)
-fn search_matches(plain: &[String], query: &str) -> Vec<Match> {
+// plain の char 列インデックスと桁位置が確実に一致する)。
+// GIT レーンの diff 内検索 (#31, gitview.rs) も同じマッチングを再利用するため pub(crate)。
+// diff は plain な文字列を持たないので、呼び出し側が Line の span[1..] を連結して渡す
+pub(crate) fn search_matches(plain: &[String], query: &str) -> Vec<Match> {
     if query.is_empty() {
         return Vec::new();
     }

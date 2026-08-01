@@ -6,6 +6,7 @@ mod viewport;
 pub use content::{Content, Open};
 pub use highlight::Highlighter;
 pub use search::SearchState;
+pub(crate) use search::{Match, search_matches};
 pub use viewport::Viewport;
 
 use std::collections::HashMap;
@@ -275,6 +276,12 @@ impl Viewer {
             },
             None => 0,
         }
+    }
+
+    /// 開いているファイルを閉じて右ペインを空にする。ブランチ切替で開いていたファイルが
+    /// 切替先に存在しなくなった場合に使う (cache・履歴には触れず current だけ落とす)
+    pub fn close(&mut self) {
+        self.current = None;
     }
 
     pub fn is_text(&self) -> bool {

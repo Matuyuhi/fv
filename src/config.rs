@@ -14,6 +14,9 @@ pub struct Config {
     /// 左ペイン (ツリー) が画面幅に占める割合。桁数でなく割合で持つのは
     /// 端末サイズが変わっても見た目の配分を保つため
     pub split_ratio: f32,
+    /// GitHub モード (ヘッダタブ) の有効化。CLI の `--github` はこの値を書き換えず、
+    /// App 側でその起動限りの上乗せとして扱う (App::new / toggle_github 参照)
+    pub github: bool,
 }
 
 impl Default for Config {
@@ -24,6 +27,7 @@ impl Default for Config {
             wrap_default: false,
             theme: "base16-ocean.dark".to_string(),
             split_ratio: 0.30,
+            github: false,
         }
     }
 }
@@ -53,6 +57,7 @@ impl Config {
                         config.split_ratio = ratio;
                     }
                 }
+                "github" => config.github = value == "true",
                 _ => {}
             }
         }
@@ -68,8 +73,13 @@ impl Config {
             fs::create_dir_all(dir)?;
         }
         let body = format!(
-            "show_hidden = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\n",
-            self.show_hidden, self.icons, self.wrap_default, self.theme, self.split_ratio
+            "show_hidden = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\ngithub = {}\n",
+            self.show_hidden,
+            self.icons,
+            self.wrap_default,
+            self.theme,
+            self.split_ratio,
+            self.github
         );
         fs::write(path, body)
     }
