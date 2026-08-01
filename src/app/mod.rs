@@ -1,3 +1,7 @@
+mod branch_ops;
+mod commit;
+mod git_ops;
+mod github_keys;
 mod keys;
 mod mode;
 mod mouse;
@@ -290,9 +294,7 @@ impl App {
             } else {
                 self.rescan_status_only();
             }
-            self.last_rescan = Instant::now();
-            self.rescan_pending = false;
-            self.status_pending = false;
+            self.reset_rescan_debounce();
             changed = true;
         }
         changed
@@ -310,6 +312,21 @@ impl App {
         // 開くときに歩き直させる。ここで走査を起こすと保存のたびに全走査になる
         self.file_index.invalidate();
         self.after_status_refresh();
+    }
+
+    /// 書き込み系操作 (stage/commit/discard/stash/branch 切替/リモート) と手動再走査 (r) の後に
+    /// 呼ぶ即時再取得。FS 監視の 500ms デバウンスとは別に走らせるので、直後に自動再走査が
+    /// 二重で走らないようタイマー・保留フラグもここで揃える (呼び出し側に 4 行を複製しない)
+    pub(super) fn rescan_now(&mut self) {
+        self.rescan();
+        self.reset_rescan_debounce();
+    }
+
+    // 次の自動再走査までの間隔を測り直す。保留フラグは今の再取得で消化済みなので落とす
+    fn reset_rescan_debounce(&mut self) {
+        self.last_rescan = Instant::now();
+        self.rescan_pending = false;
+        self.status_pending = false;
     }
 
     /// rescan の軽量版。ファイルの中身だけが変わった FS イベントに対して使い、
@@ -640,9 +657,7 @@ impl App {
         self.tree.sync_deleted(&self.root, &self.deleted_paths());
         // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。
         self.watcher = FsWatcher::new(&self.root, show_hidden);
-        self.last_rescan = Instant::now();
-        self.rescan_pending = false;
-        self.status_pending = false;
+        self.reset_rescan_debounce();
         self.persist_config();
     }
 
@@ -679,7 +694,7 @@ impl App {
     }
 
     /// f/p/P 共通のジョブ起動。実行中は新しいジョブを一切受け付けない (多重起動防止) ことと、
-    /// 完了メッセージ用のスナップショット保存をここに集約し、keys.rs 側の各キー処理で
+    /// 完了メッセージ用のスナップショット保存をここに集約し、app/git_ops.rs 側の各キー処理で
     /// 同じガードを重複させない
     pub(super) fn start_remote_job<F>(&mut self, kind: git::RemoteJobKind, work: F)
     where
@@ -706,10 +721,7 @@ impl App {
             return;
         };
         if outcome.ok {
-            self.rescan();
-            self.last_rescan = Instant::now();
-            self.rescan_pending = false;
-            self.status_pending = false;
+            self.rescan_now();
             self.set_notice(summarize_remote_job(&pending, &outcome), false);
         } else {
             let message = if outcome.message.is_empty() {
