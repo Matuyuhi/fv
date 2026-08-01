@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use notify::event::{EventKind, ModifyKind};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 /// root を再帰監視し、変更パスをためておくキューを持つ。
@@ -41,6 +42,9 @@ impl FsWatcher {
         let mut paths = Vec::new();
         while let Ok(res) = self.rx.try_recv() {
             let Ok(event) = res else { continue };
+            if !changes_content(&event.kind) {
+                continue;
+            }
             for path in event.paths {
                 if !self.is_ignored(&path) {
                     paths.push(path);
@@ -71,6 +75,21 @@ impl FsWatcher {
                 .is_ignore(),
             None => false,
         }
+    }
+}
+
+/// 中身が変わったと見なすイベントだけ通す。**Access と Modify(Metadata) を落とすのが要点**で、
+/// 通してしまうと「開いているファイルを reload する → 読んだことで atime が更新されて
+/// また通知が来る → reload」の自走ループになり、何もしていないのに再ハイライトと
+/// git 呼び出しを 100ms ごとに繰り返して CPU を焼き続ける。
+/// chmod だけの変更 (Metadata) がツリーの status に反映されなくなるが、
+/// 内容を伴う操作なら別のイベントが必ず来るので実害は無い
+fn changes_content(kind: &EventKind) -> bool {
+    match kind {
+        EventKind::Create(_) | EventKind::Remove(_) => true,
+        EventKind::Modify(ModifyKind::Metadata(_)) => false,
+        EventKind::Modify(_) => true,
+        _ => false,
     }
 }
 

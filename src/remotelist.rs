@@ -72,6 +72,15 @@ pub fn filter_rows<R: ListRow>(
 /// (1 種類) と PR の説明/diff/CI (3 種類、prsview.rs) がどちらも「取得中/キャッシュ済み/
 /// エラー を番号で持つ」という同じ形なので、表示用に組み立て済みのデータ型 T だけ差し替えて
 /// 共有する (T は issues/PR の説明なら Vec<Line<'static>>、PR の diff なら専用の構造体)
+/// `poll` の結果。`changed` は「画面に出る状態が動いたか」で、main.rs の再描画判定が読む。
+/// notice を返さない (成功して静かにキャッシュが埋まっただけの) ケースでも再描画は要るため、
+/// 通知の有無とは別のフラグとして持つ
+#[derive(Default)]
+pub struct PollOutcome {
+    pub changed: bool,
+    pub notice: Option<(String, bool)>,
+}
+
 pub struct DetailSlot<T> {
     cache: HashMap<u64, T>,
     errors: HashMap<u64, String>,
