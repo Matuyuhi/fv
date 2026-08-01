@@ -68,8 +68,10 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      # feature を付けて回す。今あるユニットテスト (スナップショットの正規化) が
+      # preview 側にあり、既定ビルドでは 1 件も実行されないため
       - name: Test
-        run: cargo test --verbose
+        run: cargo test --verbose --features preview
 
       # UI のスナップショット差分。プレビュー (preview/) の全シーンを描き直し、
       # コミット済みのテキストと 1 バイトでも違えば落とす。画像ではなくテキストなので、

@@ -133,3 +133,65 @@ fn is_hex(c: char) -> bool {
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ペイン幅ぴったりに詰めた 1 行を作る (実際の描画結果と同じ「全行が同じ桁数」の形)
+    fn pane_line(body: &str, width: usize) -> String {
+        let mut line = format!("│{body}");
+        while line.chars().count() < width - 1 {
+            line.push(' ');
+        }
+        line.push('│');
+        assert_eq!(line.chars().count(), width);
+        line
+    }
+
+    /// 日にちが 1 桁か 2 桁かで日付の長さが変わっても、マスク後は同じバイト列になること。
+    /// ここが崩れると「UI は何も変えていないのに月初を境に CI が落ち始める」ことになる
+    #[test]
+    fn date_mask_is_stable_across_day_of_month_width() {
+        let width = 60;
+        let short = pane_line("   Date:   Sat Aug 1 20:32:28 2026 +0900", width);
+        let long = pane_line("   Date:   Sun Aug 10 20:32:28 2026 +0900", width);
+        let masked = normalize(&[short, long]);
+        assert_eq!(masked[0], masked[1]);
+        assert_eq!(masked[0].chars().count(), width);
+        assert!(masked[0].contains("<date>"));
+    }
+
+    /// 短縮 SHA と完全 SHA を桁数を保ったまま伏せること。桁が変わるとスナップショットの
+    /// 罫線が崩れ、目視用の画面として読めなくなる
+    #[test]
+    fn hashes_are_masked_without_changing_width() {
+        let line = "▶ 7bd8ba2  commit 3674252a115234f083666b8957d81d9ef3c3cbfb".to_string();
+        let masked = normalize(&[line.clone()]);
+        assert_eq!(masked[0].chars().count(), line.chars().count());
+        assert_eq!(
+            masked[0],
+            "▶ xxxxxxx  commit xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        );
+    }
+
+    /// 左ペインのコミット一覧と右ペインの Date は同じバッファ行に並ぶ。
+    /// 片方だけ処理して終わると SHA が生のまま残る (実際に踏んだ)
+    #[test]
+    fn masks_hash_and_date_on_the_same_line() {
+        let line = pane_line(
+            "  7bd8ba2  3 days ago ││   Date:   Sat Aug 1 20:32:28 2026 +0900",
+            80,
+        );
+        let masked = normalize(&[line]);
+        assert!(masked[0].contains("xxxxxxx"), "{}", masked[0]);
+        assert!(masked[0].contains("<date>"), "{}", masked[0]);
+    }
+
+    /// a-f だけで綴られた英単語 (数字を含まない) を SHA と誤認しないこと
+    #[test]
+    fn leaves_hex_looking_words_alone() {
+        let line = "acceded deface".to_string();
+        assert_eq!(normalize(&[line.clone()])[0], line);
+    }
+}
