@@ -16,7 +16,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::ListState;
 
 use crate::github::RemoteItem;
-use crate::remotelist::{DetailSlot, ListMatch, filter_rows};
+use crate::remotelist::{DetailSlot, ListMatch, PollOutcome, filter_rows};
 use crate::text;
 use crate::viewer::Viewport;
 
@@ -271,12 +271,14 @@ impl IssuesState {
     /// on_tick から毎 tick 呼ぶ。list/detail/open の 3 ジョブを drain するだけで専用タイマーは
     /// 作らない (job.rs の既存方針)。open (ブラウザ起動) の失敗だけは一覧・詳細と違って
     /// 表示する専用の場所が無いので、呼び出し側の一時 notice に転送してもらう
-    pub fn poll(&mut self) -> Option<(String, bool)> {
+    pub fn poll(&mut self) -> PollOutcome {
+        let mut outcome = PollOutcome::default();
         if let Some(rx) = &self.list_rx
             && let Ok(result) = rx.try_recv()
         {
             self.list_rx = None;
             self.list_loading = false;
+            outcome.changed = true;
             match result {
                 Ok(rows) => {
                     self.rows = rows;
@@ -286,21 +288,23 @@ impl IssuesState {
                 Err(message) => self.list_error = Some(message),
             }
         }
-        if let Some(number) = self.detail.poll()
-            && self.open_number == Some(number)
-        {
-            self.viewport.scroll = 0;
-            self.viewport.hscroll = 0;
+        if let Some(number) = self.detail.poll() {
+            outcome.changed = true;
+            if self.open_number == Some(number) {
+                self.viewport.scroll = 0;
+                self.viewport.hscroll = 0;
+            }
         }
         if let Some(rx) = &self.open_rx
             && let Ok(result) = rx.try_recv()
         {
             self.open_rx = None;
+            outcome.changed = true;
             if let Err(message) = result {
-                return Some((message, true));
+                outcome.notice = Some((message, true));
             }
         }
-        None
+        outcome
     }
 }
 

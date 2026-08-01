@@ -13,7 +13,7 @@ use crate::git;
 use crate::github::{self, PrRow};
 use crate::gitview;
 use crate::issuesview::build_detail_lines;
-use crate::remotelist::{DetailSlot, ListMatch, ListRow, filter_rows};
+use crate::remotelist::{DetailSlot, ListMatch, ListRow, PollOutcome, filter_rows};
 use crate::viewer::Viewport;
 
 impl ListRow for PrRow {
@@ -459,12 +459,14 @@ impl PrsState {
 
     /// on_tick から毎 tick 呼ぶ。list/description/diff/checks/open の 5 ジョブを drain する
     /// (issues の poll と同じ形。専用タイマーは作らない)
-    pub fn poll(&mut self) -> Option<(String, bool)> {
+    pub fn poll(&mut self) -> PollOutcome {
+        let mut outcome = PollOutcome::default();
         if let Some(rx) = &self.list_rx
             && let Ok(result) = rx.try_recv()
         {
             self.list_rx = None;
             self.list_loading = false;
+            outcome.changed = true;
             match result {
                 Ok(rows) => {
                     self.rows = rows;
@@ -474,27 +476,28 @@ impl PrsState {
                 Err(message) => self.list_error = Some(message),
             }
         }
-        if let Some(number) = self.description.poll()
-            && self.open_number == Some(number)
-            && self.view == DetailView::Description
-        {
-            self.text_viewport.scroll = 0;
-            self.text_viewport.hscroll = 0;
+        if let Some(number) = self.description.poll() {
+            outcome.changed = true;
+            if self.open_number == Some(number) && self.view == DetailView::Description {
+                self.text_viewport.scroll = 0;
+                self.text_viewport.hscroll = 0;
+            }
         }
-        if let Some(number) = self.checks.poll()
-            && self.open_number == Some(number)
-            && self.view == DetailView::Checks
-        {
-            self.text_viewport.scroll = 0;
-            self.text_viewport.hscroll = 0;
+        if let Some(number) = self.checks.poll() {
+            outcome.changed = true;
+            if self.open_number == Some(number) && self.view == DetailView::Checks {
+                self.text_viewport.scroll = 0;
+                self.text_viewport.hscroll = 0;
+            }
         }
         if let Some(number) = self.diff.poll() {
+            outcome.changed = true;
             if self.open_number == Some(number) && self.view == DetailView::Diff {
                 self.diff_viewport.scroll = 0;
                 self.diff_viewport.hscroll = 0;
             }
             if self.diff.get(number).is_some_and(|d| d.truncated) {
-                return Some((
+                outcome.notice = Some((
                     "diff が大きいため表示を打ち切りました (20000 行 / 2MB)".to_string(),
                     true,
                 ));
@@ -504,11 +507,12 @@ impl PrsState {
             && let Ok(result) = rx.try_recv()
         {
             self.open_rx = None;
+            outcome.changed = true;
             if let Err(message) = result {
-                return Some((message, true));
+                outcome.notice = Some((message, true));
             }
         }
-        None
+        outcome
     }
 }
 

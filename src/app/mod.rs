@@ -208,7 +208,11 @@ impl App {
 
     /// watcher に溜まったファイル変更を取り込む。キー入力の有無に関わらず、
     /// イベントループの毎 tick (poll タイムアウト時も含む) で呼ばれる。
-    pub fn on_tick(&mut self) {
+    /// 画面に出る状態が動いたら true。main.rs はこれを見て**変化があった時だけ再描画する**
+    /// (毎ループ描くとアイドル時に CPU を数十 % 使い続けるため)。ここで true を返し忘れると
+    /// 「次のキー入力まで画面が古いまま」になるので、状態を変える分岐を足したら必ず立てること
+    pub fn on_tick(&mut self) -> bool {
+        let mut changed = false;
         // watcher の有無に関わらず毎 tick 見る (watcher 初期化失敗時に notice が消えなくなるのを防ぐ)
         if self
             .notice
@@ -216,6 +220,7 @@ impl App {
             .is_some_and(|(_, at, _)| at.elapsed() >= NOTICE_DURATION)
         {
             self.notice = None;
+            changed = true;
         }
         // リモート操作 (f/p/P) の結果 drain。watcher の有無に関わらず毎 tick 見る
         // (ブロッキング read はせず、既存の 100ms poll ループにただ相乗りするだけ)
@@ -224,24 +229,26 @@ impl App {
         {
             self.remote_job_rx = None;
             self.finish_remote_job(outcome);
+            changed = true;
         }
         // issues/PR タブ (#33/#34) の list/detail/open ジョブも同じ 100ms poll ループに
         // 相乗りさせる。専用タイマーは作らない (job.rs の既存方針)
-        if let Some((message, is_error)) = self.issues.poll() {
-            self.set_notice(message, is_error);
-        }
-        if let Some((message, is_error)) = self.prs.poll() {
-            self.set_notice(message, is_error);
+        for outcome in [self.issues.poll(), self.prs.poll()] {
+            changed |= outcome.changed;
+            if let Some((message, is_error)) = outcome.notice {
+                self.set_notice(message, is_error);
+            }
         }
         let Some(watcher) = &self.watcher else {
-            return;
+            return changed;
         };
-        let changed = watcher.drain();
+        let changed_paths = watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
 
-        for path in &changed {
+        for path in &changed_paths {
             if open_path.as_deref() == Some(path.as_path()) {
                 self.viewer.reload(path);
+                changed = true;
             } else {
                 self.rescan_pending = true;
             }
@@ -249,7 +256,7 @@ impl App {
 
         // GIT レーンでは絞り込みと diff も古くなるので、専用タイマーを作らず
         // 同じ 500ms デバウンス (rescan) に相乗りさせる
-        if !changed.is_empty() && matches!(self.lane, Lane::Git(_)) {
+        if !changed_paths.is_empty() && matches!(self.lane, Lane::Git(_)) {
             self.rescan_pending = true;
         }
 
@@ -257,7 +264,9 @@ impl App {
             self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            changed = true;
         }
+        changed
     }
 
     /// ツリーと git status をまとめて再取得する。FS 監視の間引き後と、

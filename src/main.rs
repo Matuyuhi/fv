@@ -100,20 +100,41 @@ fn run(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> Result<(), Box<dyn Error>> {
+    // 描くのは「変化があった時だけ」。毎ループ描くと、何も起きていない間も 100ms ごとに
+    // 全ペインを組み直してアイドル時に CPU を数十 % 使い続ける (ratatui のセル差分は
+    // 端末への出力を減らすだけで、Line を作る側のコストは毎フレームかかる)
+    let mut dirty = true;
     loop {
-        terminal.draw(|frame| ui::draw(frame, app))?;
+        if dirty {
+            terminal.draw(|frame| ui::draw(frame, app))?;
+            dirty = false;
+        }
         // poll がタイムアウトしても 100ms 周期でループが回り、その都度 watcher を drain する。
-        // これがそのまま再描画・自動リロードのポーリング間隔にもなる
+        // これがそのまま自動リロードのポーリング間隔になる
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 // kitty protocol 有効時はキー長押しが Repeat で届くため Press と同様に扱う
-                Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
-                Event::Mouse(mouse) => app.on_mouse(mouse),
-                Event::Paste(text) => app.on_paste(&text),
+                Event::Key(key) if key.kind != KeyEventKind::Release => {
+                    app.on_key(key);
+                    dirty = true;
+                }
+                Event::Mouse(mouse) => {
+                    app.on_mouse(mouse);
+                    dirty = true;
+                }
+                Event::Paste(text) => {
+                    app.on_paste(&text);
+                    dirty = true;
+                }
+                // リサイズは状態を変えないが、ui が書き戻す実測値 (viewport の幅・高さ、
+                // ペインの Rect) が古くなるので必ず描き直す
+                Event::Resize(_, _) => dirty = true,
                 _ => {}
             }
         }
-        app.on_tick();
+        if app.on_tick() {
+            dirty = true;
+        }
         if app.should_quit {
             return Ok(());
         }
