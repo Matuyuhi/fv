@@ -87,7 +87,11 @@ pub struct App {
     split_ratio: f32,
     watcher: Option<FsWatcher>,
     last_rescan: Instant,
+    /// ツリーの構造 (作成・削除・リネーム) が変わった疑いがあり、全走査 (tree.rescan) が要る
     rescan_pending: bool,
+    /// 内容だけの変更 (Modify(Data)) があり、git status の再取得だけで足りる。
+    /// rescan_pending が同時に立っていれば全走査の方が上位互換なのでこちらは無視してよい
+    status_pending: bool,
     /// 直近で stage/unstage を実行した時刻 (Space のキーリピート対策)
     last_stage_toggle: Instant,
     /// `c` で開いた通常コミットの下書き。Esc で閉じても捨てず、次に `c` を押した時に復元する
@@ -168,6 +172,7 @@ impl App {
             watcher,
             last_rescan: Instant::now(),
             rescan_pending: false,
+            status_pending: false,
             last_stage_toggle: Instant::now(),
             commit_draft: None,
             amend_draft: None,
@@ -245,40 +250,68 @@ impl App {
         let changed_paths = watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
 
-        for path in &changed_paths {
-            if open_path.as_deref() == Some(path.as_path()) {
-                self.viewer.reload(path);
+        for change in &changed_paths {
+            if open_path.as_deref() == Some(change.path.as_path()) {
+                self.viewer.reload(&change.path);
                 changed = true;
-            } else {
+            } else if change.structural {
+                // ファイルの作成・削除・リネーム。ツリーの行構成が変わりうるので全走査が要る
                 self.rescan_pending = true;
+            } else {
+                // 内容だけの変更。ツリーの行は増減しないので、全走査せず git status の
+                // 再取得 (+ GIT レーンの絞り込み・diff 更新) だけで追従させる
+                self.status_pending = true;
             }
         }
 
-        // GIT レーンでは絞り込みと diff も古くなるので、専用タイマーを作らず
-        // 同じ 500ms デバウンス (rescan) に相乗りさせる
-        if !changed_paths.is_empty() && matches!(self.lane, Lane::Git(_)) {
-            self.rescan_pending = true;
-        }
-
-        if self.rescan_pending && self.last_rescan.elapsed() >= RESCAN_DEBOUNCE {
-            self.rescan();
+        if (self.rescan_pending || self.status_pending)
+            && self.last_rescan.elapsed() >= RESCAN_DEBOUNCE
+        {
+            // 構造変化が 1 件でもあれば全走査 (rescan_pending が上位互換なので status_pending は
+            // 見ない)。無ければ内容変更だけなので軽量な rescan_status_only で済ませる
+            if self.rescan_pending {
+                self.rescan();
+            } else {
+                self.rescan_status_only();
+            }
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            self.status_pending = false;
             changed = true;
         }
         changed
     }
 
-    /// ツリーと git status をまとめて再取得する。FS 監視の間引き後と、
+    /// ツリーと git status をまとめて再取得する。FS 監視の間引き後 (構造変化があった時) と、
     /// 手動再走査 (r キー)・stage/unstage 実行後の両方から呼ばれる共通処理。
     fn rescan(&mut self) {
-        // sync_deleted は tree.rescan (nodes を作り直す) の後に、かつ新しい git status を
-        // 使って呼ぶ必要があるため、この順序で並べる
+        // sync_deleted は tree.rescan (nodes を作り直す) の後に、かつ新しい git status
+        // (refresh_git_status で取得済み) を使って呼ぶ必要があるため、この順序で並べる
+        self.refresh_git_status();
+        self.tree.rescan(&self.root);
+        self.tree.sync_deleted(&self.root, &self.deleted_paths());
+        self.after_status_refresh();
+    }
+
+    /// rescan の軽量版。ファイルの中身だけが変わった FS イベントに対して使い、
+    /// tree.rescan (WalkBuilder の全走査) を省略する — ツリーの行構成 (どのパスが存在するか) は
+    /// 変わらない前提のため。削除・作成・リネームは常に structural = true として rescan() 側に
+    /// 回るので、ここで tree.sync_deleted (削除ファイルの合成ノード追加) を呼ぶ必要もない。
+    /// git status の再取得だけで GIT レーンの絞り込み (status ベース) と diff は追従する
+    fn rescan_status_only(&mut self) {
+        self.refresh_git_status();
+        self.after_status_refresh();
+    }
+
+    fn refresh_git_status(&mut self) {
         self.git = git::file_statuses(&self.root);
         // ステータスバーの常時表示もこの 500ms デバウンスに相乗りさせる (専用タイマーは作らない)
         self.branch_status = git::branch_status(&self.root);
-        self.tree.rescan(&self.root);
-        self.tree.sync_deleted(&self.root, &self.deleted_paths());
+    }
+
+    // rescan/rescan_status_only 共通の後処理。新しい git status を LOG からの離脱判定・GIT の
+    // 絞り込み・diff 更新に反映する (走査したかどうかに関わらず同じ内容)
+    fn after_status_refresh(&mut self) {
         // LOG は FS 監視の対象外 (.git は watch.rs のフィルタで除外される) なので取り直しは
         // しない。リポジトリ自体が消えた場合だけは滞在させず VIEW へ戻す
         if matches!(self.lane, Lane::Log(_)) && self.git.is_none() {
@@ -589,6 +622,7 @@ impl App {
         self.watcher = FsWatcher::new(&self.root, show_hidden);
         self.last_rescan = Instant::now();
         self.rescan_pending = false;
+        self.status_pending = false;
         self.persist_config();
     }
 
@@ -655,6 +689,7 @@ impl App {
             self.rescan();
             self.last_rescan = Instant::now();
             self.rescan_pending = false;
+            self.status_pending = false;
             self.set_notice(summarize_remote_job(&pending, &outcome), false);
         } else {
             let message = if outcome.message.is_empty() {
