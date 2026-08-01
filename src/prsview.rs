@@ -3,6 +3,12 @@
 //! 選択 PR の 3 表示 (説明・diff・CI ステータス) を切り替える。PR 固有なのは
 //! headRefName/isDraft (github::PrRow) と、右ペイン 3 種の切替・diff の hunk/wrap/hscroll
 //! だけに閉じており、一覧側の実装は issues タブと完全に共有する。
+//!
+//! **体感速度改善**: 説明表示も issues の詳細と同じ理由で本文を即座に組み立てる。
+//! `RemoteItem::body` (一覧取得時点で受け取り済み) から `issuesview::build_body_lines` で
+//! ヘッダー + 本文を組み立て、コメントだけ `gh pr view --comments` の非同期 1 往復で取りに行く
+//! (`description` フィールドの役割はコメントキャッシュに変わった)。diff と CI ステータスは
+//! 一覧に含まれないデータなので、従来通り取得が要る
 
 use std::path::Path;
 use std::sync::mpsc::Receiver;
@@ -12,7 +18,7 @@ use ratatui::text::Line;
 use crate::git;
 use crate::github::{self, PrRow};
 use crate::gitview;
-use crate::issuesview::build_detail_lines;
+use crate::issuesview::{build_detail_display, build_detail_lines};
 use crate::remotelist::{DetailSlot, ListMatch, ListRow, PollOutcome, filter_rows};
 use crate::viewer::Viewport;
 
@@ -102,7 +108,13 @@ pub struct PrsState {
 
     pub view: DetailView,
     open_number: Option<u64>,
-    description: DetailSlot<Vec<Line<'static>>>,
+    /// 説明表示のコメントキャッシュ (以前は本文込みの detail をここに持っていたが、体感速度
+    /// 改善で本文は RemoteItem::body から即座に組み立てる側へ移した。issuesview::IssuesState
+    /// と同じ理由)
+    comments: DetailSlot<Vec<Line<'static>>>,
+    /// header + body + comments を組み立て済みの表示行 (説明表示のみ使う。diff/checks は
+    /// 従来通り DetailSlot のキャッシュをそのまま描く)
+    description_display: Vec<Line<'static>>,
     diff: DetailSlot<PrDiffData>,
     checks: DetailSlot<Vec<Line<'static>>>,
     open_rx: Option<Receiver<Result<(), String>>>,
@@ -131,7 +143,8 @@ impl PrsState {
             list_area_height: 0,
             view: DetailView::Description,
             open_number: None,
-            description: DetailSlot::new(),
+            comments: DetailSlot::new(),
+            description_display: Vec::new(),
             diff: DetailSlot::new(),
             checks: DetailSlot::new(),
             open_rx: None,
@@ -243,22 +256,48 @@ impl PrsState {
     }
 
     /// App::dispatch_pr_fetch が呼ぶ。今の (open_number, view) が未キャッシュ・未取得中なら
-    /// Some を返し、呼び出し側が対応する gh コマンドの job を起動する
+    /// Some を返し、呼び出し側が対応する gh コマンドの job を起動する。Description は
+    /// 本文がネットワーク不要 (RemoteItem::body から即座に組み立て) なので、キャッシュ済み・
+    /// 取得中に関わらず毎回 rebuild_description_display で表示を最新化してから判定する
+    /// (set_open 直後の対象・表示切替を逃さず本文をすぐ描くため)
     pub fn request_current(&mut self) -> Option<(u64, DetailView)> {
         let number = self.open_number?;
         let need = match self.view {
-            DetailView::Description => self.description.request(number),
+            DetailView::Description => {
+                let need = self.comments.request(number);
+                self.rebuild_description_display();
+                need
+            }
             DetailView::Diff => self.diff.request(number),
             DetailView::Checks => self.checks.request(number),
         };
         need.then_some((number, self.view))
     }
 
-    pub fn begin_description_fetch(
+    // request_current (コメント要求直後) と poll (コメント到着時) の両方から呼ぶ。
+    // issuesview::build_detail_display と同じ組み立てを PrRow::item (RemoteItem) に対して行う
+    fn rebuild_description_display(&mut self) {
+        let Some(number) = self.open_number else {
+            self.description_display = Vec::new();
+            return;
+        };
+        let Some(row) = self.rows.iter().find(|r| r.item.number == number) else {
+            self.description_display = Vec::new();
+            return;
+        };
+        self.description_display = build_detail_display(
+            &row.item,
+            self.comments.get(number).map(Vec::as_slice),
+            self.comments.loading(number),
+            self.comments.error(number),
+        );
+    }
+
+    pub fn begin_comments_fetch(
         &mut self,
         rx: Receiver<(u64, Result<Vec<Line<'static>>, String>)>,
     ) {
-        self.description.begin_fetch(rx);
+        self.comments.begin_fetch(rx);
     }
 
     pub fn begin_diff_fetch(&mut self, rx: Receiver<(u64, Result<PrDiffData, String>)>) {
@@ -292,12 +331,14 @@ impl PrsState {
         ))
     }
 
+    // Description は本文がネットワーク不要で常に即座に描けるので、ここでは常に false を返す
+    // (コメントの取得中/失敗は description_display の中に埋め込まれている。issues の詳細と同じ形)
     pub fn loading_current(&self) -> bool {
         let Some(number) = self.open_number else {
             return false;
         };
         match self.view {
-            DetailView::Description => self.description.loading(number),
+            DetailView::Description => false,
             DetailView::Diff => self.diff.loading(number),
             DetailView::Checks => self.checks.loading(number),
         }
@@ -306,7 +347,7 @@ impl PrsState {
     pub fn error_current(&self) -> Option<&str> {
         let number = self.open_number?;
         match self.view {
-            DetailView::Description => self.description.error(number),
+            DetailView::Description => None,
             DetailView::Diff => self.diff.error(number),
             DetailView::Checks => self.checks.error(number),
         }
@@ -324,7 +365,7 @@ impl PrsState {
             return &[];
         };
         match self.view {
-            DetailView::Description => self.description.get(number).map_or(&[], |v| v.as_slice()),
+            DetailView::Description => self.description_display.as_slice(),
             DetailView::Checks => self.checks.get(number).map_or(&[], |v| v.as_slice()),
             DetailView::Diff => self.diff.get(number).map_or(&[], |d| d.lines.as_slice()),
         }
@@ -476,11 +517,12 @@ impl PrsState {
                 Err(message) => self.list_error = Some(message),
             }
         }
-        if let Some(number) = self.description.poll() {
+        if let Some(number) = self.comments.poll() {
             outcome.changed = true;
+            // 本文は既に表示済み (set_open 直後に rebuild_description_display で即描画済み)
+            // なので、コメント到着時に viewport をリセットしない (issues と同じ理由)
             if self.open_number == Some(number) && self.view == DetailView::Description {
-                self.text_viewport.scroll = 0;
-                self.text_viewport.hscroll = 0;
+                self.rebuild_description_display();
             }
         }
         if let Some(number) = self.checks.poll() {
@@ -522,10 +564,12 @@ impl Default for PrsState {
     }
 }
 
-/// 説明 (`gh pr view --comments`) をジョブスレッド側で Line 化する。issues の詳細と同じ
-/// build_detail_lines を再利用する (プレーンテキスト → Line の組み立てを 2 回書かない)
-pub fn fetch_description(root: &Path, number: u64) -> (u64, Result<Vec<Line<'static>>, String>) {
-    let result = github::pr_detail(root, number).map(|raw| build_detail_lines(&raw));
+/// 説明表示のコメント (`gh pr view --comments`) をジョブスレッド側で Line 化する。本文は
+/// 一覧取得済みの RemoteItem::body から即座に組み立てるのでここでは取りに行かない。
+/// issues の詳細と同じ build_detail_lines を再利用する (プレーンテキスト → Line の組み立てを
+/// 2 回書かない)
+pub fn fetch_comments(root: &Path, number: u64) -> (u64, Result<Vec<Line<'static>>, String>) {
+    let result = github::pr_comments(root, number).map(|raw| build_detail_lines(&raw));
     (number, result)
 }
 

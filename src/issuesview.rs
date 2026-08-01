@@ -1,17 +1,25 @@
 //! GitHub issues タブ (#33) の状態。左ペインは一覧 (フィルタ + キャッシュ)、右ペインは
 //! 選択 issue の詳細で、VIEW/EDIT/GIT/LOG のいずれとも独立した Viewport を持つ
 //! (別ドキュメントなので位置を共有する意味がなく、Viewer タブへ戻った時の読み位置も壊さない)。
-//! 一覧・詳細・ブラウザで開く、の 3 操作はすべて job.rs (#27 の非同期基盤) に乗せ、
+//! 一覧・コメント取得・ブラウザで開く、の 3 操作はすべて job.rs (#27 の非同期基盤) に乗せ、
 //! イベントループをブロックしない。フィルタは finder.rs の fuzzy_match を再利用し、
 //! 新しいマッチャは書かない (branch.rs::BranchState と同じ方針)。
 //!
 //! #34 (pull requests タブ) が一覧まわりをそのまま再利用できるよう、フィルタ・スコアリング
 //! (`remotelist::filter_rows`) と詳細の非同期キャッシュ (`remotelist::DetailSlot`) を
-//! 共有モジュールへ切り出してある。issue 固有なのは detail (`gh issue view` のプレーン出力)
-//! の組み立てと state 絞り込みのカーディナリティ (open/closed/all) だけ
+//! 共有モジュールへ切り出してある。issue 固有なのは詳細の組み立てと state 絞り込みの
+//! カーディナリティ (open/closed/all) だけ。
+//!
+//! **体感速度改善**: 詳細を開くのに以前は `gh issue view` (本文) + `gh issue view --comments`
+//! (コメント) の 2 往復が要った。本文は一覧取得 (`gh issue list`) の時点で `RemoteItem::body`
+//! に受け取っておき、Enter を押した瞬間は rows から即座に組み立てて描画する (ネットワーク
+//! 往復ゼロ)。コメントだけを非同期の 1 往復で取りに行き、届くまでは「コメント読み込み中…」を
+//! 本文の下に添える (`build_detail_display`)。DetailSlot の役割はコメントキャッシュに変わった
+//! だけで、キャッシュ・二重起動防止・poll の仕組みはそのまま使う
 
 use std::sync::mpsc::Receiver;
 
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::ListState;
 
@@ -76,12 +84,17 @@ pub struct IssuesState {
     /// Ctrl+d/u の半ページ移動に使う
     pub list_area_height: usize,
 
-    /// 番号ごとの詳細キャッシュ (`gh issue view` のプレーン出力を Line 化したもの)。
-    /// PR タブの説明/diff/CI と同じ形なので remotelist::DetailSlot を共有する
-    detail: DetailSlot<Vec<Line<'static>>>,
+    /// 番号ごとのコメントキャッシュ (`gh issue view --comments` のプレーン出力を Line 化したもの)。
+    /// 本文は一覧取得時点で RemoteItem::body に入っているため、ここはコメントだけを持つ
+    /// (以前は本文込みの detail をここに持っていたが、体感速度改善で本文は即座に組み立てる側へ
+    /// 移した)。PR タブの説明/diff/CI と同じ形なので remotelist::DetailSlot を共有する
+    comments: DetailSlot<Vec<Line<'static>>>,
     /// 右ペインに表示中の issue 番号。selected (一覧側カーソル) とは別に持ち、
     /// j/k では追従させない (Enter/l/クリックでのみ開く。GIT ツリー・LOG 一覧と同じ理由)
     open_number: Option<u64>,
+    /// header + body + comments (取得中/エラーならその旨) を組み立て済みの表示行。
+    /// request_open / poll のたびに rebuild_display で作り直す。lines() はこれを返すだけ
+    display: Vec<Line<'static>>,
     /// `o` (ブラウザで開く) の結果待ち。多重起動防止だけが目的で、成功時は何も表示しない
     open_rx: Option<Receiver<Result<(), String>>>,
 
@@ -105,8 +118,9 @@ impl IssuesState {
             selected: 0,
             list_state: ListState::default(),
             list_area_height: 0,
-            detail: DetailSlot::new(),
+            comments: DetailSlot::new(),
             open_number: None,
+            display: Vec::new(),
             open_rx: None,
             viewport: Viewport::new(true),
         }
@@ -204,19 +218,44 @@ impl IssuesState {
         self.selected = self.matches.len().saturating_sub(1);
     }
 
-    /// Enter/l/クリック: 選択中 issue の詳細を開く。true を返したら呼び出し側 (App) が
-    /// job::spawn でジョブを起動する必要がある (未キャッシュ・未取得中のとき)
+    /// Enter/l/クリック: 選択中 issue の詳細を開く。本文は即座に (rebuild_display で)
+    /// 描画できる状態にし、true を返したら呼び出し側 (App) が job::spawn でコメント取得の
+    /// ジョブを起動する必要がある (未キャッシュ・未取得中のとき)
     pub fn request_open(&mut self, number: u64) -> bool {
         self.open_number = Some(number);
         self.viewport.scroll = 0;
         self.viewport.hscroll = 0;
-        self.detail.request(number)
+        let need_fetch = self.comments.request(number);
+        self.rebuild_display();
+        need_fetch
     }
 
     // ジョブ側 (App::open_selected_issue) が gh の生行を Line 化してから送ってくるので、
     // ここは DetailSlot へそのまま渡すだけ (詳細キャッシュのスレッド構成を増やさない)
-    pub fn begin_detail_fetch(&mut self, rx: Receiver<(u64, Result<Vec<Line<'static>>, String>)>) {
-        self.detail.begin_fetch(rx);
+    pub fn begin_comments_fetch(
+        &mut self,
+        rx: Receiver<(u64, Result<Vec<Line<'static>>, String>)>,
+    ) {
+        self.comments.begin_fetch(rx);
+    }
+
+    // request_open (コメント要求直後) と poll (コメント到着時) の両方から呼ぶ。本文は常に
+    // rows から即座に組み立て、コメント部分だけキャッシュ/取得中/エラーで出し分ける
+    fn rebuild_display(&mut self) {
+        let Some(number) = self.open_number else {
+            self.display = Vec::new();
+            return;
+        };
+        let Some(row) = self.rows.iter().find(|r| r.number == number) else {
+            self.display = Vec::new();
+            return;
+        };
+        self.display = build_detail_display(
+            row,
+            self.comments.get(number).map(Vec::as_slice),
+            self.comments.loading(number),
+            self.comments.error(number),
+        );
     }
 
     pub fn begin_open_web(&mut self, rx: Receiver<Result<(), String>>) {
@@ -234,19 +273,11 @@ impl IssuesState {
         Some(format!("#{}  {}", row.number, row.title))
     }
 
-    pub fn detail_loading_current(&self) -> bool {
-        self.open_number.is_some_and(|n| self.detail.loading(n))
-    }
-
-    pub fn detail_error(&self) -> Option<&str> {
-        self.open_number.and_then(|n| self.detail.error(n))
-    }
-
+    // 本文は rebuild_display で常に即座に組み立て済みなので、描画側 (draw_issues_detail) を
+    // 全体ブロックするような loading/error はもう無い。コメント取得中/失敗はここではなく
+    // display 内の該当行として埋め込む (build_detail_display 参照)
     pub fn lines(&self) -> &[Line<'static>] {
-        self.open_number
-            .and_then(|n| self.detail.get(n))
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        &self.display
     }
 
     pub fn line_count(&self) -> usize {
@@ -288,11 +319,12 @@ impl IssuesState {
                 Err(message) => self.list_error = Some(message),
             }
         }
-        if let Some(number) = self.detail.poll() {
+        if let Some(number) = self.comments.poll() {
             outcome.changed = true;
+            // 本文は既に表示済み (request_open で即描画済み) なので、コメント到着時に
+            // viewport をリセットしない — 読んでいる途中でスクロール位置が飛ぶのを避ける
             if self.open_number == Some(number) {
-                self.viewport.scroll = 0;
-                self.viewport.hscroll = 0;
+                self.rebuild_display();
             }
         }
         if let Some(rx) = &self.open_rx
@@ -324,4 +356,83 @@ pub(crate) fn build_detail_lines(raw: &[String]) -> Vec<Line<'static>> {
             Line::from(vec![Span::raw(""), Span::raw(content)])
         })
         .collect()
+}
+
+fn detail_line(content: String, style: Style) -> Line<'static> {
+    Line::from(vec![Span::raw(""), Span::styled(content, style)])
+}
+
+// RemoteItem (一覧取得済みの行データ) からヘッダー + 本文を組み立てる。ネットワークを
+// 一切使わない (gh を待たない) ので Enter を押した瞬間にそのまま描ける。issues の詳細と
+// PR タブ (#34) の説明表示のどちらもこれを使う (row の実体はどちらも RemoteItem)
+pub(crate) fn build_body_lines(row: &RemoteItem) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        detail_line(
+            format!("#{}  {}", row.number, row.title),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        detail_line(
+            format!("{}  @{}  {}", row.state, row.author, row.updated_at),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ];
+    if !row.labels.is_empty() {
+        lines.push(detail_line(
+            format!("labels: {}", row.labels.join(", ")),
+            Style::default().fg(Color::Cyan),
+        ));
+    }
+    lines.push(Line::default());
+    if row.body.trim().is_empty() {
+        lines.push(detail_line(
+            "(no description)".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    } else {
+        lines.extend(
+            row.body
+                .lines()
+                .map(|raw| detail_line(text::normalize(raw), Style::default())),
+        );
+    }
+    lines
+}
+
+// build_body_lines (本文、常に即座に組み立て済み) の下に、コメントの状態
+// (キャッシュ済み/取得中/エラー) を継ぎ足す。issues の詳細と PR の説明表示が共有する
+// (どちらも「本文は即描画、コメントだけ非同期」という同じ形のため)
+pub(crate) fn build_detail_display(
+    row: &RemoteItem,
+    comments: Option<&[Line<'static>]>,
+    loading: bool,
+    error: Option<&str>,
+) -> Vec<Line<'static>> {
+    let mut lines = build_body_lines(row);
+    lines.push(Line::default());
+    lines.push(detail_line(
+        "─── comments ───".to_string(),
+        Style::default().fg(Color::DarkGray),
+    ));
+    lines.push(Line::default());
+    if let Some(comments) = comments {
+        if comments.is_empty() {
+            lines.push(detail_line(
+                "(no comments)".to_string(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else {
+            lines.extend(comments.iter().cloned());
+        }
+    } else if loading {
+        lines.push(detail_line(
+            "コメント読み込み中…".to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    } else if let Some(err) = error {
+        lines.push(detail_line(
+            format!("コメント取得に失敗しました: {err}"),
+            Style::default().fg(Color::Red),
+        ));
+    }
+    lines
 }

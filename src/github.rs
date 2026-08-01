@@ -51,7 +51,10 @@ pub fn check_available(root: &Path) -> Result<(), String> {
 /// そのまま再利用できるよう issue 固有の項目は持たせない (`gh issue list` / `gh pr list` は
 /// どちらも同じ --json フィールド名 (number/title/author/updatedAt/labels/state) を返すため、
 /// 型を分ける理由がない)。state は "OPEN"/"CLOSED" (PR は将来 "MERGED" も乗る想定だが、
-/// 判定は呼び出し側の StateFilter 相当に閉じ、ここでは生の文字列のまま持つ)
+/// 判定は呼び出し側の StateFilter 相当に閉じ、ここでは生の文字列のまま持つ)。
+/// `body` (#体感速度改善) は一覧取得の時点で受け取っておく本文。詳細を開いた瞬間にネットワーク
+/// 往復を発生させない (`gh <kind> view` を待たず即座に描画する) ための核で、フォールバック
+/// テンプレート使用時は空文字のまま持つ
 pub struct RemoteItem {
     pub number: u64,
     pub title: String,
@@ -59,32 +62,62 @@ pub struct RemoteItem {
     pub updated_at: String,
     pub labels: Vec<String>,
     pub state: String,
+    pub body: String,
 }
 
 // number/title/author/updatedAt/labels(","区切り)/state の6フィールド。
 // gh issue list --template と gh pr list --template (PR_LIST_TEMPLATE、#34) の先頭 6 個は
-// この並びに揃える前提 (parse_records で共有パースする)
-const ISSUE_LIST_TEMPLATE: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{end}}"#;
+// この並びに揃える前提 (parse_records で共有パースする)。body は各テンプレートの末尾に
+// 追加してあるので、共通 6 フィールドのパース (remote_item) には含めない
+const ISSUE_LIST_TEMPLATE: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{.body}}{{"\x00"}}{{end}}"#;
+const ISSUE_LIST_JSON_FIELDS: &str = "number,title,author,updatedAt,labels,state,body";
+
+// body を含まない従来幅のテンプレート。`--json` に body を渡すと失敗する古い gh 向けの
+// フォールバック専用 (list_issues 参照)
+const ISSUE_LIST_TEMPLATE_LEGACY: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{end}}"#;
+const ISSUE_LIST_JSON_FIELDS_LEGACY: &str = "number,title,author,updatedAt,labels,state";
 
 /// `gh issue list` を叩き `RemoteItem` の一覧を返す。state は "open"/"closed" に絞らず常に
 /// `all` を取得する — issues タブの `t` (state 絞り込みの循環) をローカルフィルタだけで完結させ、
-/// 「タブを往復しても gh を叩かない」と同じ理由で余計な gh 呼び出しを増やさないため
+/// 「タブを往復しても gh を叩かない」と同じ理由で余計な gh 呼び出しを増やさないため。
+/// `--json` に `body` が無い gh バージョンだとコマンド全体が失敗し一覧ごと出なくなるため、
+/// 失敗時は body 抜きの従来テンプレートで 1 回だけ再試行する (この時 body は空文字になる)
 pub fn list_issues(root: &Path) -> Result<Vec<RemoteItem>, String> {
-    let stdout = run_gh(
-        root,
-        [
-            "issue",
-            "list",
-            "--limit",
-            "100",
-            "--state",
-            "all",
-            "--json",
-            "number,title,author,updatedAt,labels,state",
-            "--template",
-            ISSUE_LIST_TEMPLATE,
-        ],
-    )?;
+    let args = [
+        "issue",
+        "list",
+        "--limit",
+        "100",
+        "--state",
+        "all",
+        "--json",
+        ISSUE_LIST_JSON_FIELDS,
+        "--template",
+        ISSUE_LIST_TEMPLATE,
+    ];
+    if let Ok(stdout) = run_gh(root, args) {
+        return Ok(parse_records(&stdout, 7)
+            .into_iter()
+            .filter_map(|c| {
+                let mut item = remote_item(&c)?;
+                item.body = c[6].to_string();
+                Some(item)
+            })
+            .collect());
+    }
+    let legacy_args = [
+        "issue",
+        "list",
+        "--limit",
+        "100",
+        "--state",
+        "all",
+        "--json",
+        ISSUE_LIST_JSON_FIELDS_LEGACY,
+        "--template",
+        ISSUE_LIST_TEMPLATE_LEGACY,
+    ];
+    let stdout = run_gh(root, legacy_args)?;
     Ok(parse_records(&stdout, 6)
         .into_iter()
         .filter_map(|c| remote_item(&c))
@@ -102,7 +135,9 @@ fn parse_records(text: &str, width: usize) -> Vec<Vec<&str>> {
 }
 
 // 先頭 6 フィールド (number/title/author/updatedAt/labels/state) から RemoteItem を組み立てる。
-// PR の 8 フィールド版 (list_prs、parse_records(..., 8)) もこの並びを先頭に持つので共有する
+// PR の 8/9 フィールド版 (list_prs、parse_records(..., 8|9)) もこの並びを先頭に持つので共有する。
+// body (末尾フィールド、issues は index 6・PR は index 8) は位置がテンプレートごとに違うため
+// ここには含めず、呼び出し側が別途 fields から拾って上書きする
 fn remote_item(fields: &[&str]) -> Option<RemoteItem> {
     let number = fields[0].parse().ok()?;
     let labels = fields[4]
@@ -118,14 +153,14 @@ fn remote_item(fields: &[&str]) -> Option<RemoteItem> {
         updated_at: fields[3].to_string(),
         labels,
         state: fields[5].to_string(),
+        body: String::new(),
     })
 }
 
-/// 詳細は `gh issue view <n>` のプレーン出力をそのまま行として返す。
-/// `--json`/`--template` を使わないのは、issue の要求通り「gh の整形済み出力をそのまま描く」
-/// ためで、パースし直す必要がない
-pub fn issue_detail(root: &Path, number: u64) -> Result<Vec<String>, String> {
-    detail_with_comments(root, "issue", number)
+/// コメントだけを取得する。本文は一覧取得の時点で `RemoteItem::body` に入っているので、
+/// 詳細を開いた瞬間はこれ 1 回の往復で済む (以前は本文取得 + コメント取得の 2 往復だった)
+pub fn issue_comments(root: &Path, number: u64) -> Result<Vec<String>, String> {
+    comments(root, "issue", number)
 }
 
 /// `o`: ブラウザで開く。実際にブラウザを起動するのは gh 自身で、fv 側は結果 (成功/失敗) だけ見る
@@ -142,27 +177,61 @@ pub struct PrRow {
     pub is_draft: bool,
 }
 
-// 共通 6 フィールド + headRefName + isDraft の 8 フィールド
-const PR_LIST_TEMPLATE: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{.headRefName}}{{"\x00"}}{{.isDraft}}{{"\x00"}}{{end}}"#;
+// 共通 6 フィールド + headRefName + isDraft + body の 9 フィールド。body は末尾に足しただけで
+// 共通 6 個の並びは変えていない (remote_item がそのまま先頭だけ読める)
+const PR_LIST_TEMPLATE: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{.headRefName}}{{"\x00"}}{{.isDraft}}{{"\x00"}}{{.body}}{{"\x00"}}{{end}}"#;
+const PR_LIST_JSON_FIELDS: &str =
+    "number,title,author,updatedAt,labels,state,headRefName,isDraft,body";
+
+// body を含まない従来幅 (8 フィールド) のフォールバック用テンプレート
+const PR_LIST_TEMPLATE_LEGACY: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{.headRefName}}{{"\x00"}}{{.isDraft}}{{"\x00"}}{{end}}"#;
+const PR_LIST_JSON_FIELDS_LEGACY: &str =
+    "number,title,author,updatedAt,labels,state,headRefName,isDraft";
 
 /// `gh pr list` を叩き `PrRow` の一覧を返す。issues と同じ理由で常に `--state all` を
-/// 1 回だけ取得し、`t` (open/closed/merged/all の循環) はローカルフィルタに閉じる
+/// 1 回だけ取得し、`t` (open/closed/merged/all の循環) はローカルフィルタに閉じる。
+/// body 込みの `--json` が失敗する古い gh 向けのフォールバックも issues と同じ形で持つ
+/// (body の位置が issues と違い index 8 なのは PR_LIST_TEMPLATE 参照)
 pub fn list_prs(root: &Path) -> Result<Vec<PrRow>, String> {
-    let stdout = run_gh(
-        root,
-        [
-            "pr",
-            "list",
-            "--limit",
-            "100",
-            "--state",
-            "all",
-            "--json",
-            "number,title,author,updatedAt,labels,state,headRefName,isDraft",
-            "--template",
-            PR_LIST_TEMPLATE,
-        ],
-    )?;
+    let args = [
+        "pr",
+        "list",
+        "--limit",
+        "100",
+        "--state",
+        "all",
+        "--json",
+        PR_LIST_JSON_FIELDS,
+        "--template",
+        PR_LIST_TEMPLATE,
+    ];
+    if let Ok(stdout) = run_gh(root, args) {
+        return Ok(parse_records(&stdout, 9)
+            .into_iter()
+            .filter_map(|c| {
+                let mut item = remote_item(&c[..6])?;
+                item.body = c[8].to_string();
+                Some(PrRow {
+                    item,
+                    head_ref: c[6].to_string(),
+                    is_draft: c[7] == "true",
+                })
+            })
+            .collect());
+    }
+    let legacy_args = [
+        "pr",
+        "list",
+        "--limit",
+        "100",
+        "--state",
+        "all",
+        "--json",
+        PR_LIST_JSON_FIELDS_LEGACY,
+        "--template",
+        PR_LIST_TEMPLATE_LEGACY,
+    ];
+    let stdout = run_gh(root, legacy_args)?;
     Ok(parse_records(&stdout, 8)
         .into_iter()
         .filter_map(|c| {
@@ -176,29 +245,18 @@ pub fn list_prs(root: &Path) -> Result<Vec<PrRow>, String> {
         .collect())
 }
 
-/// （既定）説明・レビューコメント: `gh pr view <n>` のプレーン出力。issue_detail と同じ方針
-/// (gh の整形済み出力をそのまま描く)
-pub fn pr_detail(root: &Path, number: u64) -> Result<Vec<String>, String> {
-    detail_with_comments(root, "pr", number)
+/// コメントだけを取得する。説明 (本文) は一覧取得の時点で `RemoteItem::body` に入っている
+/// (issue_comments と同じ理由)
+pub fn pr_comments(root: &Path, number: u64) -> Result<Vec<String>, String> {
+    comments(root, "pr", number)
 }
 
-// `gh <kind> view <n> --comments` は本文の代わりにコメント一覧だけを出す (本文が消え、
-// コメントが 1 件も無いと出力が空になる)。本文とコメントは別々に取って繋ぐしかない。
-// コメント取得の失敗は本文の表示まで巻き込まない (本文だけでも読めた方が良い)
-fn detail_with_comments(root: &Path, kind: &str, number: u64) -> Result<Vec<String>, String> {
+// `gh <kind> view <n> --comments` はコメント一覧だけを出す (本文は出ない)。コメントが 0 件でも
+// 失敗ではなく空 Vec を返す — 呼び出し側 (issuesview/prsview) が「(no comments)」を出し分ける
+fn comments(root: &Path, kind: &str, number: u64) -> Result<Vec<String>, String> {
     let number = number.to_string();
-    let body = run_gh(root, [kind, "view", &number])?;
-    let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
-    if let Ok(comments) = run_gh(root, [kind, "view", &number, "--comments"]) {
-        let comments: Vec<&str> = comments.lines().collect();
-        if comments.iter().any(|line| !line.trim().is_empty()) {
-            lines.push(String::new());
-            lines.push("─── comments ───".to_string());
-            lines.push(String::new());
-            lines.extend(comments.into_iter().map(str::to_string));
-        }
-    }
-    Ok(lines)
+    let stdout = run_gh(root, [kind, "view", &number, "--comments"])?;
+    Ok(stdout.lines().map(str::to_string).collect())
 }
 
 /// `d`: 差分。出力は `git diff` と同じ unified diff 形式なので、行の組み立ては

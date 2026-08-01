@@ -438,8 +438,9 @@ impl App {
         self.issues.begin_list_fetch(rx);
     }
 
-    /// Enter/l/クリック共通の詳細オープン。キャッシュ済み・取得中なら job を起動しない
-    /// (IssuesState::request_open が判定する)
+    /// Enter/l/クリック共通の詳細オープン。本文は request_open が rows から即座に組み立てる
+    /// ので、ここで起動するのはコメント取得だけ (キャッシュ済み・取得中なら job を起動しない。
+    /// IssuesState::request_open が判定する)
     pub(super) fn open_selected_issue(&mut self) {
         let Some(number) = self.issues.selected_number() else {
             return;
@@ -450,13 +451,13 @@ impl App {
         let root = self.root.clone();
         // Line 化 (build_detail_lines) はここ (バックグラウンドスレッド) で済ませておく。
         // DetailSlot<Vec<Line>> は組み立て済みデータを持つ想定で、詳細キャッシュのスレッド
-        // 構成を増やさないため (issuesview::IssuesState::begin_detail_fetch 参照)
+        // 構成を増やさないため (issuesview::IssuesState::begin_comments_fetch 参照)
         let rx = crate::job::spawn(move || {
-            let result = crate::github::issue_detail(&root, number)
+            let result = crate::github::issue_comments(&root, number)
                 .map(|raw| crate::issuesview::build_detail_lines(&raw));
             (number, result)
         });
-        self.issues.begin_detail_fetch(rx);
+        self.issues.begin_comments_fetch(rx);
     }
 
     /// o: ブラウザで開く。多重起動防止のみ行い、成功時は notice を出さない (ブラウザが
@@ -629,9 +630,8 @@ impl App {
         let root = self.root.clone();
         match view {
             crate::prsview::DetailView::Description => {
-                let rx =
-                    crate::job::spawn(move || crate::prsview::fetch_description(&root, number));
-                self.prs.begin_description_fetch(rx);
+                let rx = crate::job::spawn(move || crate::prsview::fetch_comments(&root, number));
+                self.prs.begin_comments_fetch(rx);
             }
             crate::prsview::DetailView::Diff => {
                 let rx = crate::job::spawn(move || crate::prsview::fetch_diff(&root, number));
