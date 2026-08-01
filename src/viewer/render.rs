@@ -17,9 +17,12 @@ use super::Viewport;
 use super::highlight::{Highlighter, LineState, gutter_span};
 use crate::text;
 
-/// パーサ状態を保存する行間隔。小さくすると助走が短くなる代わりに保存する状態が増える。
-/// 助走 (最大 STRIDE 行) は画面 1 枚分の描画と同程度に収まる大きさを選んである
-const CHECKPOINT_STRIDE: usize = 128;
+/// パーサ状態を保存する行間隔。小さくすると助走が短くなる代わりに、保存する状態と
+/// 保存そのもののコスト (LineState の clone) が増える。resume (下記) が効かない
+/// 「上方向のスクロール」だけがこの値そのままの助走を払うので、そこが 1 キーあたり
+/// 数 ms に収まり、かつ checkpoint の保存が下方向のスクロール・タイピングの邪魔に
+/// ならない値として 32 を選んである (実測で 16 はタイピング側が、128 は上方向が悪化した)
+const CHECKPOINT_STRIDE: usize = 32;
 
 /// ハイライト対象の行ソース。生の行 (タブ・改行を加工しない) を借りるだけで所有しない —
 /// 閲覧は Content、編集は EditBuffer と持ち主が違うため
@@ -38,6 +41,10 @@ pub struct HighlightCache {
     /// checkpoints[k] = 行 k * CHECKPOINT_STRIDE を解析する直前の状態。先頭から詰めて持ち、
     /// 未計算の分は「まだ無い」= 末尾より後ろとして表す
     checkpoints: Vec<LineState>,
+    /// 直近に組み立てたウィンドウ先頭 (start) の直前の状態。checkpoint と役割は同じだが
+    /// STRIDE の境界に縛られないので、j/k の 1 行スクロールや同じ画面での連続タイピングでは
+    /// 助走が 0〜1 行で済む (checkpoint だけだと毎回最大 STRIDE 行を舐め直すことになる)
+    resume: Option<(usize, LineState)>,
     /// 直近に組み立てた可視ウィンドウ。同じ範囲の再描画では作り直さない
     rows: Vec<Line<'static>>,
     start: usize,
@@ -58,6 +65,7 @@ impl HighlightCache {
             path: PathBuf::new(),
             plain: false,
             checkpoints: Vec::new(),
+            resume: None,
             rows: Vec::new(),
             start: 0,
             valid: false,
@@ -81,11 +89,16 @@ impl HighlightCache {
     /// 残せる — これが「変更行より前を再ハイライトしない」ことの担保
     pub fn invalidate_from(&mut self, line: usize) {
         self.checkpoints.truncate(line / CHECKPOINT_STRIDE + 1);
+        // resume も同じ基準: line より手前の状態なら変更の影響を受けない
+        if matches!(&self.resume, Some((at, _)) if *at > line) {
+            self.resume = None;
+        }
         self.valid = false;
     }
 
     fn discard(&mut self) {
         self.checkpoints.clear();
+        self.resume = None;
         self.rows.clear();
         self.valid = false;
     }
@@ -143,10 +156,23 @@ impl HighlightCache {
         // 可視範囲の直前にある最新の checkpoint から助走する。まだ届いていない範囲を
         // 要求された時 (末尾へのジャンプ等) はここで初めて先頭から歩くが、その過程で
         // checkpoint が埋まるので同じ範囲の 2 回目からは助走も STRIDE 行で済む
-        let resume = (start / CHECKPOINT_STRIDE).min(self.checkpoints.len() - 1);
-        let mut state = self.checkpoints[resume].clone();
+        let checkpoint = (start / CHECKPOINT_STRIDE).min(self.checkpoints.len() - 1);
+        let mut from = checkpoint * CHECKPOINT_STRIDE;
+        let mut state = self.checkpoints[checkpoint].clone();
+        // 直近のウィンドウ先頭の状態が checkpoint より手前 (= start に近い) ならそちらから再開する
+        if let Some((at, cached)) = &self.resume
+            && (from..=start).contains(at)
+        {
+            from = *at;
+            state = cached.clone();
+        }
+        self.resume = None;
         let mut raw = String::new();
-        for i in resume * CHECKPOINT_STRIDE..end {
+        for i in from..end {
+            // 次に同じあたりを要求された時の再開点として、可視範囲の先頭で状態を控える
+            if i == start {
+                self.resume = Some((start, state.clone()));
+            }
             if i.is_multiple_of(CHECKPOINT_STRIDE)
                 && i / CHECKPOINT_STRIDE == self.checkpoints.len()
             {
