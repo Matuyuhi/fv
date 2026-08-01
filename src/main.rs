@@ -10,6 +10,9 @@ mod index;
 mod issuesview;
 mod job;
 mod logview;
+// 開発用の静的プレビュー (preview/mod.rs)。製品ビルドには含めないため既定では無効で、
+// 見た目を確認する時だけ `cargo preview <scene>` (= --features preview) で有効化する
+#[cfg(feature = "preview")]
 mod preview;
 mod prsview;
 mod remotelist;
@@ -52,8 +55,19 @@ enum Command {
     Help,
     Version,
     /// 実装中の見た目確認用に 1 フレームだけ描き出す (preview/mod.rs)
+    #[cfg(feature = "preview")]
     Preview(preview::Options),
 }
+
+// --preview 系のヘルプ行。feature を切った製品ビルドでは受け付けないので出さない
+#[cfg(feature = "preview")]
+const PREVIEW_USAGE: &str = "\n       fv --preview [scene]... [--size WxH]";
+#[cfg(not(feature = "preview"))]
+const PREVIEW_USAGE: &str = "";
+#[cfg(feature = "preview")]
+const PREVIEW_HELP: &str = "      --preview   render UI scenes to stdout instead of starting the TUI (no args: list scenes)\n      --size WxH  preview size in columns x rows\n      --no-color  preview without ANSI colors\n";
+#[cfg(not(feature = "preview"))]
+const PREVIEW_HELP: &str = "";
 
 fn main() -> Result<(), Box<dyn Error>> {
     match parse_command(env::args().skip(1))? {
@@ -62,9 +76,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]\n       fv --preview [scene]... [--size WxH]\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n      --preview   render UI scenes to stdout instead of starting the TUI (no args: list scenes)\n      --size WxH  preview size in columns x rows\n      --no-color  preview without ANSI colors\n  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
+        #[cfg(feature = "preview")]
         Command::Preview(options) => preview::run(options)?,
         Command::Run {
             root,
@@ -153,12 +168,18 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
     let mut cli_github = false;
     // --preview 指定時は位置引数の意味がディレクトリからシーン名に変わるため、
     // 確定させるのは全部読んでから (フラグが後ろに来ても効くようにする)
-    let mut preview = false;
-    let mut preview_size = None;
-    let mut preview_color = None;
+    #[cfg(feature = "preview")]
+    let mut preview = preview::Options::default();
     let mut positional: Vec<String> = Vec::new();
 
+    // for ループにしないのは --size WxH がループの中で次の引数を取りに行くため
+    // (preview feature が無効なビルドでは body から args が消えるので clippy が for を勧めてくる)
+    #[allow(clippy::while_let_on_iterator)]
     while let Some(arg) = args.next() {
+        #[cfg(feature = "preview")]
+        if preview.take_flag(&arg, &mut args)? {
+            continue;
+        }
         match arg.as_str() {
             "--version" | "-V" => return Ok(Command::Version),
             "--help" | "-h" => return Ok(Command::Help),
@@ -166,29 +187,15 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
             "--icons" => cli_icons = Some(true),
             "--no-icons" => cli_icons = Some(false),
             "--github" => cli_github = true,
-            "--preview" => preview = true,
-            "--no-color" => preview_color = Some(false),
-            "--color" => preview_color = Some(true),
-            "--size" => {
-                let value = args
-                    .next()
-                    .ok_or("--size requires WxH (e.g. --size 120x40)")?;
-                preview_size = Some(parse_size(&value)?);
-            }
-            _ if arg.starts_with("--size=") => {
-                preview_size = Some(parse_size(arg.trim_start_matches("--size="))?);
-            }
             _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
             _ => positional.push(arg),
         }
     }
 
-    if preview {
-        return Ok(Command::Preview(preview::Options {
-            scenes: positional,
-            size: preview_size,
-            color: preview_color,
-        }));
+    #[cfg(feature = "preview")]
+    if preview.enabled {
+        preview.scenes = positional;
+        return Ok(Command::Preview(preview));
     }
     if positional.len() > 1 {
         return Err("only one directory can be specified".into());
@@ -244,14 +251,6 @@ fn icons_default() -> bool {
     // kitty は 0.32 以降 Nerd Font シンボルを同梱している
     env::var("TERM").is_ok_and(|t| t.contains("kitty") || t.contains("ghostty"))
         || env::var("KITTY_WINDOW_ID").is_ok()
-}
-
-// --size 120x40 / --size=120x40 の両方を受ける
-fn parse_size(value: &str) -> Result<(u16, u16), Box<dyn Error>> {
-    let (w, h) = value
-        .split_once(['x', 'X'])
-        .ok_or_else(|| format!("invalid --size: {value} (expected WxH, e.g. 120x40)"))?;
-    Ok((w.trim().parse()?, h.trim().parse()?))
 }
 
 fn resolve_root(root: PathBuf) -> Result<PathBuf, Box<dyn Error>> {

@@ -102,11 +102,15 @@ screen straight to stdout — no need to launch the TUI and click your way to th
 are working on:
 
 ```sh
-fv --preview                      # list the available scenes
-fv --preview git                  # render one scene
-fv --preview git log commit       # render several, stacked
-fv --preview all --size 140x40    # everything, at a specific terminal size
+cargo preview                      # list the available scenes
+cargo preview git                  # render one scene
+cargo preview git log commit       # render several, stacked
+cargo preview all --size 140x40    # everything, at a specific terminal size
 ```
+
+`cargo preview` is an alias for `cargo run --features preview -- --preview`. The preview is a
+dev-only feature: it is off by default, so released binaries contain no preview code and do not
+accept `--preview`.
 
 Every scene runs against a throwaway sample repository (created under `$TMPDIR`) that always
 has staged, unstaged, untracked and deleted files plus a few commits, so the output does not

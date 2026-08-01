@@ -23,13 +23,52 @@ use crate::config::Config;
 
 const DEFAULT_SIZE: (u16, u16) = (110, 32);
 
+#[derive(Default)]
 pub struct Options {
+    /// `--preview` が指定されたか。false ならプレビューではなく通常起動
+    pub enabled: bool,
     /// 空ならシーン一覧を出すだけ。"all" で全シーン
     pub scenes: Vec<String>,
     /// 指定があればシーン側の希望サイズより優先する
     pub size: Option<(u16, u16)>,
     /// None なら出力先が端末かどうかで決める (パイプ・リダイレクトでは色を落とす)
     pub color: Option<bool>,
+}
+
+impl Options {
+    /// プレビュー専用オプションの解釈。main.rs 側にプレビューの知識を持ち込まないため
+    /// (feature を切った製品ビルドでは main.rs から丸ごと消え、未知のオプションとして
+    /// 弾かれる) ここに置く。消費したら true
+    pub fn take_flag(
+        &mut self,
+        arg: &str,
+        rest: &mut impl Iterator<Item = String>,
+    ) -> Result<bool, Box<dyn Error>> {
+        match arg {
+            "--preview" => self.enabled = true,
+            "--color" => self.color = Some(true),
+            "--no-color" => self.color = Some(false),
+            "--size" => {
+                let value = rest
+                    .next()
+                    .ok_or("--size requires WxH (e.g. --size 120x40)")?;
+                self.size = Some(parse_size(&value)?);
+            }
+            _ if arg.starts_with("--size=") => {
+                self.size = Some(parse_size(arg.trim_start_matches("--size="))?);
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+}
+
+// --size 120x40 / --size=120x40 の両方を受ける
+fn parse_size(value: &str) -> Result<(u16, u16), Box<dyn Error>> {
+    let (w, h) = value
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("invalid --size: {value} (expected WxH, e.g. 120x40)"))?;
+    Ok((w.trim().parse()?, h.trim().parse()?))
 }
 
 pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
