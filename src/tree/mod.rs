@@ -22,6 +22,11 @@ pub struct Tree {
     // 絞り込み開始時の展開状態。絞り込み中は対象を開いたり畳んだりできるので、
     // 解除時にここへ厳密に戻して VIEW 側の見え方を元通りにする
     saved_expanded: Option<HashSet<PathBuf>>,
+    // git 側で削除された未コミットファイル (sync_deleted で App から受け取った最新の集合)。
+    // 1 回挿し込んで終わりにできないのは、遅延ロード (scan::load) が実走査の結果で children を
+    // 丸ごと置き換えるため — 合成ノードは実ファイルとして走査に出てこないので、その階層を
+    // 展開した瞬間に消えてしまう。集合を持ち続けて rebuild_visible のたびに入れ直す
+    deleted: HashSet<PathBuf>,
     pub visible: Vec<Row>,
     pub selected: usize,
     pub list_state: ListState,
@@ -38,6 +43,7 @@ impl Tree {
             show_hidden,
             filter: None,
             saved_expanded: None,
+            deleted: HashSet::new(),
             visible: Vec::new(),
             selected: 0,
             list_state: ListState::default(),
@@ -80,19 +86,21 @@ impl Tree {
         self.filter.is_some()
     }
 
-    /// git 側で削除された未コミットファイルを合成ノードとして反映する。Tree は本来
-    /// git を知らない設計だが、削除ファイルだけは WalkBuilder の実ファイル走査で拾えず、
-    /// この橋渡しが無いと GIT レーンで選択も stage/unstage もできない。rescan (App::rescan /
-    /// App::new / toggle_hidden) で nodes を作り直す都度、呼び出し側が最新の削除集合で呼び直す想定
-    pub fn sync_deleted(&mut self, root: &Path, deleted: &HashSet<PathBuf>) {
-        // selected_path は index_path 経由で self.nodes を辿るため、挿入・ソートで
-        // インデックスが崩れる scan::sync_deleted の "前" に捕まえておく必要がある
-        // (rescan/set_filter と同じ順序。後ろで呼ぶと別ノードを指してしまう)
-        let selected = self.selected_path();
-        if scan::sync_deleted(&mut self.nodes, root, deleted) {
-            self.rebuild_visible();
-            self.restore_selection(selected);
+    /// git 側で削除された未コミットファイルの集合を差し替える。Tree は本来 git を知らない
+    /// 設計だが、削除ファイルだけは WalkBuilder の実ファイル走査で拾えず、この橋渡しが無いと
+    /// GIT レーンで選択も stage/unstage もできない。rescan (App::rescan / App::new /
+    /// toggle_hidden) で nodes を作り直す都度、呼び出し側が最新の削除集合で呼び直す想定。
+    /// 実際の挿し込みは rebuild_visible が毎回行う (deleted フィールドの説明を参照)
+    pub fn sync_deleted(&mut self, deleted: &HashSet<PathBuf>) {
+        if self.deleted == *deleted {
+            return;
         }
+        self.deleted = deleted.clone();
+        // selected_path は index_path 経由で self.nodes を辿るため、挿入・ソートで
+        // インデックスが崩れる前に捕まえておく必要がある (rescan/set_filter と同じ順序)
+        let selected = self.selected_path();
+        self.rebuild_visible();
+        self.restore_selection(selected);
     }
 
     /// 現在の visible 行数。フィルタ中は「変更ファイル + ディレクトリ」の件数になる
@@ -272,6 +280,9 @@ impl Tree {
     }
 
     fn rebuild_visible(&mut self) {
+        // 削除ファイルの合成ノードは children を作り直す全ての経路 (遅延ロード・展開・再走査) で
+        // 失われるため、行を組み直す直前に必ず入れ直す。deleted が空なら何もしない
+        scan::sync_deleted(&mut self.nodes, &self.root, &self.deleted);
         let mut rows = Vec::new();
         scan::flatten(
             &self.nodes,
