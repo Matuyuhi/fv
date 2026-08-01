@@ -79,9 +79,17 @@ jobs:
       - name: Test
         run: cargo test --verbose --features preview
 
-      # UI のスナップショット差分。プレビュー (preview/) の全シーンを描き直し、
-      # コミット済みのテキストと 1 バイトでも違えば落とす。画像ではなくテキストなので、
-      # 失敗した時に「どの行がどう変わったか」がそのまま diff として読める。
+      # UI のスナップショット差分。プレビュー (preview/) の全シーンを描き直して、
+      # コミット済みのテキストと突き合わせる。
+      #
+      # **差分があっても PR は落とさない**。差分そのものは次のステップが PR コメントとして
+      # 出すので、赤い × は「見せる」目的には何も足していない。作者に更新コミットを強いる
+      # だけになる。コミット済みテキストとのズレは main への push 時に自動追従で解消する
+      # (PR で更新し忘れても、マージ後の main は必ず現在の描画と一致する)。
+      #
+      # 代償として、描画が非決定になった場合に「毎回 main へ追従コミットが積まれる」形で
+      # しか気づけなくなる (落ちていた頃は PR で即座に分かった)。正規化のユニットテストと
+      # 履歴に残る chore コミットの目立ちで足りるという判断
       - name: UI snapshots
         run: |
           cargo run --quiet --features preview -- --preview --update-snapshots
@@ -91,10 +99,8 @@ jobs:
             exit 0
           fi
           git --no-pager diff -- tests/snapshots
-          # main への push では落とさず追従コミットを積む。独立した 2 つの PR がそれぞれ
-          # 緑のままマージされて食い違うこと (semantic conflict) があり、そこで main を
-          # 赤いまま放置するより自動で直す方が良いため。PR 側は従来どおり落とす
-          # (スナップショットの差分は作者が意図して出すレビュー対象だから)
+          # main への push: 追従コミットを積む。独立した 2 つの PR がそれぞれ緑のまま
+          # マージされて食い違うこと (semantic conflict) もここで吸収される
           if [ "${{ github.event_name }}" = "push" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -106,14 +112,14 @@ jobs:
               echo "::warning::UI スナップショットの自動更新を push できませんでした"
             exit 0
           fi
+          # PR: 落とさず知らせるだけ。差分の中身は次のステップが PR コメントに出す
           {
             echo '### UI snapshot diff'
             echo '```diff'
             git diff -- tests/snapshots
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::UI が変わりました。意図した変更なら 'cargo preview --update-snapshots' で更新してコミットしてください"
-          exit 1
+          echo "::notice::UI が変わりました。差分は PR のコメントを参照 (手元で反映するなら 'cargo preview --update-snapshots')"
 
       # base との UI 差分を PR のコメントに出す。Actions のログを開かなくても、
       # 会話の流れの中で「この変更で画面がどう変わるか」を読めるようにするため。

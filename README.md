@@ -129,8 +129,9 @@ Add a scene in `src/preview/scene.rs`; a scene is a name, a description and a ke
 ### UI snapshots
 
 Every scene is also committed as plain text under `tests/snapshots/`, and CI re-renders them on
-every PR. If the rendering changes, the job fails and prints the diff — so an unintended UI
-regression shows up as concrete lines rather than "something changed":
+every PR. If the rendering changed, a bot comment shows the diff scene by scene (collapsed, so
+long screens stay out of the way) — an unintended UI regression shows up as concrete lines
+rather than "something changed":
 
 ```diff
 -│▾ src                          │
@@ -139,8 +140,11 @@ regression shows up as concrete lines rather than "something changed":
 ```
 
 Volatile values (commit SHAs, absolute dates) are masked while keeping their column width, so
-the snapshots stay byte-identical between runs and still read as screenshots. When a change is
-intentional, refresh them and commit:
+the snapshots stay byte-identical between runs and still read as screenshots.
+
+A stale snapshot never fails a PR: the committed files are refreshed automatically by a bot
+commit once the change lands on `main`. Refresh them yourself only if you want the UI change to
+show up in your own PR's diff:
 
 ```sh
 cargo preview --update-snapshots
