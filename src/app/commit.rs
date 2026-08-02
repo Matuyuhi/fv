@@ -16,9 +16,12 @@ pub enum CommitField {
     Body,
 }
 
+/// 件名と本文の区切り。新規入力はこの形 (git の慣習どおり空行 1 つ) で組み立てる
+const DEFAULT_SEPARATOR: &str = "\n\n";
+
 /// 入力中のコミットメッセージ。件名と本文を別の欄として持つ。件名側は改行を受け取らない
 /// (Enter は本文欄への移動にあてる) ので「件名が複数行」という状態を作れない
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct CommitDraft {
     pub subject: String,
     pub body: String,
@@ -26,6 +29,23 @@ pub struct CommitDraft {
     /// 欄ごとに持つ char インデックス。行き来しても書きかけの位置を失わない
     pub subject_cursor: usize,
     pub body_cursor: usize,
+    /// 件名と本文を繋ぎ直すときの改行列。amend で開いた元メッセージが慣習どおりでない
+    /// ("件名\n本文" のように空行が無い) 場合でも、開いて保存しただけで形が変わらないよう
+    /// 元の形をそのまま持ち回る
+    separator: String,
+}
+
+impl Default for CommitDraft {
+    fn default() -> Self {
+        Self {
+            subject: String::new(),
+            body: String::new(),
+            field: CommitField::default(),
+            subject_cursor: 0,
+            body_cursor: 0,
+            separator: DEFAULT_SEPARATOR.to_string(),
+        }
+    }
 }
 
 impl CommitDraft {
@@ -34,22 +54,30 @@ impl CommitDraft {
         if self.body.trim().is_empty() {
             self.subject.clone()
         } else {
-            format!("{}\n\n{}", self.subject, self.body)
+            format!("{}{}{}", self.subject, self.separator, self.body)
         }
     }
 
-    /// amend のプリフィル用。1 行目が件名、空行を挟んだ残りが本文という git の慣習で割る
+    /// amend のプリフィル用。1 行目が件名、それ以降が本文。間の改行は数ごと保って
+    /// from_message → message のラウンドトリップで元のメッセージに戻るようにする
     fn from_message(text: &str) -> Self {
-        let (subject, body) = match text.split_once('\n') {
-            Some((first, rest)) => (first.to_string(), rest.trim_start_matches('\n').to_string()),
-            None => (text.to_string(), String::new()),
+        let Some((first, rest)) = text.split_once('\n') else {
+            return Self {
+                subject_cursor: text.chars().count(),
+                subject: text.to_string(),
+                ..Self::default()
+            };
         };
+        let body = rest.trim_start_matches('\n');
+        // '\n' は 1 バイトなので、削れた長さがそのまま改行の個数になる
+        let separator = "\n".repeat(rest.len() - body.len() + 1);
         Self {
-            subject_cursor: subject.chars().count(),
+            subject_cursor: first.chars().count(),
             body_cursor: body.chars().count(),
-            subject,
-            body,
+            subject: first.to_string(),
+            body: body.to_string(),
             field: CommitField::Subject,
+            separator,
         }
     }
 
