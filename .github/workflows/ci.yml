@@ -116,6 +116,25 @@ jobs:
           # PR: 落とさず知らせるだけ。どのシーンが変わったかは次のステップが PR コメントに出す
           echo "::notice::コミット済みの UI 画像が現在の描画と食い違っています ('cargo preview --update-snapshots' で更新)"
 
+      # コメントに載せる「変わった画素だけをピンクで塗った 1 枚」を作るツール。
+      # ビルド済みのバイナリを取るだけ (release から tar 1 個) で、Action は増やさない。
+      # バージョンは固定する — 何が動くかを PR ごとにぶらさないため
+      - name: Install shotdiff
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHOTDIFF_VERSION: v0.2.0
+        run: |
+          gh release download "$SHOTDIFF_VERSION" --repo Matuyuhi/shotdiff \
+            --pattern shotdiff-x86_64-linux.tar.gz --dir "$RUNNER_TEMP"
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/shotdiff-x86_64-linux.tar.gz"
+          sudo install -m 755 "$RUNNER_TEMP/shotdiff" /usr/local/bin/shotdiff
+          # shotdiff (resvg) は SVG の文字をシステムのフォントで描く。日本語フォントが
+          # 無いと合成リポジトリの日本語が豆腐になる (before/after は閲覧者のブラウザが
+          # 描くので影響しない。真ん中の diff だけの問題)。入らなくても絵は出るので落とさない
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-noto-cjk ||
+            echo "::warning::CJK フォントを入れられませんでした (diff パネルの日本語が豆腐になります)"
+
       # base との UI 差分を PR のコメントに出す。Actions のログを開かなくても、
       # 会話の流れの中で「この変更で画面がどう変わるか」を絵で読めるようにするため。
       # 画像がコミットされていない (作者が更新し忘れた) 場合こそ知らせたいので always()

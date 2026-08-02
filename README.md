@@ -132,8 +132,16 @@ Add a scene in `src/preview/scene.rs`; a scene is a name, a description and a ke
 Every scene is also committed as an image under `docs/preview/`, and CI re-renders all of them on
 every PR. The images *are* the snapshots — there is no separate text form. Since they are SVG,
 GitHub renders them: the diff shows up as a before/after picture in Files changed, and a bot
-comment puts the changed scenes side by side in the conversation, so an unintended UI regression
+comment lays each changed scene out as **before | diff | after**, so an unintended UI regression
 is something you can actually see.
+
+The middle panel comes from [shotdiff](https://github.com/Matuyuhi/shotdiff) (`--diff-only`),
+which paints every changed pixel pink — you spot the change without comparing two full screens by
+eye. Its `diff` and `after` are rendered by that CI run rather than read from the commit, so the
+comment shows the current drawing even when the committed images have not been refreshed yet.
+Neither file exists in the repository, so they are published to a history-less orphan branch
+(`ci-ui-diff`) and referenced by commit SHA — a branch name would let GitHub's image proxy serve
+a stale picture forever.
 
 ```sh
 cargo preview --update-snapshots        # re-render every scene into docs/preview/

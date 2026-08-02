@@ -2,12 +2,17 @@
 # PR に「この変更で画面がどう変わるか」を 1 個のコメントとして出す (CI 専用)。
 #
 # スナップショットは画像 (docs/preview/*.svg) なので、差分そのものを本文に貼ることはできない。
-# 代わりに **base と head の画像を raw URL で並べて** 見せる — GitHub がコメント内で SVG を
-# 描画するので、Files changed を開かなくても会話の流れの中で新旧を見比べられる。
+# 代わりに **before | diff | after を 1 行に並べて** 見せる。真ん中の diff は shotdiff
+# (https://github.com/Matuyuhi/shotdiff) の `--diff-only` で、変わった画素だけをピンクに
+# 塗った 1 枚。全画面を目で見比べなくても「どこが変わったか」だけが浮かぶ。
 #
-# 「head の画像」はコミット済みのものを指す。作者が更新を忘れていると現在の描画と食い違うので、
-# 直前のステップが描き直した結果と HEAD がずれている (= stale) 場合はその旨を先頭に出す
-# (main への push では自動追従するので、PR で更新するかどうかは作者に委ねる)。
+# **after と diff はこの実行で描き直した実物**を使う (コミット済みの画像ではない)。
+# 作者が `--update-snapshots` を忘れていてもレビュアーには現在の描画が見える、というのが
+# 狙い。ただしどちらもリポジトリに無いファイルなので、置き場として履歴を持たない
+# orphan ブランチ (BRANCH) へ push し、その **コミット SHA** を URL に使う
+# (ブランチ名で参照すると GitHub の画像プロキシが古い絵をキャッシュし続ける)。
+# 生成物しか置かないブランチなので毎回 1 コミットに潰して force push する
+# (放っておくと PNG が履歴に積み上がってリポジトリが太る)。
 #
 # コメントは毎回追加せず、隠しマーカーで自分の前回コメントを探して編集する
 # (PR を更新するたびに同じ内容が積み上がるのを防ぐ)。gh は runner に同梱されている
@@ -16,8 +21,34 @@ set -eu
 
 MARKER='<!-- fv:ui-screenshot-diff -->'
 DIR=docs/preview
-# 1 シーンあたり新旧 2 枚。狭くしすぎると画面として読めないので、横 2 列で収まる幅にする
-WIDTH=460
+# 生成物 (diff の PNG と描き直した SVG) の置き場。中身は全て再生成できるので、
+# 邪魔になったらブランチごと消してよい
+BRANCH=ci-ui-diff
+# 3 列並ぶので 1 枚は小さめ。細部は画像をクリックして原寸で見る
+WIDTH=300
+
+# 生成物を orphan ブランチへ push して、そのコミット SHA を stdout に返す。
+# 失敗 (fork PR の読み取り専用トークン等) は戻り値で伝え、呼び出し側が画像なしへ落とす
+push_artifacts() {
+    work=$1
+    url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}"
+    repo="$work/branch"
+    # 既にあれば他の PR のぶんを残したまま自分のディレクトリだけ差し替える
+    git clone --quiet --depth 1 --branch "$BRANCH" "$url" "$repo" 2>/dev/null || {
+        git init --quiet "$repo"
+        git -C "$repo" remote add origin "$url"
+    }
+    rm -rf "$repo/pr-${PR_NUMBER}"
+    cp -r "$work/pr-${PR_NUMBER}" "$repo/"
+    git -C "$repo" config user.name "github-actions[bot]"
+    git -C "$repo" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+    # 履歴を持たせない: 毎回 1 コミットに潰して force push する
+    git -C "$repo" checkout --quiet --orphan squashed
+    git -C "$repo" add -A
+    git -C "$repo" commit --quiet -m "ci: PR #${PR_NUMBER} の UI 差分"
+    git -C "$repo" push --quiet --force origin "squashed:refs/heads/$BRANCH"
+    git -C "$repo" rev-parse HEAD
+}
 
 if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ]; then
     echo "not a pull request; skip"
@@ -32,9 +63,10 @@ git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || {
 }
 base_sha=$(git rev-parse FETCH_HEAD)
 
-# この PR がコミットした画像の変化 (= レビュアーに見せたい新旧)
+# base と**今の作業ツリー** (直前のステップが描き直した実物) の差 = この PR による UI の変化。
+# 作者がコミット済みかどうかとは独立に出す
 changed=$(git diff --name-only FETCH_HEAD -- "$DIR" | sed "s|^$DIR/||;s|\.svg$||" | sort)
-# 直前のステップが描き直した結果と HEAD のずれ (= 更新し忘れているシーン)
+# 作業ツリーと HEAD のずれ = 更新し忘れているシーン
 stale=$(git status --porcelain -- "$DIR" | awk '{print $NF}' |
     sed "s|^$DIR/||;s|\.svg$||" | sort)
 
@@ -53,38 +85,73 @@ if [ -z "$changed" ] && [ -z "$stale" ]; then
     fi
     printf '### UI スクリーンショット\n\nこの PR による UI の差分はありません。\n' >>"$body"
 else
+    work=$(mktemp -d)
+    out="$work/pr-${PR_NUMBER}"
+    mkdir -p "$out"
+    for scene in $changed; do
+        after="$DIR/$scene.svg"
+        cp "$after" "$out/$scene.after.svg"
+        # base に無い (新しく足した) シーンは比較相手がいないので diff を作らない
+        git cat-file -e "FETCH_HEAD:$after" 2>/dev/null || continue
+        git show "FETCH_HEAD:$after" >"$work/before.svg"
+        # 失敗しても (サイズ不一致等) diff の列が欠けるだけにする
+        shotdiff "$work/before.svg" "$after" --diff-only -o "$out/$scene.diff.png" ||
+            echo "::warning::shotdiff failed for $scene"
+    done
+
+    hosted=0
+    art_sha=""
+    if [ -n "$changed" ] && art_sha=$(push_artifacts "$work" 2>/dev/null); then
+        hosted=1
+    else
+        echo "could not publish artifacts (fork PR?); falling back to committed images"
+    fi
+
     printf '### UI スクリーンショット差分\n\n' >>"$body"
     if [ -n "$stale" ]; then
         printf '> [!NOTE]\n' >>"$body"
         printf '> コミット済みの画像が現在の描画と食い違っています (%s)。\n' \
             "$(echo "$stale" | tr '\n' ' ' | sed 's/ $//')" >>"$body"
-        printf '> `cargo preview --update-snapshots` で更新してコミットすると下の "after" が実物になります\n' >>"$body"
-        printf '> (更新しないまま merge しても、main 側で自動的に追従コミットが積まれます)。\n\n' >>"$body"
+        printf '> `cargo preview --update-snapshots` で更新してコミットしてください\n' >>"$body"
+        printf '> (忘れたまま merge しても、main 側で自動的に追従コミットが積まれます)。\n\n' >>"$body"
     fi
-    if [ -n "$changed" ]; then
-        printf '変わったシーン: **%s**\n\n' \
-            "$(echo "$changed" | tr '\n' ',' | sed 's/,$//;s/,/, /g')" >>"$body"
-    fi
+    printf '変わったシーン: **%s**\n\n' \
+        "$(echo "$changed" | tr '\n' ',' | sed 's/,$//;s/,/, /g')" >>"$body"
+
     # 1 シーンだけなら開いた状態で出す (クリックさせる意味がないため)
     count=$(echo "$changed" | grep -c . || true)
     [ "$count" -eq 1 ] && open=" open" || open=""
     for scene in $changed; do
         file="$DIR/$scene.svg"
-        before="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${base_sha}/${file}"
-        after="https://raw.githubusercontent.com/${HEAD_REPO}/${HEAD_SHA}/${file}"
-        # base に無い (新しく足した) シーンは before を持たない
-        if git cat-file -e "FETCH_HEAD:$file" >/dev/null 2>&1; then
-            cell="<img width=\"$WIDTH\" src=\"$before\">"
+        if [ "$hosted" = 1 ]; then
+            art="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${art_sha}/pr-${PR_NUMBER}"
+            after_img="$art/$scene.after.svg"
+            diff_img="$art/$scene.diff.png"
         else
-            cell="_(新規)_"
+            after_img="https://raw.githubusercontent.com/${HEAD_REPO}/${HEAD_SHA}/${file}"
+            diff_img=""
+        fi
+        if git cat-file -e "FETCH_HEAD:$file" 2>/dev/null; then
+            before_cell="<img width=\"$WIDTH\" src=\"https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${base_sha}/${file}\">"
+        else
+            before_cell="_(新規)_"
+            diff_img=""
+        fi
+        if [ -n "$diff_img" ] && [ -f "$out/$scene.diff.png" ]; then
+            diff_cell="<img width=\"$WIDTH\" src=\"$diff_img\">"
+        else
+            diff_cell="—"
         fi
         {
             printf '<details%s><summary><code>%s</code></summary>\n\n' "$open" "$scene"
-            printf '| before | after |\n| --- | --- |\n'
-            printf '| %s | <img width="%s" src="%s"> |\n\n' "$cell" "$WIDTH" "$after"
+            printf '| before | diff | after |\n| --- | --- | --- |\n'
+            printf '| %s | %s | <img width="%s" src="%s"> |\n\n' \
+                "$before_cell" "$diff_cell" "$WIDTH" "$after_img"
             printf '</details>\n\n'
         } >>"$body"
     done
+    printf '_diff は [shotdiff](https://github.com/Matuyuhi/shotdiff) が変わった画素をピンクで塗ったもの。' >>"$body"
+    printf 'diff と after は**この実行で描き直した実物**です。_\n' >>"$body"
 fi
 
 # fork からの PR では GITHUB_TOKEN が読み取り専用でコメントできない。
