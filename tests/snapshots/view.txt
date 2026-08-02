@@ -31,5 +31,5 @@ view — VIEW レーン: ファイルを開いた既定の画面 (110x32)
 │                               ││28     Ok(items)                                                           │
 │                               ││29 }                                                                       │
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
-[VIEW] EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: qui
+ VIEW  EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: qui
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

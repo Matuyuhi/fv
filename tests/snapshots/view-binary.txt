@@ -31,5 +31,5 @@ view-binary — VIEW レーン: 非テキストファイルのフォールバッ
 │                               ││                                                                           │
 │                               ││                                                                           │
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
-[VIEW] EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: qui
+ VIEW  EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: qui
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

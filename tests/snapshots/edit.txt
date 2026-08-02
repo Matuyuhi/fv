@@ -31,5 +31,5 @@ edit — EDIT レーン: カーソル + 未保存バッファのライブ diff (
 │                               ││28     Ok(items)                                                           │
 │                               ││29 }                                                                       │
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
- VIEW [EDIT] GIT  LOG   main  10:13  Ctrl+s: save  Ctrl+z/y: undo/redo  Ctrl+k: delete line  Esc: exit        
+ VIEW  EDIT  GIT  LOG   main  10:13  Ctrl+s: save  Ctrl+z/y: undo/redo  Ctrl+k: delete line  Esc: exit        
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

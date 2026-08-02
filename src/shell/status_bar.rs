@@ -15,8 +15,7 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // ブランチ + ahead/behind は issue #26 の要求通り GIT レーン以外・どの Mode 中でも常時出す
     spans.extend(branch_segment(app));
     spans.extend(hint_line(app).spans);
-    let paragraph = Paragraph::new(Line::from(spans))
-        .style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    let paragraph = Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::White));
     frame.render_widget(paragraph, area);
 }
 
@@ -57,17 +56,15 @@ fn lane_segments(app: &App) -> Vec<Span<'static>> {
     let mut spans = Vec::with_capacity(Lane::LABELS.len() + 1);
     for (i, label) in Lane::LABELS.iter().enumerate() {
         let style = if i == current && in_viewer_workspace {
-            Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            // Color::White は ANSI の bright white (97) に落ちるため、端末テーマ次第で灰色寄りになり
+            // 明るい背景の上で白く見えない。現在レーンは最も目立たせたいので RGB で真っ白に固定する
+            Style::new().bg(Color::Green).fg(Color::White)
         } else if available[i] && in_viewer_workspace {
             Style::default().fg(Color::White)
         } else {
             Style::default().fg(Color::Gray).add_modifier(Modifier::DIM)
         };
-        let text = if i == current && in_viewer_workspace {
-            format!("[{label}]")
-        } else {
-            format!(" {label} ")
-        };
+        let text = format!(" {label} ");
         spans.push(Span::styled(text, style));
     }
     spans.push(Span::raw("  "));

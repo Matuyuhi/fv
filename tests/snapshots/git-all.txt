@@ -31,5 +31,5 @@ git-all — GIT レーン: 全ファイルまとめ diff (sticky header 付き) 
 │                               ││ 6      out.push('\n');                                                    │
 │                               ││ 7      for (i, item) in items.iter().enumerate() {                        │
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
- VIEW  EDIT [GIT] LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  }/{: file  w: wrap  
+ VIEW  EDIT  GIT  LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  }/{: file  w: wrap  
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

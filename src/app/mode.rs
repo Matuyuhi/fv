@@ -137,7 +137,7 @@ pub enum Workspace {
 
 impl Workspace {
     /// タブバー・ステータスバーの表示ラベル。並び順は Ctrl+t の循環順・Alt+1..3 の対応と同じ
-    pub const LABELS: [&'static str; 3] = ["viewer", "issues", "pull requests"];
+    pub const LABELS: [&'static str; 3] = ["Viewer", "Issues", "Pull Requests"];
 
     pub fn index(self) -> usize {
         match self {

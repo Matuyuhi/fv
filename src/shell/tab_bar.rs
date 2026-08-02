@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -22,11 +22,7 @@ pub(super) fn draw_tab_bar(frame: &mut Frame, app: &mut App, area: Rect) {
         if i == 0 && viewer_dirty {
             text.push_str(" ●");
         }
-        let text = if i == current {
-            format!("[{text}]")
-        } else {
-            format!(" {text} ")
-        };
+        let text = format!(" {text} ");
         let width = text.chars().count() as u16;
         areas[i] = Rect {
             x,
@@ -36,16 +32,15 @@ pub(super) fn draw_tab_bar(frame: &mut Frame, app: &mut App, area: Rect) {
         };
         x = x.saturating_add(width).saturating_add(1);
         let style = if i == current {
-            Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            Style::default().fg(Color::White).bg(Color::Blue)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(Color::White).bg(Color::Rgb(42, 42, 42))
         };
         spans.push(Span::styled(text, style));
         spans.push(Span::raw(" "));
     }
     app.tab_areas = areas;
 
-    let paragraph = Paragraph::new(Line::from(spans))
-        .style(Style::default().fg(Color::White).bg(Color::DarkGray));
+    let paragraph = Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::White));
     frame.render_widget(paragraph, area);
 }
