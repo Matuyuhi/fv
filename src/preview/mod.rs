@@ -205,8 +205,8 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
 }
 
 /// 1 シーンを描いて、描き上がった Buffer をそのまま返す。
-/// 文字列に落とさないのは、呼び出し側が同じ 1 フレームから文字 (`render::buffer_lines`) と
-/// 色 (`render::style_map`) の両方を取り出すため。
+/// 文字列に落とさないのは、呼び出し側が同じ 1 フレームを文字 (`render::buffer_lines`) にも
+/// 画像 (`svg::render`) にも落とし、スナップショット時にはセルを直接書き換える (`snapshot::mask`) ため。
 /// 「描画 → setup → 描画」と 2 回描くのは、viewport の高さ・幅やペインの Rect を ui が
 /// App へ書き戻す構造 (CLAUDE.md「描画は自前スライス」) に合わせるため。1 回目で実測値が
 /// 入り、setup のキー列 (Ctrl+d のような height 依存の操作) が実際のアプリと同じ値を見る
