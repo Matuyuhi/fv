@@ -80,9 +80,10 @@ pub fn style_map(buffer: &Buffer) -> StyleMap {
     }
     let keys = assign_keys(&styles);
 
+    // &str のまま比較する。to_string() を挟むとセルごとにヒープ確保が増える
     let key_of = |desc: &str| -> char {
         styles
-            .binary_search(&desc.to_string())
+            .binary_search_by(|candidate| candidate.as_str().cmp(desc))
             .ok()
             .map_or('?', |i| keys[i])
     };
