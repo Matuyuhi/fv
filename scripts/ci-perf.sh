@@ -23,9 +23,13 @@ WARN_PCT=20
 
 PERF_CMD="cargo run --release --quiet --features preview -- --perf"
 
-# base 用のビルドは別ディレクトリ (worktree) で走らせるため、共有したい target/ の
-# 絶対パスはここで確定させておく (サブシェルの中で $PWD を見ると worktree 側になる)
-TARGET_DIR="$PWD/target"
+# base 側は target/ を head と分ける。cargo のフィンガープリントは同じパッケージを
+# ソースの場所で区別しないため、同じ target/ を使うと base のビルドが head のバイナリを
+# 上書きし、しかも次に head を build しても「新しい」と判定されて base の実行ファイルを
+# 測ってしまう (実際に踏んだ)。依存の再ビルドぶんは遅くなるが、間違った数字よりましで、
+# target/ 配下なので既存のキャッシュ設定にそのまま乗る。
+# サブシェルの中で $PWD を見ると worktree 側になるので、絶対パスはここで確定させておく
+BASE_TARGET_DIR="$PWD/target/perf-base"
 
 head_tsv=$(mktemp)
 base_tsv=$(mktemp)
@@ -41,14 +45,12 @@ if git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF:-}" >/dev/null 2>&1; 
     work=$(mktemp -d)
     if git worktree add --detach "$work" FETCH_HEAD >/dev/null 2>&1; then
         echo "measuring base (${GITHUB_BASE_REF})..."
-        # target/ は共有する。依存のビルド成果物を作り直さずに済み、fv 本体だけが
-        # build し直される (base 用に別の target を持つとキャッシュが効かず数分伸びる)
-        if (cd "$work" && CARGO_TARGET_DIR="$TARGET_DIR" $PERF_CMD) >"$base_tsv" 2>/dev/null &&
+        if (cd "$work" && CARGO_TARGET_DIR="$BASE_TARGET_DIR" $PERF_CMD) >"$base_tsv" 2>/dev/null &&
             [ -s "$base_tsv" ]; then
             have_base=1
             cat "$base_tsv"
         else
-            echo "base does not support --perf; reporting head only"
+            echo "base の計測を実行できませんでした (--perf 未対応、またはビルド失敗)。head の値だけ出します"
         fi
         git worktree remove --force "$work" >/dev/null 2>&1 || true
     fi
@@ -65,7 +67,7 @@ printf '### 速度チェック\n\n' >>"$body"
 
 if [ "$have_base" -eq 1 ]; then
     printf '1 打鍵 (キー入力 → 再描画 1 回) あたりの所要時間。小さいほど速い。\n\n' >>"$body"
-    worst=$(awk -F'\t' -v warn="$WARN_PCT" -v out="$body" '
+    worst=$(awk -F'\t' -v out="$body" '
         /^#/ { next }
         # 1 つ目のファイル = base
         FNR == NR { base[$1] = $4; next }
