@@ -8,6 +8,7 @@
 
 mod fixture;
 mod keys;
+mod perf;
 mod render;
 mod scene;
 mod snapshot;
@@ -37,6 +38,8 @@ pub struct Options {
     /// stdout ではなく tests/snapshots/ へ書き出す (CI の UI 差分検出用)。
     /// シーン無指定は一覧ではなく全シーンの意味になる
     pub update_snapshots: bool,
+    /// シーンを描く代わりに、キー入力 → 再描画のコストを測って TSV で出す (perf.rs)
+    pub perf: bool,
 }
 
 impl Options {
@@ -50,6 +53,12 @@ impl Options {
     ) -> Result<bool, Box<dyn Error>> {
         match arg {
             "--preview" => self.enabled = true,
+            // 計測もプレビューと同じ dev 専用の入口なので、--preview を兼ねさせる
+            // (main.rs 側に分岐を増やさないため)
+            "--perf" => {
+                self.enabled = true;
+                self.perf = true;
+            }
             "--update-snapshots" => self.update_snapshots = true,
             "--color" => self.color = Some(true),
             "--no-color" => self.color = Some(false),
@@ -78,6 +87,12 @@ fn parse_size(value: &str) -> Result<(u16, u16), Box<dyn Error>> {
 
 pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let mut out = io::stdout();
+    if options.perf {
+        // 保存済み設定を読む経路は無い (Config を直に組み立てる) が、書き込み側だけは
+        // プレビューと同じく使い捨てのディレクトリへ逃がしておく
+        isolate_env();
+        return perf::run(&mut out);
+    }
     // シーン無指定: 通常は一覧を出すだけ。スナップショット更新は「全部」の意味にする
     // (cargo preview --update-snapshots だけで CI と同じものが出せるように)
     if options.scenes.is_empty() && !options.update_snapshots {
@@ -164,7 +179,11 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
         out,
         "usage: fv --preview <scene>... [--size WxH] [--no-color]"
     )?;
-    writeln!(out, "       fv --preview all\n")?;
+    writeln!(out, "       fv --preview all")?;
+    writeln!(
+        out,
+        "       fv --perf                (キー → 再描画のコストを測る)\n"
+    )?;
     writeln!(out, "scenes:")?;
     let width = scene::SCENES
         .iter()

@@ -1,0 +1,66 @@
+name: perf
+
+# 毎 PR で回すには重い (base 側もビルドして 2 回測る) ので、`perf` ラベルが付いた PR
+# だけで動かす。ラベルを外しても既に出したコメントは残る (次に付け直した時に更新される)。
+# 手で確かめたいときは Actions タブから workflow_dispatch でも回せる
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: perf (ubuntu-24.04)
+    # labeled 以外 (synchronize 等) で来た時も、ラベルが付いたままかをここで見る
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Action は供給網を増やさないよう公式の checkout / cache のみ。
+      # 改竄対策で commit SHA 固定（コメントにバージョン）。Rust はランナー同梱の rustup。
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc --version
+
+      # ci.yml と同じ理由・同じ鍵。release ビルドの成果物も同じ target/ に入るので、
+      # base 側の測定でも依存のビルドを作り直さずに済む
+      - name: Compute version-independent cargo cache key
+        id: cargo_key
+        shell: bash
+        run: |
+          key=$(grep -v '^version = "' Cargo.lock | shasum -a 256 | cut -d' ' -f1)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Cache cargo & target
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-perf-${{ steps.cargo_key.outputs.key }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+            ${{ runner.os }}-cargo-
+
+      # base と head を同じ runner で連続して測り、比を PR コメントに出す。
+      # 遅くなっていても PR は落とさない (閾値超えは ::warning::) — ci.yml の
+      # UI スナップショット差分と同じ方針
+      - name: Measure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/ci-perf.sh
