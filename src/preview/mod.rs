@@ -12,6 +12,7 @@ mod perf;
 mod render;
 mod scene;
 mod snapshot;
+mod svg;
 
 use std::error::Error;
 use std::io::{self, IsTerminal, Write};
@@ -36,7 +37,8 @@ pub struct Options {
     pub size: Option<(u16, u16)>,
     /// None なら出力先が端末かどうかで決める (パイプ・リダイレクトでは色を落とす)
     pub color: Option<bool>,
-    /// stdout ではなく tests/snapshots/ へ書き出す (CI の UI 差分検出用)。
+    /// stdout ではなく docs/preview/<scene>.svg へ画像を書き出す
+    /// (CI の UI 差分検出用 = スクリーンショットテスト。README もこの画像を指す)。
     /// シーン無指定は一覧ではなく全シーンの意味になる
     pub update_snapshots: bool,
     /// シーンを描く代わりに、キー入力 → 再描画のコストを測って TSV で出す (perf.rs)
@@ -101,28 +103,24 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let selected = resolve_scenes(&options.scenes)?;
-    // スナップショットは色を持たない (ANSI を含めると git diff が読めなくなるため)
     let color = !options.update_snapshots && options.color.unwrap_or_else(|| out.is_terminal());
     isolate_env();
     let root = fixture::build()?;
 
     for scene in &selected {
         let size = options.size.or(scene.size).unwrap_or(DEFAULT_SIZE);
-        let buffer = draw_scene(scene, &root, size);
-        let mut body = render::buffer_lines(&buffer, color);
+        let mut buffer = draw_scene(scene, &root, size);
         if options.update_snapshots {
-            body = snapshot::normalize(&body);
+            // 実行のたびに変わる値 (SHA・絶対日時) は描き上がった Buffer の上で伏せる。
+            // stdout へ出す時は伏せない — 手元で見る絵は本物の値のままの方が読める
+            snapshot::mask(&mut buffer);
+            let path = snapshot::write(scene.name, &svg::render(&buffer))?;
+            writeln!(out, "wrote {}", path.display())?;
+            continue;
         }
-        let mut card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
-        if options.update_snapshots {
-            // スナップショットは ANSI を持てないので、色は文字と別レイヤの「地図」で焼く。
-            // stdout へ出す時は本物の色がそのまま見えているので添えない
-            let map = snapshot::normalize_map(&render::style_map(&buffer), &body);
-            card.push_str(&render::style_card(scene.name, size.0, &map, color));
-            snapshot::write(scene.name, &card)?;
-        } else {
-            write!(out, "{card}")?;
-        }
+        let body = render::buffer_lines(&buffer, color);
+        let card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
+        write!(out, "{card}")?;
     }
     if options.update_snapshots {
         report_snapshots(&mut out, &selected)?;
@@ -188,6 +186,10 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "       fv --preview all")?;
     writeln!(
         out,
+        "       fv --preview [<scene>...] --update-snapshots  (docs/preview/ へ画像を焼く)"
+    )?;
+    writeln!(
+        out,
         "       fv --perf                (キー → 再描画のコストを測る)\n"
     )?;
     writeln!(out, "scenes:")?;
@@ -203,8 +205,8 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
 }
 
 /// 1 シーンを描いて、描き上がった Buffer をそのまま返す。
-/// 文字列に落とさないのは、呼び出し側が同じ 1 フレームから文字 (`render::buffer_lines`) と
-/// 色 (`render::style_map`) の両方を取り出すため。
+/// 文字列に落とさないのは、呼び出し側が同じ 1 フレームを文字 (`render::buffer_lines`) にも
+/// 画像 (`svg::render`) にも落とし、スナップショット時にはセルを直接書き換える (`snapshot::mask`) ため。
 /// 「描画 → setup → 描画」と 2 回描くのは、viewport の高さ・幅やペインの Rect を ui が
 /// App へ書き戻す構造 (CLAUDE.md「描画は自前スライス」) に合わせるため。1 回目で実測値が
 /// 入り、setup のキー列 (Ctrl+d のような height 依存の操作) が実際のアプリと同じ値を見る

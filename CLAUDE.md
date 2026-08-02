@@ -22,7 +22,8 @@ cargo preview                       # シーン一覧 (= cargo run --features pr
 cargo preview git log               # 複数シーンを縦に並べて描き出す
 cargo preview all --size 140x40
 scripts/preview-watch.sh git        # 保存のたびに再ビルド + 再描画
-cargo preview --update-snapshots    # tests/snapshots/ を更新 (UI を変えたらコミットする)
+cargo preview --update-snapshots    # docs/preview/*.svg を焼き直す (UI を変えたらコミットする)
+cargo preview view --update-snapshots  # 1 シーンだけ焼き直す
 ```
 
 速度は `cargo perf`（同じ dev 専用 feature の別入口）で測る。TUI を起動せず、1 打鍵ぶんの「キー入力 → 再描画」の所要時間を TSV で出す（「速度チェック」節）:
@@ -33,7 +34,7 @@ cargo perf                          # = cargo run --release --features preview -
 
 プレビューは **dev 専用の feature**（既定 off）。製品ビルドにはシーン定義も合成リポジトリ生成も入らず、`--preview` 自体が unknown option になる。
 
-テストは現状なし。動作確認は pty 経由のスモークテストで行う:
+UI の回帰は上の**スクリーンショットテスト**（`docs/preview/*.svg` を CI が描き直して突き合わせる）で見る。動作確認は pty 経由のスモークテストで行う:
 
 ```sh
 { sleep 2.5; printf 'jj'; sleep 0.3; printf '\r'; sleep 0.5; printf 'q'; } | \
@@ -73,7 +74,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
   - `finder/` — mod.rs(ファジーマッチ自前実装), index.rs(FileIndex: Finder 候補の背景全走査), view.rs
 - `shell/` — 画面全体の骨格と、App 全体を横断して見せる画面。mod.rs(draw・レイアウト・各 View への値の取り出し), status_bar.rs, tab_bar.rs(Workspace タブバー), help.rs, settings.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)。ここに置くか component に置くかの境界は「専用の状態型を持つか」（「描画の依存範囲」節）
 - `widget/` — 複数のコンポーネントが使う描画部品。text_pane.rs(閲覧・編集・diff 共通の描画コア), diff_boundary.rs(sticky header の帯), icons.rs, mod.rs(pane_block / centered_rect)。**どの状態を描くかは持たせない**（渡された Line 列をどう見せるかだけ）
-- `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
+- `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列。手元で見る stdout 用), svg.rs(Buffer → SVG。スナップショット兼 README の画面写真), snapshot.rs(マスクとファイル書き出し), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
 - インフラ（どのコンポーネントにも属さない）: `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・component/branch/mod.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify) / `config.rs`
 - **可視性**: component/widget は別のモジュールツリーから呼ばれるので、跨いで使うものは `pub(crate)` になる（レイヤ別構成なら `component/*/view.rs` 内で `pub(super)` に閉じられていた分の代償）。フォルダ内に閉じるものは `pub(super)` のままにする
 
@@ -298,11 +299,11 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
 - **利用者の config を書き換えない**。プレビューのキー列には `w`（折返し）のように `persist_config` を呼ぶものがあるため、`XDG_CONFIG_HOME` を使い捨てディレクトリへ差し替えてから App を作る（`isolate_config`、スレッドを 1 つも起こしていない時点で `set_var` する）
 - issues/PR タブだけはキーで状態を作れない（gh の応答が要る）ので、`begin_list_fetch` + `poll` に自前の `Receiver` を流し込む形で公開 API 越しに注入する。`github::check_available` も呼ばず `github_available` を直接立てる（gh の有無で絵が変わらないようにするため）
 - 全角文字の桁送りだけは `preview/render.rs` に近似の幅計算を持つ（ratatui は全角の 2 セル目を空白へ reset するだけなので、そのまま出すと空白が 1 つ挟まる）。**これはプレビュー出力を端末の桁送りに合わせるためだけのもので、アプリ本体の桁計算（text.rs が唯一の定義）には使わない**
-- **スナップショット（`--update-snapshots` / preview/snapshot.rs）**: 全シーンを `tests/snapshots/<scene>.txt` に焼き、CI が描き直して差分を見る（比較器は Rust 側に持たず git に任せる）。**差分があっても PR は落とさない** — 差分そのものは PR コメント（`scripts/ci-ui-diff-comment.sh`、シーンごとに `<details>` で畳む）で見せるので、赤い × は「見せる」目的に何も足さず作者に更新コミットを強いるだけになるため。コミット済みテキストとのズレは main への push 時の自動追従コミットで解消する（PR で更新し忘れても、マージ後の main は必ず現在の描画と一致する）。代償として描画が非決定になった場合に「毎回 main へ追従コミットが積まれる」形でしか気づけない（正規化のユニットテストと、履歴に残る chore コミットの目立ちで足りるという判断）。画像にしないのは **PR の diff がそのまま UI の差分になる**ため（バイナリのスクリーンショットだと「変わりました」以上のことが読めない）。実行のたびに変わるのはコミット SHA と `Date:` の絶対日時だけなので、そこだけ**桁数を保ったままマスク**する（桁がずれるとスナップショットが目視用の画面として読めなくなる）。日付は 1 文字ずつ潰すだけでは足りない — 日にちの桁（1 → 10）で長さが変わり後続が全部ずれるため、タイムゾーン `+0900` の終端までを「固定文字列 + 空白詰め」で置き換えて後ろの罫線を同じ桁に残す。git の相対日時（`3 days ago`）は gettext の翻訳対象なので `LC_ALL=C` も `isolate_env` で固定する（日本語ロケールの手元と C ロケールの CI で食い違わせない）
-- **色は文字とは別レイヤ（`preview/render.rs::style_map`）**: スナップショット本体に ANSI は入れられない（git diff も PR コメントも読めなくなる）が、色だけを変えた変更が差分に一切出ないのは検出漏れなので、画面の下に**同じ行数・同じ桁数の「色の地図」**を続けて焼く（`style_card`）。1 セル 1 文字（全角セルは 2 文字。読み飛ばしの規則を `buffer_lines` と厳密に揃えないと画面と桁がずれ、突き合わせて読めなくなる）で、素のセルは `.`、色や装飾を持つセルは凡例のキー 1 文字になる。凡例には `fg=`/`bg=`/装飾を並べた文字列を出し、テーマ由来の RGB は 16 進で見せる（どの色がどう変わったかを差分から数値で読むため）
-  - **キーはスタイルの内容から決める（FNV-1a のハッシュ + 衝突時だけ後ろへずらす）**。一覧の index で振ると色を 1 つ足した/変えただけで以降のキーが全部ずれ、地図も凡例も丸ごと差分になる（19 シーン × 33 行が毎回置き換わり、PR コメントの文字数上限も食い潰す）。内容から決めれば、変わったセルの行だけが差分に出る。`std` の `DefaultHasher` は実行ごとに値が変わりうるので使えない
-  - **日付を伏せた行は `<date>` の桁から行末までを `~` で潰す**（`snapshot::normalize_map`）。日付は文字数そのものが日によって変わる（Aug 1 / Aug 10）ため、後ろに続くセルのスタイル境界が 1 桁ずれる。文字側だけマスクして地図を放置すると、「UI を変えていないのに毎月差分が出る」が地図側に残る。潰すのは日付より後ろだけで、それ以前の桁の色は差分に出せるまま残す
-  - stdout（`cargo preview <scene>`）には地図を添えない。本物の色がそのまま端末に出ているので二重に見せる意味がない
+- **スナップショット = スクリーンショット（`--update-snapshots` / preview/snapshot.rs + preview/svg.rs）**: 全シーンを `docs/preview/<scene>.svg` に焼き、CI が描き直してコミット済みの画像と突き合わせる（比較器は Rust 側に持たず git に任せる）。**テキストのスナップショットは廃止した** — 同じ画面を txt と画像の 2 系統で持つ意味が無く、UI の差分は GitHub が SVG を描画して見せてくれる（Files changed の画像比較・PR コメントの before/after）。**差分があっても PR は落とさない** — 差分そのものは PR コメント（`scripts/ci-ui-screenshot-comment.sh`、base と head の raw URL を並べてシーンごとに `<details>` で畳む）で見せるので、赤い × は「見せる」目的に何も足さず作者に更新コミットを強いるだけになるため。コミット済み画像とのズレは main への push 時の自動追従コミットで解消する（PR で更新し忘れても、マージ後の main は必ず現在の描画と一致する。その間 PR コメントの "after" だけが実物とずれるので、食い違っている事実はコメント冒頭に出す）。代償として描画が非決定になった場合に「毎回 main へ追従コミットが積まれる」形でしか気づけない（マスクのユニットテストと、履歴に残る chore コミットの目立ちで足りるという判断）。**同じ画像を README も参照する**ので、手で撮ったスクリーンショットが実装から取り残されることが構造的に起きない
+  - **マスクは Buffer の上でかける（`snapshot::mask`）**。実行のたびに変わるのはコミット SHA と `Date:` の絶対日時だけなので、そこだけ**桁数を保ったまま**伏せる（桁がずれると罫線が崩れ、README に載る画面としても読めなくなる）。文字列に落としてから伏せるのではなくセルを直接書き換えるのは、SVG が「どのセルが何色か」まで焼くため。日付は 1 文字ずつ潰すだけでは足りない — 日にちの桁（1 → 10）で長さが変わり後続が全部ずれるので、タイムゾーン `+0900` の終端までを「固定文字列 + 空白詰め」で置き換える。さらに**日付の桁から行末までスタイルも 1 つに潰す**（`flatten_style`）: 文字を固定幅に詰め直しても、元の日付の末尾で切れていたスタイルの境界はその日の長さのまま残り、SVG の run の切れ目が 1 桁ずれる。git の相対日時（`3 days ago`）は gettext の翻訳対象なので `LC_ALL=C` も `isolate_env` で固定する（日本語ロケールの手元と C ロケールの CI で食い違わせない）
+  - **PNG にしない理由は 3 つ**: ラスタ化には依存（フォントを読むクレート）が要る / CI のランナーに日本語フォントが無く合成リポジトリの日本語が豆腐になる（SVG なら描画は閲覧者のブラウザ側）/ テキストなので git の履歴に置け、差分が行として出る
+  - **桁の整合は 1 文字ずつ `x` を書いて取る**（`svg::glyphs`）。閲覧環境の等幅フォントは送り幅が違う（0.55em〜0.6em）ので run の先頭だけ置くと行の右へ行くほどずれ、`textLength` で run 幅を宣言すると字間・字形が引き伸ばされて読めなくなる（セルの格子に 1 文字ずつ載せるのは端末そのものの振る舞い）。**空白のセルは本文から落とす** — 位置決めは後続の文字が自分の `x` を持つので要らず、こうすると XML の空白の扱いに一切依存しなくなる（`xml:space="preserve"` は SVG2 で非推奨で、実際に Chromium では効かず字送りが 1 文字ずつずれた）。`CELL_W` はフォントの送り幅 0.6em ちょうどに合わせる（狭いと罫線 `─ │ ┌` が繋がらず枠が破線に見える。font-size 15 なら 9 で割り切れ、座標が全て整数になってファイルも小さい）。`Color::Reset`（端末に任せる意味）とテーマを持たない ANSI 16 色はここで具体的な RGB に決め打つしかないので、既定テーマ (base16-ocean.dark) の隣で浮かない値を選んである
+  - stdout（`cargo preview <scene>`）は従来どおり ANSI 付きのテキストのまま（`render::buffer_lines` / `card`）。手元では端末にそのまま出すのが一番速く、マスクもかけない（本物の値のままの方が読める）
 
 ### 速度チェック（`cargo perf` + `.github/workflows/perf.yml`）
 「AI が書いたコードをその場で手直しする」のが用途なので、**1 打鍵ぶんのコスト**が壊れていないかを見る。`src/preview/perf.rs` が preview と同じ dev 専用 feature の別入口として入っていて、`TestBackend` に `shell::draw` をそのまま通す（計測専用の描画経路は作らない — そこを分けると「ベンチだけ速い」が起きる）。状態もキー列で組み立てるので、`app/keys.rs` の優先順位を通らない経路を測ってしまうこともない。

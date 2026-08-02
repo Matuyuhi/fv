@@ -1,28 +1,32 @@
-//! シーンの描画結果をファイルに焼いて CI で差分を見るためのスナップショット。
-//! 画像ではなくテキストで持つのは、PR の diff がそのまま「UI の差分」になるため
-//! (バイナリのスクリーンショットだと「変わりました」以上のことが読めない)。
+//! シーンの描画結果を画像に焼いて CI で差分を見るためのスナップショット。
+//! 焼くのは SVG (preview/svg.rs) で、CI は描き直したものをコミット済みの
+//! ファイルと突き合わせる。比較は Rust 側で持たず `git diff` に任せる
+//! (CI の該当ステップ参照)。ここは「毎回同じバイト列を書き出す」ことだけに責任を持つ。
 //!
-//! 比較は Rust 側で持たず `git diff --exit-code` に任せる (CI の該当ステップ参照)。
-//! ここは「毎回同じバイト列を書き出す」ことだけに責任を持つ。
+//! **同じ画像が README にも載る**。UI の差分は GitHub が SVG を描画して見せてくれるので
+//! (Files changed の画像比較)、テキストの画面をもう 1 系統持つ必要が無い。
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::render::{self, StyleMap};
+use ratatui::buffer::Buffer;
+
+use super::render;
 
 // 出力先はコンパイル時に確定するソースツリー。プレビューは dev 専用 feature なので、
-// どこから実行してもリポジトリ内の同じ場所を更新するのが正しい
+// どこから実行してもリポジトリ内の同じ場所を更新するのが正しい。
+// tests/ ではなく docs/ に置くのは、この画像が README から参照される成果物でもあるため
 pub fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("snapshots")
+        .join("docs")
+        .join("preview")
 }
 
 pub fn write(name: &str, text: &str) -> io::Result<PathBuf> {
     let dir = dir();
     fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("{name}.txt"));
+    let path = dir.join(format!("{name}.svg"));
     fs::write(&path, text)?;
     Ok(path)
 }
@@ -36,7 +40,7 @@ pub fn prune(keep: &[&str]) -> io::Result<Vec<PathBuf>> {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_none_or(|ext| ext != "txt") {
+        if path.extension().is_none_or(|ext| ext != "svg") {
             continue;
         }
         let stale = path
@@ -51,65 +55,94 @@ pub fn prune(keep: &[&str]) -> io::Result<Vec<PathBuf>> {
     Ok(removed)
 }
 
-/// 実行のたびに変わる値 (コミット SHA・絶対日時) を伏せる。ここを通さないと
-/// 「UI は何も変わっていないのに毎回 diff が出る」スナップショットになって使い物にならない。
-/// **桁数は必ず保つ** — スナップショットは比較用であると同時に目視用の画面でもあるので、
-/// マスクで桁がずれると罫線が崩れて読めなくなる
-pub fn normalize(lines: &[String]) -> Vec<String> {
-    lines
-        .iter()
-        .map(|line| {
-            // 1 行に両方が乗ることがある (左ペインのコミット一覧と右ペインの Date が
-            // 同じバッファ行に並ぶ) ので、片方だけ返して終わりにしない
-            let masked = mask_hashes(line);
-            mask_date(&masked).unwrap_or(masked)
-        })
-        .collect()
-}
-
-/// 色の地図側の正規化。文字の方は `normalize` が桁数を保つので地図の桁とはずれないが、
-/// **日付だけは元の文字数そのものが日によって変わる** (Aug 1 / Aug 10) ため、日付の後ろに
-/// 続くセルのスタイル境界が 1 桁ずれる。文字は伏せたのに地図が毎月ずれる、では
-/// 「UI を変えていないのに差分が出る」が地図側に残ってしまうので、日付を伏せた行は
-/// 日付の先頭から行末までを 1 文字で塗り潰す (その先はペインの余白と枠だけで、
-/// 潰しても失われる情報が無い)
-pub fn normalize_map(map: &StyleMap, text: &[String]) -> StyleMap {
-    let mut masked = false;
-    let rows = map
-        .rows
-        .iter()
-        .zip(text)
-        .map(|(row, line)| match date_column(line) {
-            Some(col) => {
-                masked = true;
-                flatten_from(row, col)
-            }
-            None => row.clone(),
-        })
-        .collect();
-    let mut legend = map.legend.clone();
-    if masked {
-        legend.push(format!("  {MASKED}  (日付マスク: 桁がずれるため潰した)"));
+/// 実行のたびに変わる値 (コミット SHA・絶対日時) を、描き上がった Buffer の上で伏せる。
+/// ここを通さないと「UI は何も変わっていないのに毎回差分が出る」スナップショットになって
+/// 使い物にならない。**桁数は必ず保つ** — スナップショットは比較用であると同時に
+/// README に載る画面でもあるので、マスクで桁がずれると罫線が崩れて読めなくなる。
+///
+/// 文字列に落としてから伏せるのではなく Buffer を直接書き換えるのは、SVG が
+/// 「どのセルが何色か」まで焼くため。マスク後の文字だけ差し替えても、セルのスタイルが
+/// 元の日付の長さに引きずられていては同じバイト列にならない (下の flatten 参照)
+pub fn mask(buffer: &mut Buffer) {
+    let area = buffer.area;
+    for y in area.top()..area.bottom() {
+        let line = row_text(buffer, y);
+        let masked = mask_hashes(&line);
+        let masked = mask_date(&masked).unwrap_or(masked);
+        if masked == line {
+            continue;
+        }
+        write_row(buffer, y, &masked);
+        // 日付は文字数そのものが日によって変わる (Aug 1 / Aug 10)。テキストは
+        // 固定幅に詰め直しているので桁は保たれるが、**元の日付の末尾で切れていた
+        // スタイルの境界**はその日の長さのまま残り、run の切れ目が 1 桁ずれた
+        // SVG になってしまう。日付から行末までを 1 つのスタイルで塗り潰して
+        // 境界そのものを消す (その先はペインの余白と枠だけで、失われる情報が無い)
+        if let Some(col) = masked.find("<date>") {
+            flatten_style(buffer, y, render::map_columns(&masked[..col]));
+        }
     }
-    StyleMap { rows, legend }
 }
 
-/// 潰した領域を表す記号。凡例のキー (英数字) と重ならない文字にして、
-/// 「スタイルが 1 種類ある」と読み違えないようにする
-const MASKED: char = '~';
-
-// マスク済みの行における日付の開始桁。地図は 1 セル 1 文字なので、文字側の桁
-// (全角セルは 2 文字ぶん) と数え方を揃えてから位置を取る
-fn date_column(line: &str) -> Option<usize> {
-    let idx = line.find("<date>")?;
-    Some(render::map_columns(&line[..idx]))
+// 行を 1 本の文字列にする。全角セルの読み飛ばしは render::buffer_lines と同じ規則で、
+// ここがずれると書き戻す位置がずれる
+fn row_text(buffer: &Buffer, y: u16) -> String {
+    let mut text = String::new();
+    let mut skip = 0;
+    for x in buffer.area.left()..buffer.area.right() {
+        let Some(cell) = buffer.cell((x, y)) else {
+            continue;
+        };
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        skip = render::symbol_width(cell.symbol()).saturating_sub(1);
+        text.push_str(cell.symbol());
+    }
+    text
 }
 
-fn flatten_from(row: &str, col: usize) -> String {
-    let chars: Vec<char> = row.chars().collect();
-    let head: String = chars.iter().take(col).collect();
-    let tail: String = std::iter::repeat_n(MASKED, chars.len().saturating_sub(col)).collect();
-    format!("{head}{tail}")
+// マスク済みの行をセルへ書き戻す。row_text が 1 セル 1 文字で組み立て、マスクは
+// 文字数を変えない (桁数を保つのがマスクの前提) ので、セルと文字は 1 対 1 で対応する。
+// マスクが触るのは ASCII だけなので、全角だったセルには同じ文字がそのまま返る
+fn write_row(buffer: &mut Buffer, y: u16, text: &str) {
+    let area = buffer.area;
+    let mut chars = text.chars();
+    let mut skip = 0;
+    for x in area.left()..area.right() {
+        let Some(cell) = buffer.cell_mut((x, y)) else {
+            continue;
+        };
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        skip = render::symbol_width(cell.symbol()).saturating_sub(1);
+        let Some(symbol) = chars.next() else {
+            break;
+        };
+        if !cell.symbol().starts_with(symbol) {
+            cell.set_char(symbol);
+        }
+    }
+}
+
+// col 桁目から行末までを、col 桁目のセルのスタイルで塗り潰す。
+// Cell::set_style は modifier を「足す/引く」ので上書きにならない — 3 つの値を直に写す
+fn flatten_style(buffer: &mut Buffer, y: u16, col: usize) {
+    let area = buffer.area;
+    let x0 = area.left() + col as u16;
+    let Some((fg, bg, modifier)) = buffer.cell((x0, y)).map(|c| (c.fg, c.bg, c.modifier)) else {
+        return;
+    };
+    for x in x0..area.right() {
+        if let Some(cell) = buffer.cell_mut((x, y)) {
+            cell.fg = fg;
+            cell.bg = bg;
+            cell.modifier = modifier;
+        }
+    }
 }
 
 // `Date:   Sat Aug 1 20:32:28 2026 +0900` (git show のヘッダ)。
@@ -184,41 +217,58 @@ fn is_word(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::layout::Rect;
+    use ratatui::style::{Color, Style};
 
-    // ペイン幅ぴったりに詰めた 1 行を作る (実際の描画結果と同じ「全行が同じ桁数」の形)
-    fn pane_line(body: &str, width: usize) -> String {
-        let mut line = format!("│{body}");
-        while line.chars().count() < width - 1 {
-            line.push(' ');
-        }
-        line.push('│');
-        assert_eq!(line.chars().count(), width);
-        line
+    fn buffer_with(text: &str, width: u16) -> Buffer {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, width, 1));
+        buffer.set_string(0, 0, text, Style::default());
+        buffer
     }
 
-    /// 日にちが 1 桁か 2 桁かで日付の長さが変わっても、マスク後は同じバイト列になること。
-    /// ここが崩れると「UI は何も変えていないのに月初を境に CI が落ち始める」ことになる
+    fn line_of(buffer: &Buffer) -> String {
+        row_text(buffer, 0)
+    }
+
+    /// 日にちが 1 桁か 2 桁かで日付の長さが変わっても、マスク後は同じ画面になること。
+    /// ここが崩れると「UI は何も変えていないのに月初を境に差分が出始める」
     #[test]
     fn date_mask_is_stable_across_day_of_month_width() {
         let width = 60;
-        let short = pane_line("   Date:   Sat Aug 1 20:32:28 2026 +0900", width);
-        let long = pane_line("   Date:   Sun Aug 10 20:32:28 2026 +0900", width);
-        let masked = normalize(&[short, long]);
-        assert_eq!(masked[0], masked[1]);
-        assert_eq!(masked[0].chars().count(), width);
-        assert!(masked[0].contains("<date>"));
+        let mut short = buffer_with("   Date:   Sat Aug 1 20:32:28 2026 +0900", width);
+        let mut long = buffer_with("   Date:   Sun Aug 10 20:32:28 2026 +0900", width);
+        mask(&mut short);
+        mask(&mut long);
+        assert_eq!(line_of(&short), line_of(&long));
+        assert_eq!(line_of(&short).chars().count(), width as usize);
+        assert!(line_of(&short).contains("<date>"));
     }
 
-    /// 短縮 SHA と完全 SHA を桁数を保ったまま伏せること。桁が変わるとスナップショットの
-    /// 罫線が崩れ、目視用の画面として読めなくなる
+    /// 日付より後ろのセルはスタイルも 1 つに潰すこと。文字だけ揃えても、元の日付の
+    /// 末尾で切れていたスタイルの境界が残ると SVG の run が 1 桁ずれる
+    #[test]
+    fn date_mask_flattens_the_style_after_it() {
+        let width = 60;
+        let mut buffer = buffer_with("   Date:   Sat Aug 1 20:32:28 2026 +0900", width);
+        // 実際の描画と同じく「本文だけ色付き、その後ろの余白は別スタイル」を作る
+        buffer.set_style(Rect::new(0, 0, 40, 1), Style::default().fg(Color::Gray));
+        mask(&mut buffer);
+        let colors: Vec<Color> = (11..width)
+            .map(|x| buffer.cell((x, 0)).unwrap().fg)
+            .collect();
+        assert!(colors.windows(2).all(|w| w[0] == w[1]), "{colors:?}");
+    }
+
+    /// 短縮 SHA と完全 SHA を桁数を保ったまま伏せること。桁が変わると罫線が崩れ、
+    /// 画面としても読めなくなる
     #[test]
     fn hashes_are_masked_without_changing_width() {
-        let line = "▶ 7bd8ba2  commit 3674252a115234f083666b8957d81d9ef3c3cbfb".to_string();
-        let masked = normalize(std::slice::from_ref(&line));
-        assert_eq!(masked[0].chars().count(), line.chars().count());
+        let line = "> 7bd8ba2  commit 3674252a115234f083666b8957d81d9ef3c3cbfb";
+        let mut buffer = buffer_with(line, 60);
+        mask(&mut buffer);
         assert_eq!(
-            masked[0],
-            "▶ xxxxxxx  commit xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            line_of(&buffer).trim_end(),
+            "> xxxxxxx  commit xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         );
     }
 
@@ -226,71 +276,29 @@ mod tests {
     /// 片方だけ処理して終わると SHA が生のまま残る (実際に踏んだ)
     #[test]
     fn masks_hash_and_date_on_the_same_line() {
-        let line = pane_line(
+        let mut buffer = buffer_with(
             "  7bd8ba2  3 days ago ││   Date:   Sat Aug 1 20:32:28 2026 +0900",
             80,
         );
-        let masked = normalize(&[line]);
-        assert!(masked[0].contains("xxxxxxx"), "{}", masked[0]);
-        assert!(masked[0].contains("<date>"), "{}", masked[0]);
+        mask(&mut buffer);
+        let line = line_of(&buffer);
+        assert!(line.contains("xxxxxxx"), "{line}");
+        assert!(line.contains("<date>"), "{line}");
     }
 
-    /// 日付は文字数そのものが日によって変わるので、後ろに続くセルのスタイル境界も
-    /// 1 桁ずれる。文字だけ伏せて地図を放置すると、地図の側に「UI を変えていないのに
-    /// 出る差分」が残ってしまう
+    /// 全角セルを跨いでも書き戻す位置がずれないこと (全角 1 セル = 2 桁)
     #[test]
-    fn map_is_stable_across_day_of_month_width() {
-        let width = 60;
-        let cases = [
-            ("   Date:   Sat Aug 1 20:32:28 2026 +0900", 40),
-            ("   Date:   Sun Aug 10 20:32:28 2026 +0900", 41),
-        ];
-        let masked: Vec<StyleMap> = cases
-            .iter()
-            .map(|(body, styled)| {
-                let text = normalize(&[pane_line(body, width)]);
-                // 本文だけが色付き、その後ろの余白は素のセル、という実際の並びを写す
-                let row = format!("{}{}", "h".repeat(*styled), ".".repeat(width - styled));
-                normalize_map(
-                    &StyleMap {
-                        rows: vec![row],
-                        legend: vec!["  h  fg=gray".to_string()],
-                    },
-                    &text,
-                )
-            })
-            .collect();
-        assert_eq!(masked[0].rows, masked[1].rows);
-        assert_eq!(masked[0].rows[0].chars().count(), width);
-        assert!(masked[0].rows[0].ends_with(MASKED));
-    }
-
-    /// 地図を潰すのは日付から後ろだけで、それより前のスタイルは残すこと
-    /// (行まるごと潰すと、その行の色の変化を一切検出できなくなる)
-    #[test]
-    fn map_mask_keeps_the_columns_before_the_date() {
-        let width = 60;
-        let text = normalize(&[pane_line("   Date:   Sat Aug 1 20:32:28 2026 +0900", width)]);
-        // 潰す起点は `<date>` の桁 = "│   Date:   " の 12 桁ぶん後ろ
-        let head = "abcdefghijkl";
-        let map = normalize_map(
-            &StyleMap {
-                rows: vec![head.to_string() + &"z".repeat(width - head.len())],
-                legend: Vec::new(),
-            },
-            &text,
-        );
-        assert!(map.rows[0].starts_with(head), "{}", map.rows[0]);
-        assert_eq!(
-            map.rows[0].chars().filter(|c| *c == MASKED).count(),
-            width - head.len()
-        );
+    fn masking_keeps_wide_cells_in_place() {
+        let mut buffer = buffer_with("あ 7bd8ba2 い", 40);
+        mask(&mut buffer);
+        assert_eq!(line_of(&buffer).trim_end(), "あ xxxxxxx い");
     }
 
     /// a-f だけで綴られた英単語 (数字を含まない) を SHA と誤認しないこと
     #[test]
     fn leaves_hex_looking_words_alone() {
-        let line = "acceded deface".to_string();
-        assert_eq!(normalize(std::slice::from_ref(&line))[0], line);
+        let mut buffer = buffer_with("acceded deface", 40);
+        mask(&mut buffer);
+        assert_eq!(line_of(&buffer).trim_end(), "acceded deface");
     }
 }
