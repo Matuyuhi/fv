@@ -1,6 +1,6 @@
 prs — pull requests タブ (GitHub モード) (110x32)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
- viewer   issues  [pull requests]                                                                             
+ Viewer   Issues   Pull Requests                                                                              
 ┌pull requests 2/3 [open]───────┐┌#62  feat: 実装しながら UI を確認できるプレビューを追加する  [description]─┐
 │#62    feat: 実装しながら UI を││#62  feat: 実装しながら UI を確認できるプレビューを追加する                │
 │#58    draft perf: ツリーペイン││open  @matuyuhi  2026-08-01T01:20:00Z                                      │

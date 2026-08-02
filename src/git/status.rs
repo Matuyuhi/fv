@@ -29,6 +29,9 @@ pub struct FileStatus {
 pub struct GitStatus {
     pub files: HashMap<PathBuf, FileStatus>,
     pub changed_dirs: HashSet<PathBuf>,
+    /// 配下に未ステージ変更 (worktree 側) を持つディレクトリ。ツリーの色分けが
+    /// 「配下が全て stage 済みか」を files の全走査なしに判定できるよう changed_dirs と同時に作る
+    pub unstaged_dirs: HashSet<PathBuf>,
 }
 
 /// `git -C <root> status --porcelain -z` を実行し、変更ファイルの絶対パスと
@@ -48,6 +51,7 @@ pub fn file_statuses(root: &Path) -> Option<GitStatus> {
 
     let mut files = HashMap::new();
     let mut changed_dirs = HashSet::new();
+    let mut unstaged_dirs = HashSet::new();
     // -z 区切りの各フィールドを走査。rename/copy (先頭が R/C) は "新パス" フィールドの
     // 直後に XY プレフィックスなしの "旧パス" フィールドが続く2フィールド形式なので、
     // 該当時だけ余分に1つ読み飛ばす
@@ -65,15 +69,20 @@ pub fn file_statuses(root: &Path) -> Option<GitStatus> {
         }
 
         let abs = toplevel.join(path_str);
+        let status = classify(x, y);
         for dir in abs.ancestors().skip(1).take_while(|a| *a != toplevel) {
             changed_dirs.insert(dir.to_path_buf());
+            if status.worktree.is_some() {
+                unstaged_dirs.insert(dir.to_path_buf());
+            }
         }
-        files.insert(abs, classify(x, y));
+        files.insert(abs, status);
     }
 
     Some(GitStatus {
         files,
         changed_dirs,
+        unstaged_dirs,
     })
 }
 
