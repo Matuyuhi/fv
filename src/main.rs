@@ -52,11 +52,11 @@ enum Command {
 
 // --preview 系のヘルプ行。feature を切った製品ビルドでは受け付けないので出さない
 #[cfg(feature = "preview")]
-const PREVIEW_USAGE: &str = "\n       fv --preview [scene]... [--size WxH]";
+const PREVIEW_USAGE: &str = "\n       fv --preview [scene]... [--size WxH]\n       fv --perf";
 #[cfg(not(feature = "preview"))]
 const PREVIEW_USAGE: &str = "";
 #[cfg(feature = "preview")]
-const PREVIEW_HELP: &str = "      --preview   render UI scenes to stdout instead of starting the TUI (no args: list scenes)\n      --size WxH  preview size in columns x rows\n      --no-color  preview without ANSI colors\n";
+const PREVIEW_HELP: &str = "      --preview   render UI scenes to stdout instead of starting the TUI (no args: list scenes)\n      --perf      measure key-to-redraw cost and print TSV instead of starting the TUI\n      --size WxH  preview size in columns x rows\n      --no-color  preview without ANSI colors\n";
 #[cfg(not(feature = "preview"))]
 const PREVIEW_HELP: &str = "";
 

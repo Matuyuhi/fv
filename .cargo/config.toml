@@ -4,3 +4,8 @@
 #   cargo preview            # シーン一覧
 #   cargo preview git log    # 複数シーンを縦に並べる
 preview = "run --quiet --features preview -- --preview"
+
+# キー入力 → 再描画のコストを測る (preview と同じ dev 専用 feature)。最適化を切ると
+# 数字の意味が無くなるので必ず --release で走らせる:
+#   cargo perf               # TSV を stdout へ
+perf = "run --release --quiet --features preview -- --perf"
