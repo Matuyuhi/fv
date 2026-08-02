@@ -17,5 +17,5 @@ wrap — VIEW レーン: 折返し表示 (w) — 続き行の gutter pad (64x18)
 │                 ││   ;                                       │
 │                 ││12▎    let mode = Lane::Git;               │
 └─────────────────┘└───────────────────────────────────────────┘
-[VIEW] EDIT  GIT  LOG   main  j/k: scroll  w: wrap  /: search  e
+ VIEW  EDIT  GIT  LOG   main  j/k: scroll  w: wrap  /: search  e
 └────────────────────────────────────────────────────────────────┘

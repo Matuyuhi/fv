@@ -43,7 +43,12 @@ pub fn build() -> Result<PathBuf, Box<dyn Error>> {
     git(&root, &["add", "src/ui.rs"])?; // staged
     fs::remove_file(root.join("docs/old.md"))?; // deleted
     fs::write(root.join("src/new_lane.rs"), NEW_LANE_RS)?; // untracked
-    Ok(root)
+
+    // main.rs::resolve_root と同じく実体パスへ寄せる。macOS の $TMPDIR は
+    // /var/... → /private/var/... のシンボリックリンクで、そのまま App へ渡すと
+    // git rev-parse --show-toplevel が返す実体パスとツリー走査のパスが食い違い、
+    // GIT レーンの絞り込みが 0 件になる (CI の Linux では起きずローカルだけ壊れる)
+    Ok(root.canonicalize()?)
 }
 
 fn reset_dir(root: &Path) -> Result<(), Box<dyn Error>> {

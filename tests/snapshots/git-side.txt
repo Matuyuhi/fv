@@ -31,5 +31,5 @@ git-side — GIT レーン: side-by-side diff (140x32)
 │                                        ││                                               │                                                │
 │                                        ││                                               │                                                │
 └────────────────────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────────┘
- VIEW  EDIT [GIT] LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  w: wrap  Tab: focus  Shift+Tab: mode  ?: help     
+ VIEW  EDIT  GIT  LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  w: wrap  Tab: focus  Shift+Tab: mode  ?: help     
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

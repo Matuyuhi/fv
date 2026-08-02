@@ -17,5 +17,5 @@ narrow — 狭い端末 (列が落ちる閾値の確認) (64x18)
 │                 ││14▎                                        │
 │                 ││15▎    // 起動直後は GIT レーンに入る      │
 └─────────────────┘└───────────────────────────────────────────┘
-[VIEW] EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a
+ VIEW  EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a
 └────────────────────────────────────────────────────────────────┘

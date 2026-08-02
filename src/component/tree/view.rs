@@ -3,6 +3,7 @@ use std::path::Path;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, ListState};
 
 use crate::component::tree::Tree;
@@ -73,30 +74,34 @@ pub(crate) fn draw_tree(
             } else {
                 String::new()
             };
-            let label = format!(
-                "{}{}{}{}{}",
-                "  ".repeat(row.depth),
-                marker,
-                prefix,
-                icon,
-                row.name
-            );
-            let style = if row.is_dir {
-                let has_changes = git.is_some_and(|g| g.changed_dirs.contains(&row.path));
-                let color = if has_changes {
-                    Color::Yellow
-                } else {
-                    Color::Blue
-                };
-                Style::default().fg(color)
-            } else if let Some(status) = file_status {
-                Style::default()
-                    .fg(status_color(status))
-                    .add_modifier(Modifier::DIM)
+            // 行頭の XY マーカーは git status 準拠の赤/緑。ファイル名は stage 済みの時だけ
+            // 黄色にし、未ステージの間は通常色のまま (常時色を付けると名前が読みにくくなる)
+            let mut spans = vec![Span::raw(format!("{}{}", "  ".repeat(row.depth), marker))];
+            if let Some(status) = file_status {
+                spans.push(Span::styled(
+                    prefix,
+                    Style::default().fg(status_color(status)),
+                ));
+            }
+            // ディレクトリもファイル名と同じ基準で黄色にする。畳んだままの add でも
+            // 色が変わらないと「乗ったのか」が分からないため、配下が全て stage 済みの
+            // ディレクトリだけを黄色にする (未ステージが残っていれば通常のディレクトリ色)
+            let staged = if row.is_dir {
+                git.is_some_and(|g| {
+                    g.changed_dirs.contains(&row.path) && !g.unstaged_dirs.contains(&row.path)
+                })
+            } else {
+                file_status.is_some_and(|s| s.worktree.is_none())
+            };
+            let name_style = if staged {
+                Style::default().fg(Color::Yellow)
+            } else if row.is_dir {
+                Style::default().fg(Color::Blue)
             } else {
                 Style::default()
             };
-            ListItem::new(label).style(style)
+            spans.push(Span::styled(format!("{icon}{}", row.name), name_style));
+            ListItem::new(Line::from(spans))
         })
         .collect();
     let list = List::new(items).block(block).highlight_style(
@@ -161,16 +166,13 @@ fn status_char(kind: Option<StatusKind>) -> char {
     }
 }
 
-// 色は worktree 側を優先する (未ステージの変更の方がこれから触る対象として目立たせたいため)。
-// 未ステージが無ければ index 側で判定する。両方 None は file_status が Some を返す限り
-// 実際には起こらない (porcelain の行は必ずどちらかに変更を持つ)
+// git status のデフォルト配色に揃える: stage 済み (added/updated) が緑、未ステージ
+// (changed/untracked) が赤。worktree 側が None = 未ステージの変更が残っていない状態
+// だけを緑にするので、"MM" (一部だけ stage) は赤のままになる。両方 None は
+// file_status が Some を返す限り実際には起こらない (porcelain の行は必ずどちらかに変更を持つ)
 fn status_color(status: FileStatus) -> Color {
-    match status.worktree.or(status.index) {
-        Some(StatusKind::Modified) => Color::Yellow,
-        Some(StatusKind::Added) | Some(StatusKind::Untracked) | Some(StatusKind::Renamed) => {
-            Color::Green
-        }
-        Some(StatusKind::Deleted) => Color::Red,
-        None => Color::Yellow,
+    match status.worktree {
+        None => Color::Green,
+        Some(_) => Color::Red,
     }
 }
