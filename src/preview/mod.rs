@@ -19,6 +19,7 @@ use std::path::Path;
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 
 use crate::app::App;
 use crate::config::Config;
@@ -107,12 +108,17 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
 
     for scene in &selected {
         let size = options.size.or(scene.size).unwrap_or(DEFAULT_SIZE);
-        let mut body = draw_scene(scene, &root, size, color);
+        let buffer = draw_scene(scene, &root, size);
+        let mut body = render::buffer_lines(&buffer, color);
         if options.update_snapshots {
             body = snapshot::normalize(&body);
         }
-        let card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
+        let mut card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
         if options.update_snapshots {
+            // スナップショットは ANSI を持てないので、色は文字と別レイヤの「地図」で焼く。
+            // stdout へ出す時は本物の色がそのまま見えているので添えない
+            let map = snapshot::normalize_map(&render::style_map(&buffer), &body);
+            card.push_str(&render::style_card(scene.name, size.0, &map, color));
             snapshot::write(scene.name, &card)?;
         } else {
             write!(out, "{card}")?;
@@ -196,11 +202,13 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
     Ok(())
 }
 
-/// 1 シーンを描いて Buffer を文字列行に落とす。
+/// 1 シーンを描いて、描き上がった Buffer をそのまま返す。
+/// 文字列に落とさないのは、呼び出し側が同じ 1 フレームから文字 (`render::buffer_lines`) と
+/// 色 (`render::style_map`) の両方を取り出すため。
 /// 「描画 → setup → 描画」と 2 回描くのは、viewport の高さ・幅やペインの Rect を ui が
 /// App へ書き戻す構造 (CLAUDE.md「描画は自前スライス」) に合わせるため。1 回目で実測値が
 /// 入り、setup のキー列 (Ctrl+d のような height 依存の操作) が実際のアプリと同じ値を見る
-fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16), color: bool) -> Vec<String> {
+fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16)) -> Buffer {
     let config = Config {
         // プレビューを実行した端末の環境 (Nerd Font の有無) に出力が左右されないよう固定する
         icons: false,
@@ -215,7 +223,8 @@ fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16), color: bool) 
     (scene.setup)(&mut app);
     settle(&mut app);
     draw(&mut app);
-    render::buffer_lines(terminal.backend().buffer(), color)
+    // 文字と色 (セルのスタイル) の両方を後段で使うので、行の文字列ではなく Buffer を返す
+    terminal.backend().buffer().clone()
 }
 
 // Finder の候補は別スレッドの全走査で埋まるため、開いた直後は "scanning..." のままになる。

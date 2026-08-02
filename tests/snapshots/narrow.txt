@@ -19,3 +19,45 @@ narrow — 狭い端末 (列が落ちる閾値の確認) (64x18)
 └─────────────────┘└───────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a
 └────────────────────────────────────────────────────────────────┘
+narrow — セルのスタイル (21 種)
+┌────────────────────────────────────────────────────────────────┐
+ooooooooooooooooooo333333333333333333333333333333333333333333333
+o..LLLLLL.........o3333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o..LLLL...........o3333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o..LLL............o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o....LLL..........o3333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTT3
+o4444III4444444444o3333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTT3
+o....111..........o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o....xxxqqqqq.....o3333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o.................o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o.................o3333??C&&&&CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC3
+o.................o3333CCCC???CCCCCCCCCCCCCCCCCCCCCCCCCSSSCOCCS3
+o.................o3333CCCC???C???CCCCCCCCCCCCCCCCCQQQQQQQQQQCC3
+o.................o3sssCCCC???CCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTT3
+o.................o3333CCCCCCCCCCCCCCCCSSSSSSSCCCCCCCCCCCCCCCCC3
+o.................o3sssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o.................o3sssCCCCEEEEEEEEEEEEEEEEEEEEEEEEEEEEEETTTTTT3
+ooooooooooooooooooo333333333333333333333333333333333333333333333
+ggggggccccccccccccccccccnnnncccccccccccccccccccccccccccccccccccc
+└────────────────────────────────────────────────────────────────┘
+  T  bg=#2b303b
+  4  bg=darkgray bold
+  &  fg=#8fa1b3 bg=#2b303b
+  S  fg=#96b5b4 bg=#2b303b
+  E  fg=#9dabb6 bg=#2b303b
+  Q  fg=#a3be8c bg=#2b303b
+  ?  fg=#b48ead bg=#2b303b
+  C  fg=#c0c5ce bg=#2b303b
+  O  fg=#d08770 bg=#2b303b
+  L  fg=blue
+  o  fg=cyan
+  s  fg=cyan bg=#2b303b
+  a  fg=darkgray
+  3  fg=darkgray bg=#2b303b
+  x  fg=green
+  n  fg=magenta
+  1  fg=red
+  I  fg=red bg=darkgray bold
+  c  fg=white
+  g  fg=white bg=green
+  q  fg=yellow

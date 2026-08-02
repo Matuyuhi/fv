@@ -19,3 +19,43 @@ wrap — VIEW レーン: 折返し表示 (w) — 続き行の gutter pad (64x18)
 └─────────────────┘└───────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  j/k: scroll  w: wrap  /: search  e
 └────────────────────────────────────────────────────────────────┘
+wrap — セルのスタイル (19 種)
+┌────────────────────────────────────────────────────────────────┐
+aaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssss
+a..LLLLLL.........as333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLLL...........as333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLL............as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....LLL..........as333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTs
+a4444III4444444444as333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTs
+a....111..........as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....xxxqqqqq.....as333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a.................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a.................as333??C&&&&CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCs
+a.................asTTTCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a.................as333CCCC???CCCCCCCCCCCCCCCCCCCCCCCCCSSSCOCCSs
+a.................asTTTSSSSSSSSSSSSSCCCCCQCCSSSSSSSSSCCCCTTTTTTs
+a.................as333CCCC???C???CCCCCCCCCCCCCCCCCQQQQQQQQQQCCs
+a.................asTTTCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a.................assssCCCC???CCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTs
+aaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssss
+ggggggccccccccccccccccccnnnncccccccccccccccccccccccccccccccccccc
+└────────────────────────────────────────────────────────────────┘
+  T  bg=#2b303b
+  4  bg=darkgray bold
+  &  fg=#8fa1b3 bg=#2b303b
+  S  fg=#96b5b4 bg=#2b303b
+  Q  fg=#a3be8c bg=#2b303b
+  ?  fg=#b48ead bg=#2b303b
+  C  fg=#c0c5ce bg=#2b303b
+  O  fg=#d08770 bg=#2b303b
+  L  fg=blue
+  s  fg=cyan bg=#2b303b
+  a  fg=darkgray
+  3  fg=darkgray bg=#2b303b
+  x  fg=green
+  n  fg=magenta
+  1  fg=red
+  I  fg=red bg=darkgray bold
+  c  fg=white
+  g  fg=white bg=green
+  q  fg=yellow

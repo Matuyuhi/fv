@@ -33,3 +33,60 @@ edit — EDIT レーン: カーソル + 未保存バッファのライブ diff (
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  10:13  Ctrl+s: save  Ctrl+z/y: undo/redo  Ctrl+k: delete line  Esc: exit        
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+edit — セルのスタイル (22 種)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
+a..LLLLLL.......................as333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLLL.........................as333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLL..........................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....LLL........................as333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a4444III444444444444444444444444as333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....111........................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....xxxqqqqq...................as333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333??C&&&&CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................assssCCCCEEEEEEEEEEEEEnEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEs
+a...............................as333CCCC???C???CCCCCCCCCCCCCCCCCQQQQQQQQQQCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................assssCCCC???CCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCCCCCCCCCCSSSSSSSCCCCCCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................assssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................assssCCCCEEEEEEEEEEEEEEEEEEEEEEEEEEEEEETTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................assssCCCCCCCCSSSSSSSSSSCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCCCCCCCCOOCCCCCCCSSSSSSCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333??C&&&&&&&CbbbbCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCTTTTTs
+a...............................as333CCCC???C???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCC???CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCC???CCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCCCCCCCCSSSSCCCCCCCSSSSSSSSSCCCSSSSSSSSSSSSSSSCCCSSSSSSSSSSCCCCTTTs
+a...............................as333CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCCCCSSSSCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333CTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
+ccccccggggggccccccccccccoooocccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  T  bg=#2b303b
+  4  bg=darkgray bold
+  &  fg=#8fa1b3 bg=#2b303b
+  S  fg=#96b5b4 bg=#2b303b
+  E  fg=#9dabb6 bg=#2b303b
+  n  fg=#9dabb6 bg=#2b303b reversed
+  Q  fg=#a3be8c bg=#2b303b
+  ?  fg=#b48ead bg=#2b303b
+  b  fg=#bf616a bg=#2b303b
+  C  fg=#c0c5ce bg=#2b303b
+  O  fg=#d08770 bg=#2b303b
+  L  fg=blue
+  s  fg=cyan bg=#2b303b
+  a  fg=darkgray
+  3  fg=darkgray bg=#2b303b
+  x  fg=green
+  o  fg=magenta
+  1  fg=red
+  I  fg=red bg=darkgray bold
+  c  fg=white
+  g  fg=white bg=green
+  q  fg=yellow
