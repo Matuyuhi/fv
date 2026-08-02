@@ -263,7 +263,7 @@ pub fn map_columns(text: &str) -> usize {
 /// セルが端末上で占める桁数。**プレビューの出力を端末の桁送りに合わせるためだけ**の
 /// 近似で、アプリ本体の桁計算 (text.rs が唯一の定義) には決して使わないこと。
 /// unicode-width を依存に足さない代わりに、East Asian Wide/Fullwidth の主要範囲だけを見る
-fn symbol_width(symbol: &str) -> usize {
+pub(super) fn symbol_width(symbol: &str) -> usize {
     let Some(c) = symbol.chars().next() else {
         return 0;
     };

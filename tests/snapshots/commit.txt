@@ -42,10 +42,10 @@ o..LLL..........................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o................qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaaaaaaaaaa
-o................qaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqaaaaaaaaaaaaaaaaaaaaaqaaaqaaaaaaaaaaaaaaaa
 o................q...........................................................................qaaaaaaaaaaaaaaaa
-o................q...........................................................................qaaaaaaaaaaaaaaaa
+o................qaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqaaaaaaaaaaaaaaaa
 o................q........................................I..................................qaaaaaaaaaaaaaaaa
+o................q...........................................................................qaaaaaaaaaaaaaaaa
 o................q...........................................................................qaaaaaaaaaaaaaaaa
 o................q...........................................................................qaaaaaaaaaaaaaaaa
 o................q...........................................................................qaaaaaaaaaaaaaaaa

@@ -12,6 +12,7 @@ mod perf;
 mod render;
 mod scene;
 mod snapshot;
+mod svg;
 
 use std::error::Error;
 use std::io::{self, IsTerminal, Write};
@@ -39,6 +40,10 @@ pub struct Options {
     /// stdout ではなく tests/snapshots/ へ書き出す (CI の UI 差分検出用)。
     /// シーン無指定は一覧ではなく全シーンの意味になる
     pub update_snapshots: bool,
+    /// stdout ではなく docs/preview/<scene>.svg へ画像を書き出す (README 用)。
+    /// スナップショットと違いシーン無指定を「全部」にはしない — 画像は git の履歴に
+    /// 残り続けるので、載せる先がある画面だけを明示して焼く
+    pub svg: bool,
     /// シーンを描く代わりに、キー入力 → 再描画のコストを測って TSV で出す (perf.rs)
     pub perf: bool,
 }
@@ -61,6 +66,7 @@ impl Options {
                 self.perf = true;
             }
             "--update-snapshots" => self.update_snapshots = true,
+            "--svg" => self.svg = true,
             "--color" => self.color = Some(true),
             "--no-color" => self.color = Some(false),
             "--size" => {
@@ -94,6 +100,12 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
         isolate_env();
         return perf::run(&mut out);
     }
+    if options.svg && options.update_snapshots {
+        return Err("--svg と --update-snapshots は同時に指定できません".into());
+    }
+    if options.svg && options.scenes.is_empty() {
+        return Err("--svg はシーン名が要ります (例: fv --preview view --svg)".into());
+    }
     // シーン無指定: 通常は一覧を出すだけ。スナップショット更新は「全部」の意味にする
     // (cargo preview --update-snapshots だけで CI と同じものが出せるように)
     if options.scenes.is_empty() && !options.update_snapshots {
@@ -109,6 +121,13 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
     for scene in &selected {
         let size = options.size.or(scene.size).unwrap_or(DEFAULT_SIZE);
         let buffer = draw_scene(scene, &root, size);
+        if options.svg {
+            // 画像は文字と色の両方を 1 枚に持つので、テキスト側 (card / 色の地図) を
+            // 併せて出す意味が無い。同じフレームの別の焼き方として完結させる
+            let path = svg::write(scene.name, &svg::render(&buffer))?;
+            writeln!(out, "wrote {}", path.display())?;
+            continue;
+        }
         let mut body = render::buffer_lines(&buffer, color);
         if options.update_snapshots {
             body = snapshot::normalize(&body);
@@ -186,6 +205,10 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
         "usage: fv --preview <scene>... [--size WxH] [--no-color]"
     )?;
     writeln!(out, "       fv --preview all")?;
+    writeln!(
+        out,
+        "       fv --preview <scene> --svg  (docs/preview/<scene>.svg へ画像を焼く)"
+    )?;
     writeln!(
         out,
         "       fv --perf                (キー → 再描画のコストを測る)\n"

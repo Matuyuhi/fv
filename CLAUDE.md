@@ -23,6 +23,7 @@ cargo preview git log               # 複数シーンを縦に並べて描き出
 cargo preview all --size 140x40
 scripts/preview-watch.sh git        # 保存のたびに再ビルド + 再描画
 cargo preview --update-snapshots    # tests/snapshots/ を更新 (UI を変えたらコミットする)
+cargo preview view --svg            # docs/preview/view.svg を焼く (README の画面写真)
 ```
 
 速度は `cargo perf`（同じ dev 専用 feature の別入口）で測る。TUI を起動せず、1 打鍵ぶんの「キー入力 → 再描画」の所要時間を TSV で出す（「速度チェック」節）:
@@ -73,7 +74,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
   - `finder/` — mod.rs(ファジーマッチ自前実装), index.rs(FileIndex: Finder 候補の背景全走査), view.rs
 - `shell/` — 画面全体の骨格と、App 全体を横断して見せる画面。mod.rs(draw・レイアウト・各 View への値の取り出し), status_bar.rs, tab_bar.rs(Workspace タブバー), help.rs, settings.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)。ここに置くか component に置くかの境界は「専用の状態型を持つか」（「描画の依存範囲」節）
 - `widget/` — 複数のコンポーネントが使う描画部品。text_pane.rs(閲覧・編集・diff 共通の描画コア), diff_boundary.rs(sticky header の帯), icons.rs, mod.rs(pane_block / centered_rect)。**どの状態を描くかは持たせない**（渡された Line 列をどう見せるかだけ）
-- `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
+- `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列), svg.rs(Buffer → SVG。README の画面写真), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
 - インフラ（どのコンポーネントにも属さない）: `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・component/branch/mod.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify) / `config.rs`
 - **可視性**: component/widget は別のモジュールツリーから呼ばれるので、跨いで使うものは `pub(crate)` になる（レイヤ別構成なら `component/*/view.rs` 内で `pub(super)` に閉じられていた分の代償）。フォルダ内に閉じるものは `pub(super)` のままにする
 
@@ -303,6 +304,7 @@ git2 クレートは使わず CLI を `GIT_OPTIONAL_LOCKS=0` 付きで実行。p
   - **キーはスタイルの内容から決める（FNV-1a のハッシュ + 衝突時だけ後ろへずらす）**。一覧の index で振ると色を 1 つ足した/変えただけで以降のキーが全部ずれ、地図も凡例も丸ごと差分になる（19 シーン × 33 行が毎回置き換わり、PR コメントの文字数上限も食い潰す）。内容から決めれば、変わったセルの行だけが差分に出る。`std` の `DefaultHasher` は実行ごとに値が変わりうるので使えない
   - **日付を伏せた行は `<date>` の桁から行末までを `~` で潰す**（`snapshot::normalize_map`）。日付は文字数そのものが日によって変わる（Aug 1 / Aug 10）ため、後ろに続くセルのスタイル境界が 1 桁ずれる。文字側だけマスクして地図を放置すると、「UI を変えていないのに毎月差分が出る」が地図側に残る。潰すのは日付より後ろだけで、それ以前の桁の色は差分に出せるまま残す
   - stdout（`cargo preview <scene>`）には地図を添えない。本物の色がそのまま端末に出ているので二重に見せる意味がない
+- **README の画面写真（`--svg` / preview/svg.rs）**: スナップショットと同じ 1 フレームから `docs/preview/<scene>.svg` を焼き、CI の同じステップが描き直して main への push で追従コミットする（手で撮ったスクリーンショットを貼ると実装とすぐ食い違うため、README からは生成物だけを参照する）。**PNG にしない理由は 3 つ**: ラスタ化には依存（フォントを読むクレート）が要る / CI のランナーに日本語フォントが無く合成リポジトリの日本語が豆腐になる（SVG なら描画は閲覧者のブラウザ側）/ テキストなので git の履歴に置け、GitHub の Files changed で描画して比べられる。**桁の整合は 1 文字ずつ `x` を書いて取る** — 閲覧環境の等幅フォントは送り幅が違う（0.55em〜0.6em）ので run の先頭だけ置くと行の右へ行くほどずれ、`textLength` で run 幅を宣言すると字間・字形が引き伸ばされて読めなくなる（セルの格子に 1 文字ずつ載せるのは端末そのものの振る舞い）。**空白のセルは本文から落とす**（位置決めは後続の文字が自分の `x` を持つので要らない）。これで XML の空白の扱いに一切依存しなくなる — `xml:space="preserve"` は SVG2 で非推奨で、実際に Chromium では効かず字送りが 1 文字ずつずれた。`CELL_W` はフォントの送り幅 0.6em ちょうどに合わせる（狭いと罫線 `─ │ ┌` が繋がらず枠が破線に見える。font-size 15 なら 9 で割り切れ、座標が全て整数になる）。`Color::Reset`（端末に任せる意味）とテーマを持たない ANSI 16 色はここで具体的な RGB に決め打つしかないので、既定テーマ (base16-ocean.dark) の隣で浮かない値を選んである。**シーン無指定を「全部」にはしない**（スナップショットとは違う点）— 画像は git の履歴に残り続けるので、載せる先があるシーンだけを明示して焼く
 
 ### 速度チェック（`cargo perf` + `.github/workflows/perf.yml`）
 「AI が書いたコードをその場で手直しする」のが用途なので、**1 打鍵ぶんのコスト**が壊れていないかを見る。`src/preview/perf.rs` が preview と同じ dev 専用 feature の別入口として入っていて、`TestBackend` に `shell::draw` をそのまま通す（計測専用の描画経路は作らない — そこを分けると「ベンチだけ速い」が起きる）。状態もキー列で組み立てるので、`app/keys.rs` の優先順位を通らない経路を測ってしまうこともない。

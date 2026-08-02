@@ -1,6 +1,7 @@
 # fv
 
-<img width="700" alt="スクリーンショット 2026-07-18 21 19 04" src="https://github.com/user-attachments/assets/5736ca52-ebf1-42d5-92fa-61c41ebc7e97" />
+<!-- CI が UI スナップショットと同じ 1 フレームから焼き直す (docs/preview/)。手で貼り替えない -->
+<img width="700" alt="fv: file tree, syntax-highlighted viewer and git status in one terminal" src="docs/preview/view.svg" />
 
 
 TUI code viewer with syntax highlighting, git status, and inline editing.
@@ -163,6 +164,19 @@ show up in your own PR's diff:
 
 ```sh
 cargo preview --update-snapshots
+```
+
+### Screenshots
+
+The screenshot at the top of this file is not a screenshot: it is `docs/preview/view.svg`,
+rendered from the same frame as the `view` snapshot and refreshed by the same CI job, so it can
+never drift away from what the app actually draws. SVG rather than PNG because it needs no
+rasteriser (and therefore no new dependency), it carries no fonts of its own — so CJK text in
+the sample repository renders with the reader's fonts rather than as tofu — and GitHub renders
+it in a PR diff, which a binary image cannot do.
+
+```sh
+cargo preview view --svg          # writes docs/preview/view.svg
 ```
 
 ## License
