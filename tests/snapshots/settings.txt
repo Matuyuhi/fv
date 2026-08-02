@@ -33,3 +33,48 @@ settings — s 設定オーバーレイ (110x32)
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
 [VIEW] EDIT  GIT  LOG   main  j/k: select  h/l/Enter: change  s: close                                        
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+settings — セルのスタイル (10 種)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................oooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o................rrr..................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o................rrr..................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o4444444444444444NNN4444444444444444444444444444444444oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o................rrrrrrrrrrrrrrrrr....................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o................rrr..................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o.....................................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o.....................................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o.....................................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................o.....................................................oaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaoaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...........................oooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+qqqqqqSSSSSSddddddddddddbbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  4  bg=darkgray bold
+  &  fg=blue bg=darkgray bold
+  o  fg=cyan
+  a  fg=darkgray
+  S  fg=gray bg=darkgray dim
+  b  fg=magenta bg=darkgray
+  d  fg=white bg=darkgray
+  q  fg=white bg=darkgray bold reversed
+  r  fg=yellow
+  N  fg=yellow bg=darkgray bold

@@ -9,6 +9,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use super::render::{self, StyleMap};
+
 // 出力先はコンパイル時に確定するソースツリー。プレビューは dev 専用 feature なので、
 // どこから実行してもリポジトリ内の同じ場所を更新するのが正しい
 pub fn dir() -> PathBuf {
@@ -63,6 +65,51 @@ pub fn normalize(lines: &[String]) -> Vec<String> {
             mask_date(&masked).unwrap_or(masked)
         })
         .collect()
+}
+
+/// 色の地図側の正規化。文字の方は `normalize` が桁数を保つので地図の桁とはずれないが、
+/// **日付だけは元の文字数そのものが日によって変わる** (Aug 1 / Aug 10) ため、日付の後ろに
+/// 続くセルのスタイル境界が 1 桁ずれる。文字は伏せたのに地図が毎月ずれる、では
+/// 「UI を変えていないのに差分が出る」が地図側に残ってしまうので、日付を伏せた行は
+/// 日付の先頭から行末までを 1 文字で塗り潰す (その先はペインの余白と枠だけで、
+/// 潰しても失われる情報が無い)
+pub fn normalize_map(map: &StyleMap, text: &[String]) -> StyleMap {
+    let mut masked = false;
+    let rows = map
+        .rows
+        .iter()
+        .zip(text)
+        .map(|(row, line)| match date_column(line) {
+            Some(col) => {
+                masked = true;
+                flatten_from(row, col)
+            }
+            None => row.clone(),
+        })
+        .collect();
+    let mut legend = map.legend.clone();
+    if masked {
+        legend.push(format!("  {MASKED}  (日付マスク: 桁がずれるため潰した)"));
+    }
+    StyleMap { rows, legend }
+}
+
+/// 潰した領域を表す記号。凡例のキー (英数字) と重ならない文字にして、
+/// 「スタイルが 1 種類ある」と読み違えないようにする
+const MASKED: char = '~';
+
+// マスク済みの行における日付の開始桁。地図は 1 セル 1 文字なので、文字側の桁
+// (全角セルは 2 文字ぶん) と数え方を揃えてから位置を取る
+fn date_column(line: &str) -> Option<usize> {
+    let idx = line.find("<date>")?;
+    Some(render::map_columns(&line[..idx]))
+}
+
+fn flatten_from(row: &str, col: usize) -> String {
+    let chars: Vec<char> = row.chars().collect();
+    let head: String = chars.iter().take(col).collect();
+    let tail: String = std::iter::repeat_n(MASKED, chars.len().saturating_sub(col)).collect();
+    format!("{head}{tail}")
 }
 
 // `Date:   Sat Aug 1 20:32:28 2026 +0900` (git show のヘッダ)。
@@ -186,6 +233,58 @@ mod tests {
         let masked = normalize(&[line]);
         assert!(masked[0].contains("xxxxxxx"), "{}", masked[0]);
         assert!(masked[0].contains("<date>"), "{}", masked[0]);
+    }
+
+    /// 日付は文字数そのものが日によって変わるので、後ろに続くセルのスタイル境界も
+    /// 1 桁ずれる。文字だけ伏せて地図を放置すると、地図の側に「UI を変えていないのに
+    /// 出る差分」が残ってしまう
+    #[test]
+    fn map_is_stable_across_day_of_month_width() {
+        let width = 60;
+        let cases = [
+            ("   Date:   Sat Aug 1 20:32:28 2026 +0900", 40),
+            ("   Date:   Sun Aug 10 20:32:28 2026 +0900", 41),
+        ];
+        let masked: Vec<StyleMap> = cases
+            .iter()
+            .map(|(body, styled)| {
+                let text = normalize(&[pane_line(body, width)]);
+                // 本文だけが色付き、その後ろの余白は素のセル、という実際の並びを写す
+                let row = format!("{}{}", "h".repeat(*styled), ".".repeat(width - styled));
+                normalize_map(
+                    &StyleMap {
+                        rows: vec![row],
+                        legend: vec!["  h  fg=gray".to_string()],
+                    },
+                    &text,
+                )
+            })
+            .collect();
+        assert_eq!(masked[0].rows, masked[1].rows);
+        assert_eq!(masked[0].rows[0].chars().count(), width);
+        assert!(masked[0].rows[0].ends_with(MASKED));
+    }
+
+    /// 地図を潰すのは日付から後ろだけで、それより前のスタイルは残すこと
+    /// (行まるごと潰すと、その行の色の変化を一切検出できなくなる)
+    #[test]
+    fn map_mask_keeps_the_columns_before_the_date() {
+        let width = 60;
+        let text = normalize(&[pane_line("   Date:   Sat Aug 1 20:32:28 2026 +0900", width)]);
+        // 潰す起点は `<date>` の桁 = "│   Date:   " の 12 桁ぶん後ろ
+        let head = "abcdefghijkl";
+        let map = normalize_map(
+            &StyleMap {
+                rows: vec![head.to_string() + &"z".repeat(width - head.len())],
+                legend: Vec::new(),
+            },
+            &text,
+        );
+        assert!(map.rows[0].starts_with(head), "{}", map.rows[0]);
+        assert_eq!(
+            map.rows[0].chars().filter(|c| *c == MASKED).count(),
+            width - head.len()
+        );
     }
 
     /// a-f だけで綴られた英単語 (数字を含まない) を SHA と誤認しないこと

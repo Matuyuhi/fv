@@ -33,3 +33,56 @@ git-side — GIT レーン: side-by-side diff (140x32)
 └────────────────────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────────┘
  VIEW  EDIT [GIT] LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  w: wrap  Tab: focus  Shift+Tab: mode  ?: help     
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+git-side — セルのスタイル (18 種)
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+arrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrraoTTTssssssssssssssssssssssssssssssTTTTTTTTTTTTTTaTTTssssssssssssssssssssssssssssssTTTTTTTTTTTTTTTo
+a1111111111111111111111111111111111111111ao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+arrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+aiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+aVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVao333JJJJJJJJJJJJJJJJJJJJJJhJhhJTTTTTTTTTTTTTTTTTa333@@@@@@@@@@@@@@@@@@@@@@x@x@TTTTTTTTTTTTTTTTTTTo
+aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@TTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333@@@@@@@@@@@@@@@@@@@@@@@@@@TTTTTTTTTTTTTTTTTTTo
+a........................................ao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................ao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................ao333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTa333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+a........................................aoTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTaTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTo
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo
+ddddddSSSSSSqqqqqdddddddbbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  T  bg=#2b303b
+  o  fg=cyan
+  s  fg=cyan bg=#2b303b
+  a  fg=darkgray
+  3  fg=darkgray bg=#2b303b
+  S  fg=gray bg=darkgray dim
+  x  fg=green bg=#145a14
+  @  fg=green bg=#2b303b
+  V  fg=green dim
+  b  fg=magenta bg=darkgray
+  J  fg=red bg=#2b303b
+  h  fg=red bg=#6e1919
+  1  fg=red dim
+  d  fg=white bg=darkgray
+  q  fg=white bg=darkgray bold reversed
+  r  fg=yellow
+  i  fg=yellow bg=darkgray bold dim
+  A  fg=yellow dim

@@ -33,3 +33,47 @@ commit — c コミットメッセージ入力 (50/72 桁ルーラー付き) (11
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
 [VIEW] EDIT  GIT  LOG   main  commit  Enter: 改行  Ctrl+s: 確定  Esc: 閉じる                                  
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+commit — セルのスタイル (9 種)
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o................rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrraaaaaaaaaaaaaaaa
+o................raaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaraaaaaaaaaaaaaaaaaaaaaraaaraaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r........................................I..................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................r...........................................................................raaaaaaaaaaaaaaaa
+o................raaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaraaaaaaaaaaaaaaaa
+o................rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrraaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+qqqqqqSSSSSSddddddddddddbbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  &  fg=blue bg=darkgray bold
+  o  fg=cyan
+  a  fg=darkgray
+  S  fg=gray bg=darkgray dim
+  b  fg=magenta bg=darkgray
+  d  fg=white bg=darkgray
+  q  fg=white bg=darkgray bold reversed
+  r  fg=yellow
+  I  reversed

@@ -19,3 +19,44 @@ narrow — 狭い端末 (列が落ちる閾値の確認) (64x18)
 └─────────────────┘└───────────────────────────────────────────┘
 [VIEW] EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a
 └────────────────────────────────────────────────────────────────┘
+narrow — セルのスタイル (20 種)
+┌────────────────────────────────────────────────────────────────┐
+ooooooooooooooooooo333333333333333333333333333333333333333333333
+oLLLLLLLLLLLLLLLLLo3333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+orrrrrrrrrrrrrrrrro3333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+orrrrrrrrrrrrrrrrro3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+oLLLLLLLLLLLLLLLLLo3333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTT3
+ohhhhhhhhhhhhhhhhho3333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTT3
+oVVVVVVVVVVVVVVVVVo3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+oAAAAAAAAAAAAAAAAAo3333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o.................o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o.................o3333??C&&&&CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC3
+o.................o3333CCCC???CCCCCCCCCCCCCCCCCCCCCCCCCSSSCOCCS3
+o.................o3333CCCC???C???CCCCCCCCCCCCCCCCCQQQQQQQQQQCC3
+o.................o3sssCCCC???CCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTT3
+o.................o3333CCCCCCCCCCCCCCCCSSSSSSSCCCCCCCCCCCCCCCCC3
+o.................o3sssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o.................o3sssCCCCEEEEEEEEEEEEEEEEEEEEEEEEEEEEEETTTTTT3
+ooooooooooooooooooo333333333333333333333333333333333333333333333
+qqqqqqddddddddddddddddddbbbbdddddddddddddddddddddddddddddddddddd
+└────────────────────────────────────────────────────────────────┘
+  T  bg=#2b303b
+  &  fg=#8fa1b3 bg=#2b303b
+  S  fg=#96b5b4 bg=#2b303b
+  E  fg=#9dabb6 bg=#2b303b
+  Q  fg=#a3be8c bg=#2b303b
+  ?  fg=#b48ead bg=#2b303b
+  C  fg=#c0c5ce bg=#2b303b
+  O  fg=#d08770 bg=#2b303b
+  L  fg=blue
+  o  fg=cyan
+  s  fg=cyan bg=#2b303b
+  a  fg=darkgray
+  3  fg=darkgray bg=#2b303b
+  V  fg=green dim
+  b  fg=magenta bg=darkgray
+  d  fg=white bg=darkgray
+  q  fg=white bg=darkgray bold reversed
+  r  fg=yellow
+  h  fg=yellow bg=darkgray bold dim
+  A  fg=yellow dim

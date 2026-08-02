@@ -142,6 +142,21 @@ rather than "something changed":
 Volatile values (commit SHAs, absolute dates) are masked while keeping their column width, so
 the snapshots stay byte-identical between runs and still read as screenshots.
 
+Colour is captured too, as a second layer. Inline ANSI escapes would make the diff unreadable,
+so each screen is followed by a grid of the same size with one character per cell standing for
+that cell's style, plus a legend — a change that only touches colours still shows up as
+concrete lines:
+
+```diff
+-oLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLoaaaaaaaaaaa
++onnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoaaaaaaaaaaa
+-  L  fg=blue
++  n  fg=magenta
+```
+
+Legend keys are derived from the style itself rather than from its position in the list, so
+adding or changing one colour does not relabel every other cell in every scene.
+
 A stale snapshot never fails a PR: the committed files are refreshed automatically by a bot
 commit once the change lands on `main`. Refresh them yourself only if you want the UI change to
 show up in your own PR's diff:
