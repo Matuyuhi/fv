@@ -6,6 +6,8 @@ use crate::component::finder::Finder;
 use crate::component::gitlane::GitState;
 use crate::component::log::LogState;
 
+use super::commit::CommitDraft;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Tree,
@@ -84,13 +86,11 @@ pub enum Mode {
         action: ConfirmAction,
     },
     // コミットメッセージ入力オーバーレイ (`c`/`C`)。Search/Goto の 1 行入力用 Input では
-    // 複数行編集を表現できないため独立させた。buffer は改行を含む生テキスト、cursor は
-    // buffer 内の char インデックス (常に 1 次元、行/桁の 2 次元カーソルは持たない)。
+    // 複数行編集を表現できないため独立させた。件名と本文は別の入力欄として CommitDraft が持つ。
     // error は pre-commit hook 失敗時の stderr 要約 — Esc/破棄せず同じオーバーレイに留めて
     // 見せるため Mode 自体に持たせる (App.notice だとオーバーレイを閉じた後の表示になってしまう)
     Commit {
-        buffer: String,
-        cursor: usize,
+        draft: CommitDraft,
         amend: bool,
         error: Option<String>,
     },

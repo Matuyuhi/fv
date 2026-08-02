@@ -149,7 +149,7 @@ pub const SCENES: &[Scene] = &[
         size: None,
         setup: |app| {
             send(app, "c");
-            send(app, "feat: プレビュー機能を追加する<CR><CR>");
+            send(app, "feat: プレビュー機能を追加する<CR>");
             send(app, "実装しながら UI を確認できるようにする。");
         },
     },
