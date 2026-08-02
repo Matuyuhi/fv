@@ -13,10 +13,6 @@
 //! 宣言する手もあるが、字間や字形が引き伸ばされて読みにくくなる。
 //! セルの格子に 1 文字ずつ載せるのは端末そのものの振る舞いなので、これが一番素直。
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 
@@ -88,22 +84,6 @@ impl Run {
             .iter()
             .all(|(_, symbol)| symbol.trim().is_empty())
     }
-}
-
-/// 出力先。スナップショット (tests/snapshots) と分けてあるのは、こちらは
-/// テストの成果物ではなく README から参照するドキュメントの一部だから
-pub fn dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("docs")
-        .join("preview")
-}
-
-pub fn write(name: &str, text: &str) -> io::Result<PathBuf> {
-    let dir = dir();
-    fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("{name}.svg"));
-    fs::write(&path, text)?;
-    Ok(path)
 }
 
 pub fn render(buffer: &Buffer) -> String {

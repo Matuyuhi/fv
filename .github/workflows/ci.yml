@@ -15,7 +15,7 @@ jobs:
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # contents: write は main への push でスナップショットを追従コミットするためだけに使う
+    # contents: write は main への push で画像を追従コミットするためだけに使う
     # (PR の実行では push しない)。fork からの PR では GITHUB_TOKEN が
     # 権限指定に関わらず読み取り専用になるので、コメントも push も静かに諦める
     permissions:
@@ -79,63 +79,51 @@ jobs:
       - name: Test
         run: cargo test --verbose --features preview
 
-      # UI のスナップショット差分。プレビュー (preview/) の全シーンを描き直して、
-      # コミット済みのテキストと突き合わせる。
+      # UI のスクリーンショットテスト。プレビュー (preview/) の全シーンを描き直して、
+      # コミット済みの画像 (docs/preview/*.svg) と突き合わせる。画像そのものがスナップショット
+      # なので、UI の差分は GitHub が SVG を描画して見せてくれる (Files changed の画像比較)。
       #
       # **差分があっても PR は落とさない**。差分そのものは次のステップが PR コメントとして
       # 出すので、赤い × は「見せる」目的には何も足していない。作者に更新コミットを強いる
-      # だけになる。コミット済みテキストとのズレは main への push 時に自動追従で解消する
+      # だけになる。コミット済み画像とのズレは main への push 時に自動追従で解消する
       # (PR で更新し忘れても、マージ後の main は必ず現在の描画と一致する)。
       #
       # 代償として、描画が非決定になった場合に「毎回 main へ追従コミットが積まれる」形で
-      # しか気づけなくなる (落ちていた頃は PR で即座に分かった)。正規化のユニットテストと
-      # 履歴に残る chore コミットの目立ちで足りるという判断
-      - name: UI snapshots
-        env:
-          # README に載せる画面。テキストのスナップショットと同じ 1 フレームから焼くので、
-          # 「実装は変わったのにスクリーンショットだけ古い」が起きない。
-          # 画像は git の履歴に残り続けるため、載せる先があるシーンだけを挙げる
-          IMAGE_SCENES: view
+      # しか気づけなくなる。マスク (SHA・日時) のユニットテストと、履歴に残る chore コミットの
+      # 目立ちで足りるという判断
+      - name: UI screenshots
         run: |
           cargo run --quiet --features preview -- --preview --update-snapshots
-          for scene in $IMAGE_SCENES; do
-            cargo run --quiet --features preview -- --preview "$scene" --svg
-          done
           # 新規シーンのファイルは未追跡のままだと git diff に出ないので intent-to-add しておく
-          git add --intent-to-add tests/snapshots docs/preview
-          if git diff --quiet -- tests/snapshots docs/preview; then
+          git add --intent-to-add docs/preview
+          if git diff --quiet -- docs/preview; then
             exit 0
           fi
-          # 画像は XML の差分を出しても読めない (GitHub の Files changed なら描画して比べられる)
-          git --no-pager diff -- tests/snapshots
+          git --no-pager diff --stat -- docs/preview
           # main への push: 追従コミットを積む。独立した 2 つの PR がそれぞれ緑のまま
           # マージされて食い違うこと (semantic conflict) もここで吸収される
           if [ "${{ github.event_name }}" = "push" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add tests/snapshots docs/preview
+            git add docs/preview
             # [skip ci] は無限ループ避けの保険。描画が非決定になった時に
             # 「push する → CI が走る → また push する」を繰り返さないため
-            git commit -q -m "chore: UI スナップショット・画像を更新 [skip ci]"
+            git commit -q -m "chore: UI スクリーンショットを更新 [skip ci]"
             git push origin "HEAD:${{ github.ref_name }}" ||
-              echo "::warning::UI スナップショット・画像の自動更新を push できませんでした"
+              echo "::warning::UI スクリーンショットの自動更新を push できませんでした"
             exit 0
           fi
-          # PR: 落とさず知らせるだけ。差分の中身は次のステップが PR コメントに出す
-          {
-            echo '### UI snapshot diff'
-            echo '```diff'
-            git diff -- tests/snapshots
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::UI が変わりました。差分は PR のコメントを参照 (手元で反映するなら 'cargo preview --update-snapshots')"
+          # PR: 落とさず知らせるだけ。どのシーンが変わったかは次のステップが PR コメントに出す
+          echo "::notice::コミット済みの UI 画像が現在の描画と食い違っています ('cargo preview --update-snapshots' で更新)"
 
       # base との UI 差分を PR のコメントに出す。Actions のログを開かなくても、
-      # 会話の流れの中で「この変更で画面がどう変わるか」を読めるようにするため。
-      # スナップショットが古くて前のステップが落ちた場合こそ見たいので always()
-      - name: Comment UI diff
+      # 会話の流れの中で「この変更で画面がどう変わるか」を絵で読めるようにするため。
+      # 画像がコミットされていない (作者が更新し忘れた) 場合こそ知らせたいので always()
+      - name: Comment UI screenshots
         if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: scripts/ci-ui-diff-comment.sh
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: scripts/ci-ui-screenshot-comment.sh

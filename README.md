@@ -1,6 +1,6 @@
 # fv
 
-<!-- CI が UI スナップショットと同じ 1 フレームから焼き直す (docs/preview/)。手で貼り替えない -->
+<!-- UI スクリーンショットテストの成果物そのもの (docs/preview/)。CI が焼き直すので手で貼り替えない -->
 <img width="700" alt="fv: file tree, syntax-highlighted viewer and git status in one terminal" src="docs/preview/view.svg" />
 
 
@@ -127,57 +127,35 @@ scripts/preview-watch.sh git      # rebuilds and redraws whenever src/ changes
 
 Add a scene in `src/preview/scene.rs`; a scene is a name, a description and a key script.
 
-### UI snapshots
+### UI screenshot tests
 
-Every scene is also committed as plain text under `tests/snapshots/`, and CI re-renders them on
-every PR. If the rendering changed, a bot comment shows the diff scene by scene (collapsed, so
-long screens stay out of the way) — an unintended UI regression shows up as concrete lines
-rather than "something changed":
-
-```diff
--│▾ src                          │
-+│▾ docs                         │
-+│     D old.md                  │
-```
-
-Volatile values (commit SHAs, absolute dates) are masked while keeping their column width, so
-the snapshots stay byte-identical between runs and still read as screenshots.
-
-Colour is captured too, as a second layer. Inline ANSI escapes would make the diff unreadable,
-so each screen is followed by a grid of the same size with one character per cell standing for
-that cell's style, plus a legend — a change that only touches colours still shows up as
-concrete lines:
-
-```diff
--oLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLoaaaaaaaaaaa
-+onnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoaaaaaaaaaaa
--  L  fg=blue
-+  n  fg=magenta
-```
-
-Legend keys are derived from the style itself rather than from its position in the list, so
-adding or changing one colour does not relabel every other cell in every scene.
-
-A stale snapshot never fails a PR: the committed files are refreshed automatically by a bot
-commit once the change lands on `main`. Refresh them yourself only if you want the UI change to
-show up in your own PR's diff:
+Every scene is also committed as an image under `docs/preview/`, and CI re-renders all of them on
+every PR. The images *are* the snapshots — there is no separate text form. Since they are SVG,
+GitHub renders them: the diff shows up as a before/after picture in Files changed, and a bot
+comment puts the changed scenes side by side in the conversation, so an unintended UI regression
+is something you can actually see.
 
 ```sh
-cargo preview --update-snapshots
+cargo preview --update-snapshots        # re-render every scene into docs/preview/
+cargo preview view --update-snapshots   # just one
 ```
 
-### Screenshots
+Volatile values (commit SHAs, absolute dates) are masked while keeping their column width, so the
+images stay byte-identical between runs and still read as screenshots. Masking happens on the
+rendered buffer rather than on text, because the image carries per-cell colour too: the style
+boundary left by a shorter date would otherwise move even after the text was padded back to a
+fixed width.
 
-The screenshot at the top of this file is not a screenshot: it is `docs/preview/view.svg`,
-rendered from the same frame as the `view` snapshot and refreshed by the same CI job, so it can
-never drift away from what the app actually draws. SVG rather than PNG because it needs no
-rasteriser (and therefore no new dependency), it carries no fonts of its own — so CJK text in
-the sample repository renders with the reader's fonts rather than as tofu — and GitHub renders
-it in a PR diff, which a binary image cannot do.
+SVG rather than PNG because it needs no rasteriser (and therefore no new dependency), it carries
+no fonts of its own — so the Japanese text in the sample repository renders with the reader's
+fonts rather than as tofu — and it is text, so it lives in git history like any other file.
+Columns are held by giving every glyph its own `x`, the way a terminal puts characters on a grid;
+relying on the viewer's font advance would drift across a 110-column line.
 
-```sh
-cargo preview view --svg          # writes docs/preview/view.svg
-```
+A stale image never fails a PR: the committed files are refreshed automatically by a bot commit
+once the change lands on `main`. Refresh them yourself if you want the UI change to show up in
+your own PR — and the screenshot at the top of this README, which is `docs/preview/view.svg`, to
+match your branch.
 
 ## License
 

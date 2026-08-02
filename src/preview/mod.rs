@@ -37,13 +37,10 @@ pub struct Options {
     pub size: Option<(u16, u16)>,
     /// None なら出力先が端末かどうかで決める (パイプ・リダイレクトでは色を落とす)
     pub color: Option<bool>,
-    /// stdout ではなく tests/snapshots/ へ書き出す (CI の UI 差分検出用)。
+    /// stdout ではなく docs/preview/<scene>.svg へ画像を書き出す
+    /// (CI の UI 差分検出用 = スクリーンショットテスト。README もこの画像を指す)。
     /// シーン無指定は一覧ではなく全シーンの意味になる
     pub update_snapshots: bool,
-    /// stdout ではなく docs/preview/<scene>.svg へ画像を書き出す (README 用)。
-    /// スナップショットと違いシーン無指定を「全部」にはしない — 画像は git の履歴に
-    /// 残り続けるので、載せる先がある画面だけを明示して焼く
-    pub svg: bool,
     /// シーンを描く代わりに、キー入力 → 再描画のコストを測って TSV で出す (perf.rs)
     pub perf: bool,
 }
@@ -66,7 +63,6 @@ impl Options {
                 self.perf = true;
             }
             "--update-snapshots" => self.update_snapshots = true,
-            "--svg" => self.svg = true,
             "--color" => self.color = Some(true),
             "--no-color" => self.color = Some(false),
             "--size" => {
@@ -100,12 +96,6 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
         isolate_env();
         return perf::run(&mut out);
     }
-    if options.svg && options.update_snapshots {
-        return Err("--svg と --update-snapshots は同時に指定できません".into());
-    }
-    if options.svg && options.scenes.is_empty() {
-        return Err("--svg はシーン名が要ります (例: fv --preview view --svg)".into());
-    }
     // シーン無指定: 通常は一覧を出すだけ。スナップショット更新は「全部」の意味にする
     // (cargo preview --update-snapshots だけで CI と同じものが出せるように)
     if options.scenes.is_empty() && !options.update_snapshots {
@@ -113,35 +103,24 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let selected = resolve_scenes(&options.scenes)?;
-    // スナップショットは色を持たない (ANSI を含めると git diff が読めなくなるため)
     let color = !options.update_snapshots && options.color.unwrap_or_else(|| out.is_terminal());
     isolate_env();
     let root = fixture::build()?;
 
     for scene in &selected {
         let size = options.size.or(scene.size).unwrap_or(DEFAULT_SIZE);
-        let buffer = draw_scene(scene, &root, size);
-        if options.svg {
-            // 画像は文字と色の両方を 1 枚に持つので、テキスト側 (card / 色の地図) を
-            // 併せて出す意味が無い。同じフレームの別の焼き方として完結させる
-            let path = svg::write(scene.name, &svg::render(&buffer))?;
+        let mut buffer = draw_scene(scene, &root, size);
+        if options.update_snapshots {
+            // 実行のたびに変わる値 (SHA・絶対日時) は描き上がった Buffer の上で伏せる。
+            // stdout へ出す時は伏せない — 手元で見る絵は本物の値のままの方が読める
+            snapshot::mask(&mut buffer);
+            let path = snapshot::write(scene.name, &svg::render(&buffer))?;
             writeln!(out, "wrote {}", path.display())?;
             continue;
         }
-        let mut body = render::buffer_lines(&buffer, color);
-        if options.update_snapshots {
-            body = snapshot::normalize(&body);
-        }
-        let mut card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
-        if options.update_snapshots {
-            // スナップショットは ANSI を持てないので、色は文字と別レイヤの「地図」で焼く。
-            // stdout へ出す時は本物の色がそのまま見えているので添えない
-            let map = snapshot::normalize_map(&render::style_map(&buffer), &body);
-            card.push_str(&render::style_card(scene.name, size.0, &map, color));
-            snapshot::write(scene.name, &card)?;
-        } else {
-            write!(out, "{card}")?;
-        }
+        let body = render::buffer_lines(&buffer, color);
+        let card = render::card(scene.name, scene.description, size.0, size.1, &body, color);
+        write!(out, "{card}")?;
     }
     if options.update_snapshots {
         report_snapshots(&mut out, &selected)?;
@@ -207,7 +186,7 @@ fn print_catalog(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "       fv --preview all")?;
     writeln!(
         out,
-        "       fv --preview <scene> --svg  (docs/preview/<scene>.svg へ画像を焼く)"
+        "       fv --preview [<scene>...] --update-snapshots  (docs/preview/ へ画像を焼く)"
     )?;
     writeln!(
         out,

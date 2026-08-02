@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="604" height="388" viewBox="0 0 604 388" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, &apos;DejaVu Sans Mono&apos;, monospace" font-size="15">
+<rect width="604" height="388" rx="8" fill="#1e222a"/>
+<rect x="185" y="14" width="405" height="20" fill="#2b303b"/>
+<text x="14 23 32 41 50 59 68 77 86 95 104 113 122 131 140 149 158 167 176" y="29" fill="#96b5b4">┌fv-preview-fixtur┐</text>
+<text x="185 194 203 212 221 230 239 248 257 266 275 284 293 302 311 320 329 338 347 356 365 374 383 392 401 410 419 428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 563 572 581" y="29" fill="#65737e">┌src/main.rs────────────────────────────────┐</text>
+<rect x="185" y="34" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="49" fill="#96b5b4">│</text>
+<text x="23" y="49" fill="#c0c5ce">▸</text>
+<text x="41 50 59 68 77 86" y="49" fill="#8fa1b3">assets</text>
+<text x="176" y="49" fill="#96b5b4">│</text>
+<text x="185 203" y="49" fill="#65737e">│1</text>
+<text x="221 230 239" y="49" fill="#b48ead">mod</text>
+<text x="257 266 275 284" y="49" fill="#c0c5ce">app;</text>
+<text x="581" y="49" fill="#65737e">│</text>
+<rect x="185" y="54" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="69" fill="#96b5b4">│</text>
+<text x="23" y="69" fill="#c0c5ce">▸</text>
+<text x="41 50 59 68" y="69" fill="#8fa1b3">docs</text>
+<text x="176" y="69" fill="#96b5b4">│</text>
+<text x="185 203" y="69" fill="#65737e">│2</text>
+<text x="221 230 239" y="69" fill="#b48ead">mod</text>
+<text x="257 266 275" y="69" fill="#c0c5ce">ui;</text>
+<text x="581" y="69" fill="#65737e">│</text>
+<rect x="185" y="74" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="89" fill="#96b5b4">│</text>
+<text x="23" y="89" fill="#c0c5ce">▾</text>
+<text x="41 50 59" y="89" fill="#8fa1b3">src</text>
+<text x="176" y="89" fill="#96b5b4">│</text>
+<text x="185 203" y="89" fill="#65737e">│3</text>
+<text x="581" y="89" fill="#65737e">│</text>
+<rect x="185" y="94" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="109" fill="#96b5b4">│</text>
+<text x="41" y="109" fill="#c0c5ce">▸</text>
+<text x="59 68 77" y="109" fill="#8fa1b3">app</text>
+<text x="176" y="109" fill="#96b5b4">│</text>
+<text x="185 203" y="109" fill="#65737e">│4</text>
+<text x="221 230 239" y="109" fill="#b48ead">use</text>
+<text x="257 266 275 284 293 302 311 320 329 338 347 356 365 374 383 392 401 410" y="109" fill="#c0c5ce">std::error::Error;</text>
+<text x="581" y="109" fill="#65737e">│</text>
+<rect x="23" y="114" width="153" height="20" fill="#65737e"/>
+<rect x="185" y="114" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="129" fill="#96b5b4">│</text>
+<text x="68" y="129" fill="#bf616a" font-weight="bold">M</text>
+<text x="86 95 104 113 122 131 140" y="129" fill="#c0c5ce" font-weight="bold">main.rs</text>
+<text x="176" y="129" fill="#96b5b4">│</text>
+<text x="185 203" y="129" fill="#65737e">│5</text>
+<text x="221 230 239" y="129" fill="#b48ead">use</text>
+<text x="257 266 275 284 293 302 311 320 329 338 347 356 365 374 383 392 401 410 419" y="129" fill="#c0c5ce">std::path::PathBuf;</text>
+<text x="581" y="129" fill="#65737e">│</text>
+<rect x="185" y="134" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="149" fill="#96b5b4">│</text>
+<text x="59 68" y="149" fill="#bf616a">??</text>
+<text x="86 95 104 113 122 131 140 149 158 167" y="149" fill="#c0c5ce">new_lane.r</text>
+<text x="176" y="149" fill="#96b5b4">│</text>
+<text x="185 203" y="149" fill="#65737e">│6</text>
+<text x="581" y="149" fill="#65737e">│</text>
+<rect x="185" y="154" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="169" fill="#96b5b4">│</text>
+<text x="59" y="169" fill="#a3be8c">M</text>
+<text x="86 95 104 113 122" y="169" fill="#ebcb8b">ui.rs</text>
+<text x="176" y="169" fill="#96b5b4">│</text>
+<text x="185 203" y="169" fill="#65737e">│7</text>
+<text x="221 230 239" y="169" fill="#b48ead">use</text>
+<text x="257 266 275 284 293 302 311 320 329" y="169" fill="#c0c5ce">app::App;</text>
+<text x="581" y="169" fill="#65737e">│</text>
+<rect x="185" y="174" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="189" fill="#96b5b4">│</text>
+<text x="41 50 59 68 77 86 95 104 113" y="189" fill="#c0c5ce">README.md</text>
+<text x="176" y="189" fill="#96b5b4">│</text>
+<text x="185 203" y="189" fill="#65737e">│8</text>
+<text x="581" y="189" fill="#65737e">│</text>
+<rect x="185" y="194" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="209" fill="#96b5b4">│</text>
+<text x="176" y="209" fill="#96b5b4">│</text>
+<text x="185 203" y="209" fill="#65737e">│9</text>
+<text x="221 230" y="209" fill="#b48ead">fn</text>
+<text x="248 257 266 275" y="209" fill="#8fa1b3">main</text>
+<text x="284 293 311 320 338 347 356 365 374 383 392 401 410 419 437 446 455 464 473 482 491 509 518 527 536 545 554 563" y="209" fill="#c0c5ce">()-&gt;Result&lt;(),Box&lt;dynError&gt;&gt;</text>
+<text x="581" y="209" fill="#65737e">│</text>
+<rect x="185" y="214" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="229" fill="#96b5b4">│</text>
+<text x="176" y="229" fill="#96b5b4">│</text>
+<text x="185 194 203" y="229" fill="#65737e">│10</text>
+<text x="257 266 275" y="229" fill="#b48ead">let</text>
+<text x="293 302 311 320 338 356 365 374 383 392 401 410 419 428 437 446 455 464 473 482 491 500" y="229" fill="#c0c5ce">root=std::env::args().</text>
+<text x="509 518 527" y="229" fill="#96b5b4">nth</text>
+<text x="536" y="229" fill="#c0c5ce">(</text>
+<text x="545" y="229" fill="#d08770">1</text>
+<text x="554 563" y="229" fill="#c0c5ce">).</text>
+<text x="572" y="229" fill="#96b5b4">u</text>
+<text x="581" y="229" fill="#65737e">│</text>
+<rect x="185" y="234" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="249" fill="#96b5b4">│</text>
+<text x="176" y="249" fill="#96b5b4">│</text>
+<text x="185 194 203" y="249" fill="#65737e">│11</text>
+<text x="257 266 275" y="249" fill="#b48ead">let</text>
+<text x="293 302 311" y="249" fill="#b48ead">mut</text>
+<text x="329 338 347 365 383 392 401 410 419 428 437 446 455 464" y="249" fill="#c0c5ce">app=App::new("</text>
+<text x="473 482 491 500 509 518 527 536 545 554" y="249" fill="#a3be8c">sample-app</text>
+<text x="563 572" y="249" fill="#c0c5ce">")</text>
+<text x="581" y="249" fill="#65737e">│</text>
+<rect x="185" y="254" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="269" fill="#96b5b4">│</text>
+<text x="176" y="269" fill="#96b5b4">│</text>
+<text x="185" y="269" fill="#65737e">│</text>
+<text x="194 203 212" y="269" fill="#96b5b4">12▎</text>
+<text x="257 266 275" y="269" fill="#b48ead">let</text>
+<text x="293 302 311 320 338 356 365 374 383 392 401 410 419 428 437" y="269" fill="#c0c5ce">mode=Lane::Git;</text>
+<text x="581" y="269" fill="#65737e">│</text>
+<rect x="185" y="274" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="289" fill="#96b5b4">│</text>
+<text x="176" y="289" fill="#96b5b4">│</text>
+<text x="185 194 203" y="289" fill="#65737e">│13</text>
+<text x="257 266 275 284 293 302 311 320 329 347" y="289" fill="#c0c5ce">app.items=</text>
+<text x="365 374 383 392 401 410 419" y="289" fill="#96b5b4">collect</text>
+<text x="428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 563 572" y="289" fill="#c0c5ce">(&amp;PathBuf::from(r</text>
+<text x="581" y="289" fill="#65737e">│</text>
+<rect x="185" y="294" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="309" fill="#96b5b4">│</text>
+<text x="176" y="309" fill="#96b5b4">│</text>
+<text x="185" y="309" fill="#65737e">│</text>
+<text x="194 203 212" y="309" fill="#96b5b4">14▎</text>
+<text x="581" y="309" fill="#65737e">│</text>
+<rect x="185" y="314" width="405" height="20" fill="#2b303b"/>
+<text x="14" y="329" fill="#96b5b4">│</text>
+<text x="176" y="329" fill="#96b5b4">│</text>
+<text x="185" y="329" fill="#65737e">│</text>
+<text x="194 203 212" y="329" fill="#96b5b4">15▎</text>
+<text x="257 266 284 302 320 338 356 383 392 401 419 437 455 473 491 509" y="329" fill="#9dabb6">//起動直後はGITレーンに入る</text>
+<text x="581" y="329" fill="#65737e">│</text>
+<rect x="185" y="334" width="405" height="20" fill="#2b303b"/>
+<text x="14 23 32 41 50 59 68 77 86 95 104 113 122 131 140 149 158 167 176" y="349" fill="#96b5b4">└─────────────────┘</text>
+<text x="185 194 203 212 221 230 239 248 257 266 275 284 293 302 311 320 329 338 347 356 365 374 383 392 401 410 419 428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 563 572 581" y="349" fill="#65737e">└───────────────────────────────────────────┘</text>
+<rect x="14" y="354" width="54" height="20" fill="#a3be8c"/>
+<text x="23 32 41 50" y="369" fill="#eff1f5">VIEW</text>
+<text x="77 86 95 104 131 140 149 176 185 194" y="369" fill="#eff1f5">EDITGITLOG</text>
+<text x="230 239 248 257" y="369" fill="#b48ead">main</text>
+<text x="284 293 302 311 329 338 347 356 383 392 401 410 428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 581" y="369" fill="#eff1f5">j/k:moveh/l:collapse/expanda</text>
+</svg>
