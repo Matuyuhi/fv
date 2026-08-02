@@ -33,24 +33,43 @@ BASE_TARGET_DIR="$PWD/target/perf-base"
 
 head_tsv=$(mktemp)
 base_tsv=$(mktemp)
+head_sha=$(git rev-parse HEAD)
 
 echo "measuring head..."
 $PERF_CMD >"$head_tsv"
 cat "$head_tsv"
 
-# base 側。この計測自体が入っていない base (これを追加した PR など) では失敗するので、
-# 比較を諦めて head だけ出す
+# $work の中で base を測る。空でない TSV が出れば成功
+measure_base() {
+    (cd "$work" && CARGO_TARGET_DIR="$BASE_TARGET_DIR" $PERF_CMD) >"$base_tsv" 2>/dev/null &&
+        [ -s "$base_tsv" ]
+}
+
 have_base=0
+grafted=0
 if git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF:-}" >/dev/null 2>&1; then
     work=$(mktemp -d)
     if git worktree add --detach "$work" FETCH_HEAD >/dev/null 2>&1; then
         echo "measuring base (${GITHUB_BASE_REF})..."
-        if (cd "$work" && CARGO_TARGET_DIR="$BASE_TARGET_DIR" $PERF_CMD) >"$base_tsv" 2>/dev/null &&
-            [ -s "$base_tsv" ]; then
+        if measure_base; then
             have_base=1
-            cat "$base_tsv"
         else
-            echo "base の計測を実行できませんでした (--perf 未対応、またはビルド失敗)。head の値だけ出します"
+            # base にこの計測がまだ無い (これを追加した PR) / 古い形の場合。head 側の
+            # 計測コードだけを base のツリーへ移植して測り直す — アプリのコードは base の
+            # まま、ものさしだけ head に揃えることで比較が成立する。計測自体を変える PR で
+            # 「base と head で違うものさしを比べる」のを防ぐ意味もある。
+            # base が古すぎて head の preview/ がコンパイルできない場合は素直に諦める
+            echo "base にこの計測が無い/古いので、head 側の計測コードを移植して測り直します"
+            if git -C "$work" checkout "$head_sha" -- src/preview >/dev/null 2>&1 &&
+                measure_base; then
+                have_base=1
+                grafted=1
+            else
+                echo "base の計測を実行できませんでした。head の値だけ出します"
+            fi
+        fi
+        if [ "$have_base" -eq 1 ]; then
+            cat "$base_tsv"
         fi
         git worktree remove --force "$work" >/dev/null 2>&1 || true
     fi
@@ -92,6 +111,10 @@ if [ "$have_base" -eq 1 ]; then
     worst_pct=${worst##*	}
     printf '\n_同じ runner で連続して測った 2 点の比です。実測で数 %% はぶれるので、' >>"$body"
     printf 'それを超えた行だけ見てください。この結果で PR は落としません。_\n' >>"$body"
+    if [ "$grafted" -eq 1 ]; then
+        printf '\n_base 側にはこの計測がまだ無いため、**head の計測コードだけを base のツリーへ移植**して測っています' >>"$body"
+        printf ' (アプリのコードは base のまま)。_\n' >>"$body"
+    fi
     # awk の比較は文字列になりうるので数値として比べ直す
     if [ "$(awk -v a="$worst_pct" -v b="$WARN_PCT" 'BEGIN { print (a > b) ? 1 : 0 }')" = "1" ]; then
         echo "::warning::${worst_name} が base より ${worst_pct}% 遅くなっています"
