@@ -33,22 +33,22 @@ git-all — GIT レーン: 全ファイルまとめ diff (sticky header 付き) 
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  4 changes  j/k: scroll  ]/[: hunk  /: search  A: all files  }/{: file  w: wrap  
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-git-all — セルのスタイル (18 種)
+git-all — セルのスタイル (19 種)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
-arrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrasSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSs
-a1111111111111111111111111111111asTTTSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSs
-arrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrasTTTsssssssssssssssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-aiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiasTTTJJJJJJJJJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-aVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVasTTTJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAasTTTJJJJJJJJJJJJJJJJJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLLL.........................asSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSs
+a....111........................asTTTSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSs
+a..LLL..........................asTTTsssssssssssssssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a4444III444444444444444444444444asTTTJJJJJJJJJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....111........................asTTTJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....xxxqqqqq...................asTTTJJJJJJJJJJJJJJJJJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................asTTTSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSs
 a...............................asTTTssssssssssssssssssssssssssssssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................asTTTJJJJJJJJJJJJJJJJJJJJJJhJhhJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-a...............................as333@@@@@@@@@@@@@@@@@@@@@@x@x@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333@@@@@@@@@@@@@@@@@@@@@@y@y@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
@@ -62,27 +62,28 @@ a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................asTTTJJJJJJJJJJJJJJJJJJJJJJJJJTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-a...............................as333@@@@@@@@@@@@@@@@@@@@@@@xxxxxxx@@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a...............................as333@@@@@@@@@@@@@@@@@@@@@@@yyyyyyy@@TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
-ddddddUUUUUUqqqqqdddddddbbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cccccc######gggggcccccccnnnncccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
   T  bg=#2b303b
+  4  bg=darkgray bold
   S  fg=black bg=cyan bold
+  L  fg=blue
   s  fg=cyan bg=#2b303b
   a  fg=darkgray
   3  fg=darkgray bg=#2b303b
-  U  fg=gray bg=darkgray dim
-  x  fg=green bg=#145a14
+  #  fg=gray dim
+  x  fg=green
+  y  fg=green bg=#145a14
   @  fg=green bg=#2b303b
-  V  fg=green dim
-  b  fg=magenta bg=darkgray
+  n  fg=magenta
+  1  fg=red
   J  fg=red bg=#2b303b
   h  fg=red bg=#6e1919
-  1  fg=red dim
-  d  fg=white bg=darkgray
-  q  fg=white bg=darkgray bold reversed
-  r  fg=yellow
-  i  fg=yellow bg=darkgray bold dim
-  A  fg=yellow dim
+  I  fg=red bg=darkgray bold
+  c  fg=white
+  g  fg=white bg=green
+  q  fg=yellow

@@ -36,9 +36,9 @@ branch — b ブランチ一覧オーバーレイ (110x32)
 branch — セルのスタイル (13 種)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-o&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o44&&&&&&44444444444444444444444oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o..LLLL.........................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o..LLL..........................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o................oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaa
@@ -66,18 +66,18 @@ o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-qqqqqqSSSSSSddddddddddddbbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggggg######ccccccccccccnnnncccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
   4  bg=darkgray bold
+  L  fg=blue
   &  fg=blue bg=darkgray bold
   o  fg=cyan
   a  fg=darkgray
   6  fg=darkgray bg=darkgray bold
-  S  fg=gray bg=darkgray dim
+  #  fg=gray dim
   M  fg=green bg=darkgray bold
-  b  fg=magenta bg=darkgray
-  d  fg=white bg=darkgray
-  q  fg=white bg=darkgray bold reversed
-  r  fg=yellow
+  n  fg=magenta
+  c  fg=white
+  g  fg=white bg=green
   N  fg=yellow bg=darkgray bold
   I  reversed

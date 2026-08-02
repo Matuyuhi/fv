@@ -33,16 +33,16 @@ edit — EDIT レーン: カーソル + 未保存バッファのライブ diff (
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  10:13  Ctrl+s: save  Ctrl+z/y: undo/redo  Ctrl+k: delete line  Esc: exit        
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-edit — セルのスタイル (21 種)
+edit — セルのスタイル (22 種)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
-aLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLas333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-arrrrrrrrrrrrrrrrrrrrrrrrrrrrrrras333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-arrrrrrrrrrrrrrrrrrrrrrrrrrrrrrras333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-aLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLas333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-ahhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhas333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-aVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVas333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
-aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAas333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLLLLL.......................as333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLLL.........................as333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a..LLL..........................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....LLL........................as333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a4444III444444444444444444444444as333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....111........................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
+a....xxxqqqqq...................as333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333??C&&&&CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................assssCCCCEEEEEEEEEEEEEnEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEs
@@ -66,9 +66,10 @@ a...............................as333CCCCCCCCCCSSSSCCCTTTTTTTTTTTTTTTTTTTTTTTTTT
 a...............................as333CCCCCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 a...............................as333CTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTs
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaasssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
-ddddddqqqqqqddddddddddddccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ccccccggggggccccccccccccoooocccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
   T  bg=#2b303b
+  4  bg=darkgray bold
   &  fg=#8fa1b3 bg=#2b303b
   S  fg=#96b5b4 bg=#2b303b
   E  fg=#9dabb6 bg=#2b303b
@@ -82,10 +83,10 @@ ddddddqqqqqqddddddddddddccccdddddddddddddddddddddddddddddddddddddddddddddddddddd
   s  fg=cyan bg=#2b303b
   a  fg=darkgray
   3  fg=darkgray bg=#2b303b
-  V  fg=green dim
-  c  fg=magenta bg=darkgray
-  d  fg=white bg=darkgray
-  q  fg=white bg=darkgray bold reversed
-  r  fg=yellow
-  h  fg=yellow bg=darkgray bold dim
-  A  fg=yellow dim
+  x  fg=green
+  o  fg=magenta
+  1  fg=red
+  I  fg=red bg=darkgray bold
+  c  fg=white
+  g  fg=white bg=green
+  q  fg=yellow

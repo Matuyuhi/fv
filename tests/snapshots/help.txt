@@ -33,12 +33,12 @@ help — ? ヘルプオーバーレイ (110x32)
 └───────────────────────────────┘└───────────────────────────────────────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  ?: close                                                                        
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-help — セルのスタイル (9 種)
+help — セルのスタイル (10 種)
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-o&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-orrrrrrrrrrrrrrrrrrrrrrrrrrrrrrroaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-orrrrrrrrrrrrrrrroooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaa
+o44&&&&&&44444444444444444444444oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o..LLLL.........................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+o..LLL...........oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaa
 o................oUUUUUU.....................................................................oaaaaaaaaaaaaaaaa
 o................o...........................................................................oaaaaaaaaaaaaaaaa
 o................o...........................................................................oaaaaaaaaaaaaaaaa
@@ -66,14 +66,15 @@ o................o..............................................................
 o................oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaa
 o...............................oaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 oooooooooooooooooooooooooooooooooaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-qqqqqqSSSSSSddddddddddddbbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+gggggg######ccccccccccccnnnncccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  4  bg=darkgray bold
+  L  fg=blue
   &  fg=blue bg=darkgray bold
   o  fg=cyan
   U  fg=cyan bold
   a  fg=darkgray
-  S  fg=gray bg=darkgray dim
-  b  fg=magenta bg=darkgray
-  d  fg=white bg=darkgray
-  q  fg=white bg=darkgray bold reversed
-  r  fg=yellow
+  #  fg=gray dim
+  n  fg=magenta
+  c  fg=white
+  g  fg=white bg=green

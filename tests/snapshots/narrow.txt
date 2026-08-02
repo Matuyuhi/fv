@@ -19,16 +19,16 @@ narrow — 狭い端末 (列が落ちる閾値の確認) (64x18)
 └─────────────────┘└───────────────────────────────────────────┘
  VIEW  EDIT  GIT  LOG   main  j/k: move  h/l: collapse/expand  a
 └────────────────────────────────────────────────────────────────┘
-narrow — セルのスタイル (20 種)
+narrow — セルのスタイル (21 種)
 ┌────────────────────────────────────────────────────────────────┐
 ooooooooooooooooooo333333333333333333333333333333333333333333333
-oLLLLLLLLLLLLLLLLLo3333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
-orrrrrrrrrrrrrrrrro3333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
-orrrrrrrrrrrrrrrrro3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
-oLLLLLLLLLLLLLLLLLo3333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTT3
-ohhhhhhhhhhhhhhhhho3333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTT3
-oVVVVVVVVVVVVVVVVVo3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
-oAAAAAAAAAAAAAAAAAo3333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o..LLLLLL.........o3333???CCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o..LLLL...........o3333???CCCCTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o..LLL............o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o....LLL..........o3333???CCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTTT3
+o4444III4444444444o3333???CCCCCCCCCCCCCCCCCCCCTTTTTTTTTTTTTTTTT3
+o....111..........o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
+o....xxxqqqqq.....o3333???CCCCCCCCCCTTTTTTTTTTTTTTTTTTTTTTTTTTT3
 o.................o3333TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
 o.................o3333??C&&&&CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC3
 o.................o3333CCCC???CCCCCCCCCCCCCCCCCCCCCCCCCSSSCOCCS3
@@ -38,9 +38,10 @@ o.................o3333CCCCCCCCCCCCCCCCSSSSSSSCCCCCCCCCCCCCCCCC3
 o.................o3sssTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT3
 o.................o3sssCCCCEEEEEEEEEEEEEEEEEEEEEEEEEEEEEETTTTTT3
 ooooooooooooooooooo333333333333333333333333333333333333333333333
-qqqqqqddddddddddddddddddbbbbdddddddddddddddddddddddddddddddddddd
+ggggggccccccccccccccccccnnnncccccccccccccccccccccccccccccccccccc
 └────────────────────────────────────────────────────────────────┘
   T  bg=#2b303b
+  4  bg=darkgray bold
   &  fg=#8fa1b3 bg=#2b303b
   S  fg=#96b5b4 bg=#2b303b
   E  fg=#9dabb6 bg=#2b303b
@@ -53,10 +54,10 @@ qqqqqqddddddddddddddddddbbbbdddddddddddddddddddddddddddddddddddd
   s  fg=cyan bg=#2b303b
   a  fg=darkgray
   3  fg=darkgray bg=#2b303b
-  V  fg=green dim
-  b  fg=magenta bg=darkgray
-  d  fg=white bg=darkgray
-  q  fg=white bg=darkgray bold reversed
-  r  fg=yellow
-  h  fg=yellow bg=darkgray bold dim
-  A  fg=yellow dim
+  x  fg=green
+  n  fg=magenta
+  1  fg=red
+  I  fg=red bg=darkgray bold
+  c  fg=white
+  g  fg=white bg=green
+  q  fg=yellow
