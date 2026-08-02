@@ -6,6 +6,7 @@ mod keys;
 mod mode;
 mod mouse;
 
+pub use commit::{CommitDraft, CommitField};
 pub use mode::{
     ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace,
 };
@@ -101,11 +102,12 @@ pub struct App {
     status_pending: bool,
     /// 直近で stage/unstage を実行した時刻 (Space のキーリピート対策)
     last_stage_toggle: Instant,
-    /// `c` で開いた通常コミットの下書き。Esc で閉じても捨てず、次に `c` を押した時に復元する
-    commit_draft: Option<String>,
+    /// `c` で開いた通常コミットの下書き。Esc で閉じても捨てず、次に `c` を押した時に
+    /// 書きかけの位置ごと復元する
+    commit_draft: Option<CommitDraft>,
     /// `C` で開いた amend コミットの下書き。amend は既存メッセージのプリフィルがあるため
     /// commit_draft とは別に持つ (無ければ都度 `git log -1 --format=%B` からプリフィルする)
-    amend_draft: Option<String>,
+    amend_draft: Option<CommitDraft>,
     /// GitHub モードを使いたいかどうか (起動オプション or 設定トグル)。使えるかどうかは別
     /// (github_available)。3 経路 (--github / 設定トグル / config ファイル) が結局この
     /// フラグ 1 つに集約される
