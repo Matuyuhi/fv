@@ -67,13 +67,13 @@ printf '### 速度チェック\n\n' >>"$body"
 
 if [ "$have_base" -eq 1 ]; then
     printf '1 打鍵 (キー入力 → 再描画 1 回) あたりの所要時間。小さいほど速い。\n\n' >>"$body"
+    # ヘッダは awk の外で出す。中で出そうとすると「1 行目は # のコメント行なので
+    # skip される」規則と順序が絡んで落としやすい (実際に落として気づいた)
+    printf '| ケース | ops | base | head | 差分 |\n| --- | --: | --: | --: | --: |\n' >>"$body"
     worst=$(awk -F'\t' -v out="$body" '
         /^#/ { next }
         # 1 つ目のファイル = base
         FNR == NR { base[$1] = $4; next }
-        FNR == 1 {
-            printf "| ケース | ops | base | head | 差分 |\n| --- | --: | --: | --: | --: |\n" >> out
-        }
         {
             head_v = $4 + 0
             if (!($1 in base)) {
@@ -98,9 +98,9 @@ if [ "$have_base" -eq 1 ]; then
     fi
 else
     printf 'base ではこの計測を実行できなかったため (この PR で追加された等)、head の値だけ出します。\n\n' >>"$body"
+    printf '| ケース | ops | head |\n| --- | --: | --: |\n' >>"$body"
     awk -F'\t' -v out="$body" '
         /^#/ { next }
-        FNR == 1 { printf "| ケース | ops | head |\n| --- | --: | --: |\n" >> out }
         { printf "| `%s` | %s | %.3f ms |\n", $1, $2, $4 + 0 >> out }
     ' "$head_tsv"
 fi
