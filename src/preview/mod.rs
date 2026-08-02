@@ -217,6 +217,13 @@ fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16)) -> Buffer {
         ..Config::default()
     };
     let mut app = App::new(root.to_path_buf(), config, false);
+    // GitHub モードのタブバーは Workspace を問わず全ての画面に乗るので、プレビューでは
+    // 常に有効側で描く (実機で GitHub モードを使っている時の見え方に揃える)。
+    // ここで App::new に --github を渡さないのは check_available (gh の有無・認証・
+    // リモートの判定) を走らせないため — 実環境への問い合わせで絵が変わってはいけない。
+    // 判定済みの結果だけを差し込む
+    app.github_enabled = true;
+    app.github_available = true;
     let mut terminal = Terminal::new(TestBackend::new(size.0, size.1)).expect("test backend");
     let mut draw = |app: &mut App| {
         let _ = terminal.draw(|frame| crate::shell::draw(frame, app));

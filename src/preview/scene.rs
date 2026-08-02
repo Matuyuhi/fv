@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
-use crate::app::{App, Lane, Workspace};
+use crate::app::{App, Lane};
 use crate::component::prs::DetailView;
 use crate::github::{PrRow, RemoteItem};
 
@@ -174,7 +174,7 @@ pub const SCENES: &[Scene] = &[
         description: "issues タブ (GitHub モード)",
         size: None,
         setup: |app| {
-            enable_github(app, Workspace::Issues);
+            send(app, "<A-2>");
             let rows = sample_issues();
             let number = rows[1].number;
             let (tx, rx) = mpsc::channel();
@@ -194,7 +194,7 @@ pub const SCENES: &[Scene] = &[
         description: "pull requests タブ (GitHub モード)",
         size: None,
         setup: |app| {
-            enable_github(app, Workspace::PullRequests);
+            send(app, "<A-3>");
             let rows = sample_prs();
             let number = rows[0].item.number;
             let (tx, rx) = mpsc::channel();
@@ -266,14 +266,6 @@ fn select(app: &mut App, rel: &str) -> PathBuf {
         }
     }
     path
-}
-
-// gh を呼ばずに GitHub モードのタブを出す。check_available は実環境への問い合わせなので、
-// プレビューでは判定済みの結果だけを差し込む
-fn enable_github(app: &mut App, workspace: Workspace) {
-    app.github_enabled = true;
-    app.github_available = true;
-    app.workspace = workspace;
 }
 
 fn sample_issues() -> Vec<RemoteItem> {
