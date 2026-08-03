@@ -64,10 +64,14 @@ git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || {
 base_sha=$(git rev-parse FETCH_HEAD)
 
 # base と**今の作業ツリー** (直前のステップが描き直した実物) の差 = この PR による UI の変化。
-# 作者がコミット済みかどうかとは独立に出す
-changed=$(git diff --name-only FETCH_HEAD -- "$DIR" | sed "s|^$DIR/||;s|\.svg$||" | sort)
+# 作者がコミット済みかどうかとは独立に出す。
+# $DIR には README.md 等シーンではないファイルも置けるので、拡張子で絞ってから
+# シーン名に変換する (絞らないと README.md を「シーン README」として扱ってしまい、
+# 存在しない README.md.svg を探しに行って落ちる)
+changed=$(git diff --name-only FETCH_HEAD -- "$DIR" | grep '\.svg$' |
+    sed "s|^$DIR/||;s|\.svg$||" | sort)
 # 作業ツリーと HEAD のずれ = 更新し忘れているシーン
-stale=$(git status --porcelain -- "$DIR" | awk '{print $NF}' |
+stale=$(git status --porcelain -- "$DIR" | awk '{print $NF}' | grep '\.svg$' |
     sed "s|^$DIR/||;s|\.svg$||" | sort)
 
 existing=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
