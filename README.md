@@ -127,6 +127,8 @@ scripts/preview-watch.sh git      # rebuilds and redraws whenever src/ changes
 
 Add a scene in `src/preview/scene.rs`; a scene is a name, a description and a key script.
 
+See [`docs/preview/README.md`](docs/preview/README.md) for a screenshot of every scene.
+
 ### UI screenshot tests
 
 Every scene is also committed as an image under `docs/preview/`, and CI re-renders all of them on
