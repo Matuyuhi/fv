@@ -280,7 +280,11 @@ impl App {
             if open_path.as_deref() == Some(change.path.as_path()) {
                 self.viewer.reload(&change.path);
                 changed = true;
-            } else if change.structural {
+            }
+            // 開いているファイル自身の変更でも git status の再取得は要る。以前はここが
+            // else if で繋がっていたため、閲覧・編集中のファイルを書き換えても差分の有無
+            // (= GIT レーンの可否・ツリーの status・diff) が r を押すまで更新されなかった
+            if change.structural {
                 // ファイルの作成・削除・リネーム。ツリーの行構成が変わりうるので全走査が要る
                 self.rescan_pending = true;
             } else {

@@ -338,9 +338,18 @@ impl App {
         };
         // 「wrap 中は hscroll = 0」は Viewport のメソッドと EditState::ensure_visible が
         // 維持するため、閲覧へ戻る際の後始末は不要
-        match state.handle_key(key, &mut self.viewer) {
+        let outcome = state.handle_key(key, &mut self.viewer);
+        // 保存で差分が生まれた/消えた分を git status へ反映させる。FS 監視のイベントでも
+        // 同じことが起きるが、監視を張れない環境でも効かせるためここでも保留を立てる
+        // (ファイルの増減は起きないので全走査は要らない = status_pending だけ)。
+        // 再取得自体は on_tick の 500ms デバウンスに任せ、連続保存で git を連打しない
+        let saved = state.take_saved();
+        match outcome {
             EditOutcome::Exit => self.lane = Lane::View,
             EditOutcome::Continue => {}
+        }
+        if saved {
+            self.status_pending = true;
         }
     }
 
