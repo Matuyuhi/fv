@@ -84,7 +84,7 @@ fn hint_line(app: &App) -> Line<'static> {
         } => input_line(':', buffer),
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Branch(_) => Line::from("Enter: switch  Ctrl+n: new branch  Esc: close"),
-        Mode::Help => Line::from("?: close"),
+        Mode::Help { .. } => Line::from("j/k: scroll  Ctrl+d/u: page  gg/G: top/bottom  ?: close"),
         Mode::Settings(_) => Line::from("j/k: select  h/l/Enter: change  s: close"),
         Mode::Confirm { prompt, .. } => confirm_line(prompt),
         Mode::Commit { amend, error, .. } => commit_line(*amend, error.as_deref()),
@@ -254,7 +254,16 @@ fn git_status_line(app: &App) -> Line<'static> {
                 .to_string()
         }
         Focus::Viewer => {
-            let mut hint = "j/k: scroll  ]/[: hunk  /: search  A: all files".to_string();
+            let mut hint = "j/k: scroll  ]/[: hunk".to_string();
+            // Space の向きは diff 基準で決まるので、押す前にどちらになるかを出す
+            if !git.showing_all() {
+                hint.push_str(if git.unstaging() {
+                    "  Space: unstage hunk"
+                } else {
+                    "  Space: stage hunk"
+                });
+            }
+            hint.push_str("  /: search  A: all files");
             if git.showing_all() {
                 hint.push_str("  }/{: file");
             }

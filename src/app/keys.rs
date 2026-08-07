@@ -27,8 +27,8 @@ impl App {
             self.on_confirm_key(key);
             return;
         }
-        if let Mode::Help = &self.mode {
-            self.on_help_key(key);
+        if let Mode::Help { .. } = &self.mode {
+            self.on_help_key(key, ctrl);
             return;
         }
         if let Mode::Settings(_) = &self.mode {
@@ -115,7 +115,7 @@ impl App {
                 return;
             }
             KeyCode::Char('?') => {
-                self.mode = Mode::Help;
+                self.mode = Mode::Help { scroll: 0 };
                 return;
             }
             KeyCode::Char('a') => {
@@ -368,10 +368,36 @@ impl App {
     }
 
     // Help 中は ?/Esc/q のいずれでも閉じる。それ以外は無視する (Ctrl+c は on_key 冒頭で処理済み)
-    fn on_help_key(&mut self, key: KeyEvent) {
+    // ヘルプは全レーン分を並べると端末の高さに収まらないので、他のペインと同じ操作感で
+    // スクロールできるようにする。ページ送り量・上限は描画側が書き戻した実測 (help_view) を使う
+    fn on_help_key(&mut self, key: KeyEvent, ctrl: bool) {
+        let (height, total) = self.help_view;
+        let max = total.saturating_sub(height);
+        let half_page = (height / 2).max(1) as isize;
+        if self.pending_g {
+            self.pending_g = false;
+            if key.code == KeyCode::Char('g') {
+                self.scroll_help(-(max as isize), max);
+                return;
+            }
+        }
         match key.code {
             KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Char('d') if ctrl => self.scroll_help(half_page, max),
+            KeyCode::Char('u') if ctrl => self.scroll_help(-half_page, max),
+            KeyCode::Char('j') | KeyCode::Down => self.scroll_help(1, max),
+            KeyCode::Char('k') | KeyCode::Up => self.scroll_help(-1, max),
+            KeyCode::PageDown => self.scroll_help(height as isize, max),
+            KeyCode::PageUp => self.scroll_help(-(height as isize), max),
+            KeyCode::Char('g') => self.pending_g = true,
+            KeyCode::Char('G') => self.scroll_help(max as isize, max),
             _ => {}
+        }
+    }
+
+    fn scroll_help(&mut self, delta: isize, max: usize) {
+        if let Mode::Help { scroll } = &mut self.mode {
+            *scroll = (*scroll as isize + delta).clamp(0, max as isize) as usize;
         }
     }
 
@@ -543,6 +569,13 @@ impl App {
                 }
                 return;
             }
+        }
+        // Space: 今見ている hunk だけを index へ適用/取り消し (hunk 単位ステージ)。git の実行と
+        // rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う。ツリー側 (Focus::Tree)
+        // の Space がファイル単位のトグルなのと対になっていて、粒度だけがフォーカスで変わる
+        if key.code == KeyCode::Char(' ') {
+            self.stage_current_hunk();
+            return;
         }
         // A (まとめ diff トグル) / t (基準循環) は git diff の取り直しを伴いうるため、untracked
         // 一覧を Lane::Git の可変借用より前に集めておく (self.git と self.lane は別フィールドだが

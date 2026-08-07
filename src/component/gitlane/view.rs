@@ -40,6 +40,10 @@ pub(crate) fn draw_git(
     // (viewer の hscroll 表示と同じ場所・作法)。side-by-side を要求していても幅不足で
     // inline に落ちている間は、それが分かるようヒントを足す
     let mut title = format!("{title}  [{}]", git.base_label());
+    // Space の対象 (上端に見えている行が属する hunk) を暗黙にしないため、序数を常に出す
+    if let Some((ordinal, total)) = git.hunk_position() {
+        title.push_str(&format!("  hunk {ordinal}/{total}"));
+    }
     if git.side_by_side_requested() && !git.side_by_side_active() {
         title.push_str("  (narrow: inline)");
     } else if git.side_by_side_active() {

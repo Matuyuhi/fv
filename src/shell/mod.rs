@@ -55,8 +55,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Mode::Finder(finder) = &mut app.mode {
         finder::view::draw_finder(frame, finder, scanning, full);
     }
-    if matches!(app.mode, Mode::Help) {
-        help::draw_help(frame, full);
+    if let Mode::Help { scroll } = app.mode {
+        // 実測 (表示行数・総行数) を書き戻し、次フレームの on_help_key がクランプと
+        // ページ送りに使う (viewport.height と同じ 描画→app のパターン)
+        app.help_view = help::draw_help(frame, scroll, full);
     }
     if matches!(app.mode, Mode::Settings(_)) {
         settings::draw_settings(frame, app, full);

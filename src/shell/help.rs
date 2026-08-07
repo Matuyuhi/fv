@@ -6,17 +6,48 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::widget::centered_rect;
 
-// キーバインド一覧のオーバーレイ。実装済みのハンドラ (app/keys.rs の on_*_key) と
-// 一対一で対応させる。ここに書いた内容と実際の挙動がずれないよう追加時は両方直す
-pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
+/// キーバインド一覧のオーバーレイ。実装済みのハンドラ (app/keys.rs の on_*_key) と
+/// 一対一で対応させる。ここに書いた内容と実際の挙動がずれないよう追加時は両方直す。
+///
+/// 全レーン分を並べると 200 行近くになり端末の高さに収まらないので、他のペインと同じく
+/// **自前でスライスして**描く (`Paragraph::scroll` は使わない)。以前は全行を渡すだけで
+/// スクロールも打ち切りの表示も無く、Git/Log/Edit 以降のセクションが黙って切れていた。
+///
+/// 戻り値は (1 画面に出せる行数, 総行数)。呼び出し側が App へ書き戻し、on_help_key が
+/// クランプとページ送り量に使う (viewport.height と同じ 描画→app のパターン)
+pub(super) fn draw_help(frame: &mut Frame, scroll: usize, area: Rect) -> (usize, usize) {
     let popup = centered_rect(70, 80, area);
     frame.render_widget(Clear, popup);
 
+    let lines = help_lines();
+    let height = popup.height.saturating_sub(2) as usize;
+    let total = lines.len();
+    // 末尾まで送り切ったら最後の 1 画面で止める (最終行より先へは進めない)
+    let scroll = scroll.min(total.saturating_sub(height));
+
+    // 「まだ先がある」ことを枠に出す。出さないと、切れているのか終わりなのかが区別できない
+    let title = if total > height {
+        format!(
+            " help  {}-{}/{}  j/k: scroll  ?: close ",
+            (scroll + 1).min(total),
+            (scroll + height).min(total),
+            total
+        )
+    } else {
+        " help ".to_string()
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
-        .title("help");
+        .title(title);
 
+    let visible: Vec<Line> = lines.into_iter().skip(scroll).take(height).collect();
+    let paragraph = Paragraph::new(visible).block(block);
+    frame.render_widget(paragraph, popup);
+    (height, total)
+}
+
+fn help_lines() -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
     push_help_section(
         &mut lines,
@@ -36,6 +67,17 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
                 "ステータスバー",
                 "現在ブランチ + ahead/behind を常時表示 (git repo のみ)",
             ),
+        ],
+    );
+    // このヘルプ自身の操作は最初の 1 画面に置く (残りを読む方法が下に埋もれていては意味がない)
+    push_help_section(
+        &mut lines,
+        "Help (?)",
+        &[
+            ("j/k ↑/↓", "1 行スクロール"),
+            ("Ctrl+d/u", "半ページスクロール"),
+            ("gg / G", "先頭 / 末尾へ"),
+            ("? / Esc / q", "閉じる"),
         ],
     );
     push_help_section(
@@ -137,8 +179,12 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("H", "親を選択して折りたたむ"),
             ("Enter", "diff を表示 / 展開切替"),
             (
-                "Space",
+                "Space (左ペイン)",
                 "選択中のファイル/ディレクトリを stage/unstage トグル",
+            ),
+            (
+                "Space (diff ペイン)",
+                "今見ている hunk だけを stage (基準が staged のときは unstage)",
             ),
             (
                 "X",
@@ -165,6 +211,11 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("gg / G", "先頭 / 末尾へ"),
             ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
             ("h/l ←/→", "水平スクロール (diff ペイン)"),
+            ("0", "水平スクロールをリセット (diff ペイン)"),
+            (
+                "f / p / P",
+                "fetch / pull / push (下の Remote セクション参照)",
+            ),
             ("r", "再走査 (git status も取り直す)"),
         ],
     );
@@ -183,6 +234,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("Ctrl+d/u", "半ページスクロール"),
             ("w", "折り返し切替 (diff のみ・設定には保存しない)"),
             ("h/l ←/→", "水平スクロール (diff ペイン)"),
+            ("0", "水平スクロールをリセット (diff ペイン)"),
             (
                 "マージコミット",
                 "最初の親との diff を表示 (git show の既定は差分なし)",
@@ -290,8 +342,7 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
         ],
     );
 
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, popup);
+    lines
 }
 
 // key 列を固定幅で左詰めし、"キー  説明" の2カラム風に整列させる

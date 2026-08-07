@@ -80,6 +80,9 @@ pub struct App {
     pub should_quit: bool,
     // g 待ち状態。Mode を増やすほどのものではないので App の小さなフラグで持つ
     pub pending_g: bool,
+    /// help オーバーレイの実測 (1 画面に出せる行数, 総行数)。shell::help が毎フレーム書き戻し、
+    /// on_help_key がスクロールのクランプとページ送り量に使う (viewport.height と同じパターン)
+    pub help_view: (usize, usize),
     // マウスのヒットテスト用。shell::draw が毎フレーム書き戻す (viewport の実測値と同じパターン)
     pub tree_area: Rect,
     pub viewer_area: Rect,
@@ -175,6 +178,7 @@ impl App {
             icons: config.icons,
             should_quit: false,
             pending_g: false,
+            help_view: (0, 0),
             tree_area: Rect::default(),
             viewer_area: Rect::default(),
             splitter_area: Rect::default(),

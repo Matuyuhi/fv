@@ -17,7 +17,7 @@ impl App {
                 return;
             }
             KeyCode::Char('?') => {
-                self.mode = Mode::Help;
+                self.mode = Mode::Help { scroll: 0 };
                 return;
             }
             KeyCode::Char('s') => {
@@ -161,7 +161,7 @@ impl App {
                 return;
             }
             KeyCode::Char('?') => {
-                self.mode = Mode::Help;
+                self.mode = Mode::Help { scroll: 0 };
                 return;
             }
             KeyCode::Char('s') => {
