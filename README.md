@@ -88,7 +88,10 @@ The tree is filtered down to changed files with the directory hierarchy preserve
 | `j`/`k`, `↑`/`↓` | Move between changed files / scroll the diff |
 | `h`/`l`, `←`/`→` | Collapse/expand (tree), horizontal scroll (diff) |
 | `Enter` | Show the diff of the selected file |
-| `n`/`N` (`]`/`[`) | Next / previous hunk |
+| `]`/`[` | Next / previous hunk |
+| `Space` (tree) | Stage / unstage the selected file or directory |
+| `Space` (diff) | Stage just the hunk you are looking at (`unstage` when the diff base is `staged`) |
+| `t` | Cycle the diff base (HEAD → staged → unstaged) |
 | `w` | Toggle wrap (diff only, not persisted) |
 | `r` | Rescan (also refreshes git status) |
 

@@ -100,6 +100,38 @@ struct GitDiff {
     inline: InlineDiff,
     side: SideDiff,
     path: PathBuf,
+    /// hunk 単位 stage/unstage 用の生 unified diff。表示用の Line 列からは復元できない
+    /// (classify がファイルヘッダを落とし、text::normalize がタブを空白へ展開するため)
+    /// ので、取得時の raw をそのまま持っておく
+    raw: Vec<String>,
+    /// raw 上の hunk header (@@ 行) の index。classify は "@@" 始まりの行だけを Kind::Hunk に
+    /// するので、この一覧は inline.hunks / side.hunks と同じ順序・同じ個数になる。
+    /// 表示行 → 生 diff の対応付けを「何番目の hunk か」だけに絞れるのはこの 1:1 が根拠
+    raw_hunks: Vec<usize>,
+    /// hunk 単位で index に適用できるか。untracked の `--no-index` フォールバックで作った
+    /// diff はヘッダのパスが repo 相対でない (呼び出し側が絶対パスを渡すため) ので、
+    /// そのまま `git apply --cached` に通すと repo 外へファイルを作ろうとして失敗する。
+    /// ヘッダのパスが期待する相対パスと一致するときだけ true にし、判別できない形
+    /// (git がクォートしたパス等) は false = 拒否側へ倒す
+    stageable: bool,
+}
+
+/// `Space` (GIT レーン右ペイン) の対象。組み立てられなかった理由まで型で返し、
+/// notice の文言は App 側 (app/git_ops.rs) が決める
+pub enum HunkPatch {
+    Ready {
+        /// git apply にそのまま渡せる 1 ファイル・1 hunk のパッチ
+        patch: String,
+        /// 表示用の 1-origin 序数
+        ordinal: usize,
+        total: usize,
+    },
+    /// `A` のまとめ表示中。1 つのファイルヘッダに決められないので単一ファイル表示に戻してもらう
+    ShowingAll,
+    /// untracked (`--no-index`) 由来の diff。ツリー側の Space でファイル単位に stage する
+    NotApplicable,
+    /// diff が空 / hunk header が 1 つも無い (binary 等)
+    Empty,
 }
 
 /// `A` の全ファイルまとめ diff。単一ファイルの `GitDiff` とは独立に持ち、トグルで
@@ -168,11 +200,21 @@ impl GitState {
             .to_string();
         let raw = git::file_diff(root, path, self.base).unwrap_or_default();
         let body: Vec<(Kind, &str)> = raw.iter().filter_map(|line| classify(line)).collect();
+        let raw_hunks = raw
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with("@@"))
+            .map(|(i, _)| i)
+            .collect();
+        let stageable = header_path_matches(&raw, &title);
         self.current = Some(GitDiff {
             title,
             inline: render_inline(&body),
             side: render_side_by_side(&body),
             path: path.to_path_buf(),
+            raw,
+            raw_hunks,
+            stageable,
         });
         self.viewport.scroll = 0;
         self.viewport.hscroll = 0;
@@ -373,6 +415,75 @@ impl GitState {
         self.current
             .as_ref()
             .map_or(&[] as &[usize], |d| d.inline.hunks.as_slice())
+    }
+
+    /// 今スクロール位置が居る hunk の序数 (0-origin)。「上端に見えている行が属する hunk」を
+    /// 対象とする定義なので、`]`/`[` のジャンプ先とそのまま一致する。
+    /// hunks() を使うので inline / side-by-side / wrap のどの表示でも同じ序数が出る
+    /// (どの表示でも hunk の並び順は生 diff と同じで、変わるのは行 index だけ)
+    fn current_hunk_ordinal(&self) -> Option<usize> {
+        let idx = self
+            .hunks()
+            .partition_point(|&line| line <= self.viewport.scroll);
+        (idx > 0).then(|| idx - 1)
+    }
+
+    /// ペインタイトルに出す「今どの hunk を見ているか」(1-origin の序数, 総数)。
+    /// Space の対象が暗黙にならないようにするための表示なので、Space を受け付けない
+    /// まとめ表示中 (current_hunk_patch が ShowingAll を返す) は出さない — 序数だけ出ると
+    /// 「押せば効く」と読めてしまい、ステータスバーが Space のヒントを消しているのと食い違う
+    pub fn hunk_position(&self) -> Option<(usize, usize)> {
+        if self.showing_all {
+            return None;
+        }
+        let total = self.hunks().len();
+        self.current_hunk_ordinal().map(|o| (o + 1, total))
+    }
+
+    /// diff 基準が staged (index vs HEAD) のとき、Space は「index から取り消す」向きになる。
+    /// Head / Unstaged はどちらも worktree 側の変更を index へ移す向き
+    pub fn unstaging(&self) -> bool {
+        self.base == DiffBase::Staged
+    }
+
+    /// Space: 今見ている hunk だけを含む 1 ファイル分のパッチを組み立てる。
+    /// ファイルヘッダ (最初の @@ より前) + その hunk の生行をそのまま連結するだけで、
+    /// hunk header の行番号は書き換えない — git apply は文脈行を照合して適用位置を決めるため、
+    /// 先行する hunk が未適用でもオフセットを吸収してくれる (`git add -p` と同じ作法)
+    pub fn current_hunk_patch(&self) -> HunkPatch {
+        if self.showing_all {
+            return HunkPatch::ShowingAll;
+        }
+        let Some(diff) = &self.current else {
+            return HunkPatch::Empty;
+        };
+        if !diff.stageable {
+            return HunkPatch::NotApplicable;
+        }
+        let (Some(ordinal), Some(&header_end)) =
+            (self.current_hunk_ordinal(), diff.raw_hunks.first())
+        else {
+            return HunkPatch::Empty;
+        };
+        let Some(&start) = diff.raw_hunks.get(ordinal) else {
+            return HunkPatch::Empty;
+        };
+        let end = diff
+            .raw_hunks
+            .get(ordinal + 1)
+            .copied()
+            .unwrap_or(diff.raw.len());
+
+        let mut patch = String::new();
+        for line in diff.raw[..header_end].iter().chain(&diff.raw[start..end]) {
+            patch.push_str(line);
+            patch.push('\n');
+        }
+        HunkPatch::Ready {
+            patch,
+            ordinal: ordinal + 1,
+            total: diff.raw_hunks.len(),
+        }
     }
 
     /// }: まとめ diff 中の次のファイル境界へ。単一ファイル表示中は boundaries が空なので no-op
@@ -586,6 +697,22 @@ impl GitState {
 pub(crate) fn sticky_label(boundaries: &[(usize, String)], scroll: usize) -> Option<&str> {
     let idx = boundaries.partition_point(|&(line, _)| line <= scroll);
     (idx > 0).then(|| boundaries[idx - 1].1.as_str())
+}
+
+// 生 diff のファイルヘッダが指すパスが、期待する repo 相対パスと一致するか。
+// `git::file_diff` は untracked ファイルで `git diff --no-index -- /dev/null <絶対パス>` に
+// フォールバックし、その出力のヘッダには絶対パスがそのまま載る。これを `git apply --cached` に
+// 通すと repo 外のパスを作ろうとして失敗するので、hunk 単位の対象から外すための判定に使う。
+// 新規ファイルは `+++ b/<path>`、削除ファイルは `--- a/<path>` 側にしかパスが出ない。
+// git が特殊文字を含むパスをクォートした場合は strip_prefix が外れて false になる = 拒否側
+// (誤って別のパスへ apply するより、ツリー側の Space でファイル単位に stage してもらう方が安全)
+fn header_path_matches(raw: &[String], rel: &str) -> bool {
+    let header = raw
+        .iter()
+        .find_map(|l| l.strip_prefix("+++ b/"))
+        .or_else(|| raw.iter().find_map(|l| l.strip_prefix("--- a/")));
+    // Path::display() は Windows で `\` 区切りになるが diff のヘッダは常に `/` なので揃える
+    header.is_some_and(|path| path == rel.replace('\\', "/"))
 }
 
 // TextPane の highlight_matches が前提とする「span[1..] を連結すると本文」を使って、

@@ -1,10 +1,12 @@
-// ワーキングツリー・index・履歴を変える書き込み系コマンド (stage / unstage / discard / commit)。
-// 実行そのものは run_git_write に寄せ、ここは「どのコマンドをどの順で試すか」だけを持つ。
+// ワーキングツリー・index・履歴を変える書き込み系コマンド (stage / unstage / discard / commit /
+// hunk 単位の apply)。実行そのものは run_git_write に寄せ、ここは「どのコマンドをどの順で試すか」
+// だけを持つ。stdin からデータを渡すコマンド (commit -F - / apply -) だけは run_git_write の
+// Command::output() では表現できないため run_git_stdin を通す。
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 use super::{GitOutcome, run_git, run_git_write};
 
@@ -122,37 +124,11 @@ pub fn commit(root: &Path, message: &str, amend: bool) -> GitOutcome {
     args.push(OsString::from("-F"));
     args.push(OsString::from("-"));
 
-    let mut child = match Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(&args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => {
-            return GitOutcome {
-                ok: false,
-                message: "git を実行できませんでした".to_string(),
-            };
-        }
-    };
-    // stdin を明示的に drop して EOF を送る (`-F -` は EOF まで読み続けるため、
-    // 書き込み後に take() したハンドルをスコープ末尾で drop するだけで良い)
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(message.as_bytes());
-    }
-    let output = match child.wait_with_output() {
-        Ok(output) => output,
-        Err(_) => {
-            return GitOutcome {
-                ok: false,
-                message: "git を実行できませんでした".to_string(),
-            };
-        }
+    let Some(output) = run_git_stdin(root, args, message.as_bytes()) else {
+        return GitOutcome {
+            ok: false,
+            message: "git を実行できませんでした".to_string(),
+        };
     };
     if !output.status.success() {
         return GitOutcome {
@@ -171,6 +147,68 @@ pub fn commit(root: &Path, message: &str, amend: bool) -> GitOutcome {
         ok: true,
         message: format!("{short} {subject}").trim().to_string(),
     }
+}
+
+/// hunk 単位 stage / unstage の実行本体。`git apply --cached` は index だけを書き換えるので、
+/// worktree のファイルには触らない (未保存の編集や他の hunk をそのまま残せる)。
+/// `reverse` が true なら `--reverse` を足して index から取り消す — diff 基準が staged
+/// (index vs HEAD) のとき、その hunk を index から外すのが「取り消し」になるため。
+///
+/// パッチはメッセージ本文と同じ理由 (エスケープ・コマンドライン長) で stdin から渡す。
+/// `--whitespace=nowarn` を付けるのは、既存の空白エラーを含む行を stage しようとしたときに
+/// git の警告でパッチが弾かれる (= 表示されている hunk なのに stage できない) のを避けるため。
+/// fv は diff を「そのまま index へ移す」だけで、内容の整形はしない
+pub fn apply_cached(root: &Path, patch: &str, reverse: bool) -> GitOutcome {
+    let mut args: Vec<OsString> = vec![
+        OsString::from("apply"),
+        OsString::from("--cached"),
+        OsString::from("--whitespace=nowarn"),
+    ];
+    if reverse {
+        args.push(OsString::from("--reverse"));
+    }
+    args.push(OsString::from("-"));
+
+    let Some(output) = run_git_stdin(root, args, patch.as_bytes()) else {
+        return GitOutcome {
+            ok: false,
+            message: "git を実行できませんでした".to_string(),
+        };
+    };
+    if !output.status.success() {
+        return GitOutcome {
+            ok: false,
+            message: stderr_summary(&output.stderr),
+        };
+    }
+    GitOutcome {
+        ok: true,
+        message: String::new(),
+    }
+}
+
+// stdin からデータを渡す書き込みコマンド (commit -F - / apply -) の実行。run_git_write は
+// Command::output() で完結できるが、stdin へ書くには spawn → write → drop (EOF) →
+// wait_with_output という別の経路が要るため流用せずここに 1 つだけ持つ。
+// GIT_OPTIONAL_LOCKS は付けない (書き込みなので lock を取らせる) / GIT_TERMINAL_PROMPT=0 で
+// 認証待ちのハングを防ぐ、という run_git_write と同じ環境の作法は揃える
+fn run_git_stdin(root: &Path, args: Vec<OsString>, input: &[u8]) -> Option<Output> {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(&args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    // take() したハンドルをこのスコープの末尾で drop して EOF を送る
+    // (`-F -` / `apply -` はどちらも EOF まで読み続けるため)
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(input);
+    }
+    child.wait_with_output().ok()
 }
 
 // pre-commit hook 失敗時などの stderr は複数行になりうる。ステータスバー 1 行に収めるため

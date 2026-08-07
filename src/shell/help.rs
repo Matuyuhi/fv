@@ -137,8 +137,12 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect) {
             ("H", "親を選択して折りたたむ"),
             ("Enter", "diff を表示 / 展開切替"),
             (
-                "Space",
+                "Space (左ペイン)",
                 "選択中のファイル/ディレクトリを stage/unstage トグル",
+            ),
+            (
+                "Space (diff ペイン)",
+                "今見ている hunk だけを stage (基準が staged のときは unstage)",
             ),
             (
                 "X",

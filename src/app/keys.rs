@@ -544,6 +544,13 @@ impl App {
                 return;
             }
         }
+        // Space: 今見ている hunk だけを index へ適用/取り消し (hunk 単位ステージ)。git の実行と
+        // rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う。ツリー側 (Focus::Tree)
+        // の Space がファイル単位のトグルなのと対になっていて、粒度だけがフォーカスで変わる
+        if key.code == KeyCode::Char(' ') {
+            self.stage_current_hunk();
+            return;
+        }
         // A (まとめ diff トグル) / t (基準循環) は git diff の取り直しを伴いうるため、untracked
         // 一覧を Lane::Git の可変借用より前に集めておく (self.git と self.lane は別フィールドだが
         // メソッド呼び出し越しの借用はここで済ませないと両立しない。rescan() の root.clone() と同じ理由)

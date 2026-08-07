@@ -27,7 +27,9 @@ pub use diff::{DiffBase, baseline_lines, changed_lines, diff_all, file_diff};
 pub use log::{CommitSummary, log, show_commit};
 pub use remote::{RemoteJobKind, fetch, pull, push};
 pub use status::{FileStatus, GitStatus, StatusKind, file_statuses};
-pub use write::{commit, discard_path, last_commit_message, stage_path, unstage_path};
+pub use write::{
+    apply_cached, commit, discard_path, last_commit_message, stage_path, unstage_path,
+};
 
 use std::ffi::OsStr;
 use std::path::Path;

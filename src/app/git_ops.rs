@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use crate::component::gitlane::HunkPatch;
 use crate::git;
 
 use super::{App, ConfirmAction, Lane, Mode};
@@ -66,6 +67,70 @@ impl App {
             } else {
                 outcome.message
             };
+            self.set_notice(message, true);
+        }
+    }
+
+    /// Space (GIT レーンの右ペイン): 今見ている hunk だけを index へ移す / index から外す。
+    /// ツリー側の Space (ファイル単位) と同じ「非破壊的でいつでも打ち消せる操作」なので
+    /// Mode::Confirm は挟まない (確認を挟むと hunk を拾い読みしながらステージする使い方が壊れる)。
+    /// `git apply --cached` は index だけを書き換えるため worktree のファイルには触らず、
+    /// EDIT レーンの未保存バッファと食い違う余地が無い (discard/stash と違いガードが要らない)
+    pub(super) fn stage_current_hunk(&mut self) {
+        // ツリー側の Space と同じ debounce を共有する。粒度が違うだけで「実行キー本体を
+        // 連打すると git プロセスが暴走する」という問題は同じなので、別のタイマーは持たない
+        if self.last_stage_toggle.elapsed() < super::STAGE_DEBOUNCE {
+            return;
+        }
+        let Lane::Git(git) = &self.lane else {
+            return;
+        };
+        let unstaging = git.unstaging();
+        // notice / git 実行のために &mut self が要るので、必要な値をここで取り切って借用を離す
+        let (patch, ordinal, total) = match git.current_hunk_patch() {
+            HunkPatch::Ready {
+                patch,
+                ordinal,
+                total,
+            } => (patch, ordinal, total),
+            HunkPatch::ShowingAll => {
+                self.set_notice(
+                    "まとめ diff 表示中は hunk 単位でステージできません (A で解除)",
+                    true,
+                );
+                return;
+            }
+            HunkPatch::NotApplicable => {
+                self.set_notice(
+                    "untracked は hunk 単位で stage できません (ツリー側の Space を使ってください)",
+                    true,
+                );
+                return;
+            }
+            HunkPatch::Empty => return,
+        };
+
+        self.last_stage_toggle = Instant::now();
+        let outcome = git::apply_cached(&self.root, &patch, unstaging);
+        if outcome.ok {
+            let verb = if unstaging { "unstage" } else { "stage" };
+            self.set_notice(format!("hunk {ordinal}/{total} を {verb} しました"), false);
+            // ツリーの XY 表示・絞り込み・diff の取り直しは stage_path と同じ入口に相乗りさせる。
+            // GitState::refresh がスクロール位置を行数にクランプして維持するので、適用済みの
+            // hunk が diff から消えても読んでいた位置の近くに留まる
+            self.rescan_now();
+        } else {
+            let mut message = if outcome.message.is_empty() {
+                "hunk の適用に失敗しました".to_string()
+            } else {
+                outcome.message
+            };
+            // HEAD 基準の diff は「index にも worktree にも変更がある」状態を 1 本にまとめて
+            // 見せるため、その hunk の文脈行が既にステージ済みだと index に対して適用できない。
+            // 基準を切り替えれば通ることが多いので、失敗の理由ではなく次の一手を添える
+            if !unstaging && matches!(self.lane, Lane::Git(ref g) if g.base_label() == "HEAD") {
+                message.push_str(" (t で unstaged 基準に切り替えると通ることがあります)");
+            }
             self.set_notice(message, true);
         }
     }

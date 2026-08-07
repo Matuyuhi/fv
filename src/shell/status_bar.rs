@@ -254,7 +254,16 @@ fn git_status_line(app: &App) -> Line<'static> {
                 .to_string()
         }
         Focus::Viewer => {
-            let mut hint = "j/k: scroll  ]/[: hunk  /: search  A: all files".to_string();
+            let mut hint = "j/k: scroll  ]/[: hunk".to_string();
+            // Space の向きは diff 基準で決まるので、押す前にどちらになるかを出す
+            if !git.showing_all() {
+                hint.push_str(if git.unstaging() {
+                    "  Space: unstage hunk"
+                } else {
+                    "  Space: stage hunk"
+                });
+            }
+            hint.push_str("  /: search  A: all files");
             if git.showing_all() {
                 hint.push_str("  }/{: file");
             }
