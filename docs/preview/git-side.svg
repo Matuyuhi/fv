@@ -13,7 +13,7 @@
 <rect x="833" y="54" width="432" height="20" fill="#2b303b"/>
 <text x="14" y="69" fill="#65737e">│</text>
 <text x="23" y="69" fill="#c0c5ce">▾</text>
-<text x="41 50 59 68" y="69" fill="#8fa1b3">docs</text>
+<text x="41 50 59 68" y="69" fill="#ebcb8b">docs</text>
 <text x="383" y="69" fill="#65737e">│</text>
 <text x="392" y="69" fill="#96b5b4">│</text>
 <text x="428 437 455 464 473 482 500 509 518 527 536 554 563 581 590 599 617 626 635 644 653 662 671 680 689" y="69" fill="#96b5b4">@@-9,8+9,11@@useapp::App;</text>
@@ -24,7 +24,7 @@
 <rect x="833" y="74" width="432" height="20" fill="#2b303b"/>
 <text x="14" y="89" fill="#65737e">│</text>
 <text x="68" y="89" fill="#bf616a">D</text>
-<text x="86 95 104 113 122 131" y="89" fill="#c0c5ce">old.md</text>
+<text x="86 95 104 113 122 131" y="89" fill="#ebcb8b">old.md</text>
 <text x="383" y="89" fill="#65737e">│</text>
 <text x="392" y="89" fill="#96b5b4">│</text>
 <text x="410" y="89" fill="#65737e">9</text>
@@ -37,7 +37,7 @@
 <rect x="833" y="94" width="432" height="20" fill="#2b303b"/>
 <text x="14" y="109" fill="#65737e">│</text>
 <text x="23" y="109" fill="#c0c5ce">▾</text>
-<text x="41 50 59" y="109" fill="#8fa1b3">src</text>
+<text x="41 50 59" y="109" fill="#ebcb8b">src</text>
 <text x="383" y="109" fill="#65737e">│</text>
 <text x="392" y="109" fill="#96b5b4">│</text>
 <text x="401 410" y="109" fill="#65737e">10</text>
@@ -51,7 +51,7 @@
 <rect x="833" y="114" width="432" height="20" fill="#2b303b"/>
 <text x="14" y="129" fill="#65737e">│</text>
 <text x="68" y="129" fill="#bf616a" font-weight="bold">M</text>
-<text x="86 95 104 113 122 131 140" y="129" fill="#c0c5ce" font-weight="bold">main.rs</text>
+<text x="86 95 104 113 122 131 140" y="129" fill="#ebcb8b" font-weight="bold">main.rs</text>
 <text x="383" y="129" fill="#65737e">│</text>
 <text x="392" y="129" fill="#96b5b4">│</text>
 <text x="401 410" y="129" fill="#65737e">11</text>
@@ -72,7 +72,7 @@
 <rect x="1085" y="134" width="180" height="20" fill="#2b303b"/>
 <text x="14" y="149" fill="#65737e">│</text>
 <text x="59 68" y="149" fill="#bf616a">??</text>
-<text x="86 95 104 113 122 131 140 149 158 167 176" y="149" fill="#c0c5ce">new_lane.rs</text>
+<text x="86 95 104 113 122 131 140 149 158 167 176" y="149" fill="#ebcb8b">new_lane.rs</text>
 <text x="383" y="149" fill="#65737e">│</text>
 <text x="392" y="149" fill="#96b5b4">│</text>
 <text x="401 410" y="149" fill="#65737e">12</text>
@@ -92,8 +92,7 @@
 <rect x="401" y="154" width="423" height="20" fill="#2b303b"/>
 <rect x="833" y="154" width="432" height="20" fill="#2b303b"/>
 <text x="14" y="169" fill="#65737e">│</text>
-<text x="59" y="169" fill="#a3be8c">M</text>
-<text x="86 95 104 113 122" y="169" fill="#ebcb8b">ui.rs</text>
+<text x="59 86 95 104 113 122" y="169" fill="#a3be8c">Mui.rs</text>
 <text x="383" y="169" fill="#65737e">│</text>
 <text x="392" y="169" fill="#96b5b4">│</text>
 <text x="401 410" y="169" fill="#65737e">13</text>
