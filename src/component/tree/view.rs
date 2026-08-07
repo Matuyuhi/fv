@@ -74,8 +74,7 @@ pub(crate) fn draw_tree(
             } else {
                 String::new()
             };
-            // 行頭の XY マーカーは git status 準拠の赤/緑。ファイル名は stage 済みの時だけ
-            // 黄色にし、未ステージの間は通常色のまま (常時色を付けると名前が読みにくくなる)
+            // 行頭の XY マーカーは git status 準拠の赤/緑
             let mut spans = vec![Span::raw(format!("{}{}", "  ".repeat(row.depth), marker))];
             if let Some(status) = file_status {
                 spans.push(Span::styled(
@@ -83,22 +82,11 @@ pub(crate) fn draw_tree(
                     Style::default().fg(status_color(status)),
                 ));
             }
-            // ディレクトリもファイル名と同じ基準で黄色にする。畳んだままの add でも
-            // 色が変わらないと「乗ったのか」が分からないため、配下が全て stage 済みの
-            // ディレクトリだけを黄色にする (未ステージが残っていれば通常のディレクトリ色)
-            let staged = if row.is_dir {
-                git.is_some_and(|g| {
-                    g.changed_dirs.contains(&row.path) && !g.unstaged_dirs.contains(&row.path)
-                })
-            } else {
-                file_status.is_some_and(|s| s.worktree.is_none())
-            };
-            let name_style = if staged {
-                Style::default().fg(Color::Yellow)
-            } else if row.is_dir {
-                Style::default().fg(Color::Blue)
-            } else {
-                Style::default()
+            let name_style = match change_mark(git, row.is_dir, &row.path, file_status) {
+                Some(ChangeMark::Unstaged) => Style::default().fg(Color::Yellow),
+                Some(ChangeMark::Staged) => Style::default().fg(Color::Green),
+                None if row.is_dir => Style::default().fg(Color::Blue),
+                None => Style::default(),
             };
             spans.push(Span::styled(format!("{icon}{}", row.name), name_style));
             ListItem::new(Line::from(spans))
@@ -142,6 +130,44 @@ fn visible_window(
         last = (first + max_height).min(total);
     }
     (first, last)
+}
+
+/// 名前自体に付ける変更マーク。行頭の XY マーカーはファイルにしか付かず、しかも
+/// GIT レーンのような絞り込みが無い VIEW レーンでは 2 桁の記号を目で拾うことになる。
+/// 「どこに差分があるか」は畳んだディレクトリを含めて名前の色だけで分かる必要がある
+enum ChangeMark {
+    /// 未ステージの変更が残っている (ディレクトリなら配下のどれか)
+    Unstaged,
+    /// 変更はあるが全て stage 済み。XY マーカーの緑と同じ意味に揃える
+    Staged,
+}
+
+fn change_mark(
+    git: Option<&GitStatus>,
+    is_dir: bool,
+    path: &Path,
+    file_status: Option<FileStatus>,
+) -> Option<ChangeMark> {
+    if is_dir {
+        // ディレクトリは git.files にエントリを持たないので changed_dirs / unstaged_dirs で判定する
+        // (描画のたびに files を全走査しないための集合)
+        let git = git?;
+        if !git.changed_dirs.contains(path) {
+            return None;
+        }
+        return Some(if git.unstaged_dirs.contains(path) {
+            ChangeMark::Unstaged
+        } else {
+            ChangeMark::Staged
+        });
+    }
+    file_status.map(|s| {
+        if s.worktree.is_some() {
+            ChangeMark::Unstaged
+        } else {
+            ChangeMark::Staged
+        }
+    })
 }
 
 // ツリーの行頭に置く XY (index 側 + worktree 側) + 空白のマーカー。
