@@ -40,6 +40,9 @@ pub struct EditState {
     /// 保存エラー・discard 確認などステータスバーに出す一時メッセージ
     pub notice: Option<String>,
     confirm_discard: bool,
+    /// 直近の操作で保存が成功したか。App は EditState から借りられない (依存範囲の制約) ため、
+    /// 「保存で差分が生まれた/消えた」を App へ伝える take フラグとして持つ
+    saved: bool,
     // ライブ diff の比較元 (編集開始時の HEAD / index 版)。repo 外・untracked は None
     baseline: Option<Vec<String>>,
     /// 未保存バッファ vs baseline の変更行 (1-origin)。viewer の changed_lines と同じ描画に使う
@@ -65,11 +68,18 @@ impl EditState {
             render,
             notice: None,
             confirm_discard: false,
+            saved: false,
             baseline: git::baseline_lines(root, path),
             changed_lines: None,
         };
         state.refresh_changed_lines();
         Some(state)
+    }
+
+    /// 直近の handle_key で保存が成功したかを取り出す (取ると false に戻る)。
+    /// 保存で作られた差分を FS 監視のイベント待ちにせず App 側から git status へ反映させる
+    pub fn take_saved(&mut self) -> bool {
+        std::mem::take(&mut self.saved)
     }
 
     /// 行番号 gutter の char 幅 (末尾空白込み)。行数だけで決まるので状態として持たない
@@ -234,6 +244,7 @@ impl EditState {
         match fs::write(&self.path, self.buffer.to_text()) {
             Ok(()) => {
                 self.buffer.mark_saved();
+                self.saved = true;
                 // cache と git 変更行マークを watcher を待たずに即時更新する
                 viewer.reload(&self.path);
                 // reload は hscroll を 0 に戻すため、カーソル位置まで追従し直す
