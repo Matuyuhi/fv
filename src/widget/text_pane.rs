@@ -245,16 +245,20 @@ fn highlight_selection(line: &Line<'static>, start: usize, end: usize) -> Line<'
     let selected = Style::default().bg(SELECTION_BG).fg(SELECTION_FG);
     let mut col = 0usize;
     for span in line.spans.iter().skip(1) {
-        let chars: Vec<char> = span.content.chars().collect();
-        let span_end = col + chars.len();
+        // 交差判定に要るのは長さだけなので、ここではまだ Vec<char> を作らない。
+        // 選択中の可視行ぶん毎フレーム通る経路なので、切らない span で確保しない
+        // (再描画のコストを画面の大きさより上に持ち上げない、の一環)
+        let len = span.content.chars().count();
+        let span_end = col + len;
         // 選択と交差しない span はそのまま引き継ぐ (span 数を無駄に増やさない)
         if span_end <= start || col >= end {
             spans.push(span.clone());
             col = span_end;
             continue;
         }
+        let chars: Vec<char> = span.content.chars().collect();
         let from = start.saturating_sub(col);
-        let to = (end - col).min(chars.len());
+        let to = (end - col).min(len);
         push_segment(&mut spans, &chars[..from], span.style);
         push_segment(&mut spans, &chars[from..to], selected);
         push_segment(&mut spans, &chars[to..], span.style);
