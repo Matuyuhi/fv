@@ -48,67 +48,68 @@
 <text x="14" y="169" fill="#96b5b4">│</text>
 <text x="302" y="169" fill="#96b5b4">│</text>
 <text x="311" y="169" fill="#65737e">│</text>
+<text x="320 338" y="169" fill="#c0c5ce">す。</text>
 <text x="995" y="169" fill="#65737e">│</text>
 <rect x="311" y="174" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="189" fill="#96b5b4">│</text>
 <text x="302" y="189" fill="#96b5b4">│</text>
 <text x="311" y="189" fill="#65737e">│</text>
-<text x="320 338 347 356 365 374 383 392 401 410 419 428 446 473 491 509 527 545 563 581 608 626 635 644 653 671 689 707 725" y="189" fill="#c0c5ce">-TestBackendで1フレーム描画→ANSIに落とす</text>
 <text x="995" y="189" fill="#65737e">│</text>
 <rect x="311" y="194" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="209" fill="#96b5b4">│</text>
 <text x="302" y="209" fill="#96b5b4">│</text>
 <text x="311" y="209" fill="#65737e">│</text>
-<text x="320 338 356 374 392 410 428 446 464 482 500 518 536" y="209" fill="#c0c5ce">-状態はキー列で組み立てる</text>
+<text x="320 338 347 356 365 374 383 392 401 410 419 428 446 473 491 509 527 545 563 581 608 626 635 644 653 671 689 707 725" y="209" fill="#c0c5ce">-TestBackendで1フレーム描画→ANSIに落とす</text>
 <text x="995" y="209" fill="#65737e">│</text>
 <rect x="311" y="214" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="229" fill="#96b5b4">│</text>
 <text x="302" y="229" fill="#96b5b4">│</text>
 <text x="311" y="229" fill="#65737e">│</text>
+<text x="320 338 356 374 392 410 428 446 464 482 500 518 536" y="229" fill="#c0c5ce">-状態はキー列で組み立てる</text>
 <text x="995" y="229" fill="#65737e">│</text>
 <rect x="311" y="234" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="249" fill="#96b5b4">│</text>
 <text x="302" y="249" fill="#96b5b4">│</text>
-<text x="311 320 329 338 356 365 374 383 392 401 410 419 437 446 455" y="249" fill="#65737e">│───comments───</text>
+<text x="311" y="249" fill="#65737e">│</text>
 <text x="995" y="249" fill="#65737e">│</text>
 <rect x="311" y="254" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="269" fill="#96b5b4">│</text>
 <text x="302" y="269" fill="#96b5b4">│</text>
-<text x="311" y="269" fill="#65737e">│</text>
+<text x="311 320 329 338 356 365 374 383 392 401 410 419 437 446 455" y="269" fill="#65737e">│───comments───</text>
 <text x="995" y="269" fill="#65737e">│</text>
 <rect x="311" y="274" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="289" fill="#96b5b4">│</text>
 <text x="302" y="289" fill="#96b5b4">│</text>
 <text x="311" y="289" fill="#65737e">│</text>
-<text x="320 329 338 347 356 365 374 383 392" y="289" fill="#96b5b4">@reviewer</text>
 <text x="995" y="289" fill="#65737e">│</text>
 <rect x="311" y="294" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="309" fill="#96b5b4">│</text>
 <text x="302" y="309" fill="#96b5b4">│</text>
 <text x="311" y="309" fill="#65737e">│</text>
-<text x="320 338 356 374 392 410 428 446 464 482 500 518 536 554 572 590 608 626 644 662 680" y="309" fill="#c0c5ce">シーンはキー列で組み立てる形にしましょう。</text>
+<text x="320 329 338 347 356 365 374 383 392" y="309" fill="#96b5b4">@reviewer</text>
 <text x="995" y="309" fill="#65737e">│</text>
 <rect x="311" y="314" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="329" fill="#96b5b4">│</text>
 <text x="302" y="329" fill="#96b5b4">│</text>
 <text x="311" y="329" fill="#65737e">│</text>
+<text x="320 338 356 374 392 410 428 446 464 482 500 518 536 554 572 590 608 626 644 662 680" y="329" fill="#c0c5ce">シーンはキー列で組み立てる形にしましょう。</text>
 <text x="995" y="329" fill="#65737e">│</text>
 <rect x="311" y="334" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="349" fill="#96b5b4">│</text>
 <text x="302" y="349" fill="#96b5b4">│</text>
 <text x="311" y="349" fill="#65737e">│</text>
-<text x="320 329 338 347 356 365 374 383 392" y="349" fill="#96b5b4">@matuyuhi</text>
 <text x="995" y="349" fill="#65737e">│</text>
 <rect x="311" y="354" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="369" fill="#96b5b4">│</text>
 <text x="302" y="369" fill="#96b5b4">│</text>
 <text x="311" y="369" fill="#65737e">│</text>
-<text x="320 338 356 374 392 410 428 446 464 482 500 518 536 554 572 590 608 626 644 662 680 698 716 734 752" y="369" fill="#c0c5ce">そうします。保存のたびに描き直せるようにもします。</text>
+<text x="320 329 338 347 356 365 374 383 392" y="369" fill="#96b5b4">@matuyuhi</text>
 <text x="995" y="369" fill="#65737e">│</text>
 <rect x="311" y="374" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="389" fill="#96b5b4">│</text>
 <text x="302" y="389" fill="#96b5b4">│</text>
 <text x="311" y="389" fill="#65737e">│</text>
+<text x="320 338 356 374 392 410 428 446 464 482 500 518 536 554 572 590 608 626 644 662 680 698 716 734 752" y="389" fill="#c0c5ce">そうします。保存のたびに描き直せるようにもします。</text>
 <text x="995" y="389" fill="#65737e">│</text>
 <rect x="311" y="394" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="409" fill="#96b5b4">│</text>

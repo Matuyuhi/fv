@@ -70,17 +70,18 @@ impl Viewport {
     }
 
     /// 画面内座標 (ペイン内側の row/col) → (論理行, 表示桁)。wrap 中は描画 (text_pane) と
-    /// 同じ数え方 (text::wrap_rows) で視覚行を辿る。描画・カーソル追従・クリック座標の
+    /// 同じ数え方 (text::WrapCursor) で視覚行を辿る。描画・カーソル追従・クリック座標の
     /// 3 者が同じ折返し計算を共有するための入口 (CLAUDE.md の桁インバリアント) なので、
     /// クリック位置を解釈する側 (編集のカーソル移動・閲覧の範囲選択) はここだけを通す。
-    /// display_len は「その論理行が占める表示桁数」を返すクロージャ
-    pub fn locate(
+    /// line_text は「その論理行の生テキスト」を返すクロージャ — 全角文字は折返し境界を
+    /// 跨げず視覚行数が桁数の割り算では出せないため、長さではなく本文そのものを要求する
+    pub fn locate<'t>(
         &self,
         row: usize,
         col: usize,
         gutter_width: usize,
         line_count: usize,
-        display_len: impl Fn(usize) -> usize,
+        line_text: impl Fn(usize) -> &'t str,
     ) -> (usize, usize) {
         let last = line_count.saturating_sub(1);
         let content_col = col.saturating_sub(gutter_width);
@@ -91,7 +92,7 @@ impl Viewport {
         let mut line = self.scroll.min(last);
         let mut remaining = row;
         loop {
-            let rows = crate::text::wrap_rows(display_len(line), width);
+            let rows = crate::text::wrap_rows(line_text(line), width);
             if remaining < rows || line >= last {
                 remaining = remaining.min(rows - 1);
                 break;
@@ -99,7 +100,10 @@ impl Viewport {
             remaining -= rows;
             line += 1;
         }
-        (line, remaining * width + content_col)
+        (
+            line,
+            crate::text::wrap_col_at(line_text(line), remaining, content_col, width),
+        )
     }
 
     /// 指定行が viewport の中央付近に来るようスクロールする (検索ジャンプ・:N 用)
@@ -122,40 +126,58 @@ mod tests {
         vp
     }
 
+    // 折返し幅 38 桁を 3 段使い切る行 (以降の行は 1 段で収まる短い行)
+    fn lines(line: usize) -> &'static str {
+        const LONG: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrst";
+        const SHORT: &str = "0123456789";
+        if line == 0 { LONG } else { SHORT }
+    }
+
     #[test]
     fn locate_without_wrap_is_scroll_plus_row() {
         let vp = viewport(false, 5, 3, 40);
         // gutter 2 桁のぶんだけコンテンツ桁が右にずれ、hscroll が足し戻される
-        assert_eq!(vp.locate(2, 9, 2, 100, |_| 80), (7, 3 + 7));
+        assert_eq!(vp.locate(2, 9, 2, 100, lines), (7, 3 + 7));
         // gutter の上をクリックしたらコンテンツ桁 0 に丸める
-        assert_eq!(vp.locate(0, 1, 2, 100, |_| 80), (5, 3));
+        assert_eq!(vp.locate(0, 1, 2, 100, lines), (5, 3));
     }
 
     #[test]
     fn locate_without_wrap_clamps_past_the_last_line() {
         let vp = viewport(false, 5, 0, 40);
-        assert_eq!(vp.locate(50, 2, 2, 8, |_| 10).0, 7);
+        assert_eq!(vp.locate(50, 2, 2, 8, lines).0, 7);
     }
 
     #[test]
     fn locate_with_wrap_walks_visual_rows() {
         // 幅 40・gutter 2 → 折返し幅 38。行 0 は 3 視覚行、以降は 1 視覚行ずつ
         let vp = viewport(true, 0, 0, 40);
-        let len = |line: usize| if line == 0 { 100 } else { 10 };
-        assert_eq!(vp.locate(0, 2, 2, 5, len), (0, 0));
+        assert_eq!(vp.locate(0, 2, 2, 5, lines), (0, 0));
         // 行 0 の 2 段目の先頭
-        assert_eq!(vp.locate(1, 2, 2, 5, len), (0, 38));
+        assert_eq!(vp.locate(1, 2, 2, 5, lines), (0, 38));
         // 行 0 の 3 段目 + 5 桁
-        assert_eq!(vp.locate(2, 7, 2, 5, len), (0, 76 + 5));
+        assert_eq!(vp.locate(2, 7, 2, 5, lines), (0, 76 + 5));
         // 行 0 を跨いだ次の視覚行が論理行 1
-        assert_eq!(vp.locate(3, 2, 2, 5, len), (1, 0));
-        assert_eq!(vp.locate(4, 4, 2, 5, len), (2, 2));
+        assert_eq!(vp.locate(3, 2, 2, 5, lines), (1, 0));
+        assert_eq!(vp.locate(4, 4, 2, 5, lines), (2, 2));
     }
 
     #[test]
     fn locate_with_wrap_clamps_to_the_last_visual_row() {
         let vp = viewport(true, 0, 0, 40);
         // 最終行より下をクリックしても、その行の最後の視覚行に留める
-        assert_eq!(vp.locate(9, 2, 2, 2, |_| 10), (1, 0));
+        assert_eq!(vp.locate(9, 2, 2, 2, lines), (1, 0));
+    }
+
+    #[test]
+    fn locate_with_wrap_counts_full_width_chars_as_two_cells() {
+        // 幅 12・gutter 2 → 折返し幅 10 = 全角 5 文字ぶん
+        let vp = viewport(true, 0, 0, 12);
+        let text = |_: usize| "あいうえおかきくけこさし";
+        // 2 段目の先頭は 6 文字目 (char 座標 5)
+        assert_eq!(vp.locate(1, 2, 2, 1, text), (0, 5));
+        // 全角の 2 セル目を指してもその文字自身に丸める
+        assert_eq!(vp.locate(1, 2 + 3, 2, 1, text), (0, 6));
+        assert_eq!(vp.locate(2, 2, 2, 1, text), (0, 10));
     }
 }
