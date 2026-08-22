@@ -148,7 +148,7 @@ pub(super) fn render_side_by_side(body: &[(Kind, &str)]) -> SideDiff {
     }
 }
 
-/// side-by-side + wrap 描画専用。text_pane.rs の非公開 wrap_line と同じ char 単位分割を
+/// side-by-side + wrap 描画専用。text_pane.rs の非公開 wrap_line と同じセル単位分割を
 /// カラムごとの幅で行った上で、行ごとに「左右の視覚行数の大きい方」に空行を足して
 /// 総行数を揃える (揃えないと折返しで左右の対応行がズレる)。ここで作った行は非 wrap の
 /// TextPane にそのまま渡す想定で、side-by-side 専用の分岐を text_pane.rs には増やさない。
@@ -186,9 +186,11 @@ pub fn side_by_side_wrapped(
     (out_left, out_right, out_hunks)
 }
 
-// text_pane.rs の wrap_line と同じ char 単位分割 (span の style は境界を跨いで保持する)。
+// text_pane.rs の wrap_line と同じセル単位分割 (span の style は境界を跨いで保持する)。
 // side-by-side はカラムごとに幅・gutter 幅が違う独立した 2 本のドキュメントを同時に扱うため
-// text_pane 側の (1 本の Line 列前提の) wrap をそのまま呼べず、ここに複製している
+// text_pane 側の (1 本の Line 列前提の) wrap をそのまま呼べず、ここに複製している。
+// 折返しの規則そのものは text::WrapCursor を共有するので、複製されるのは
+// 「span を積み直す組み立て」だけで、どこで切るかの判断は 1 箇所のままになる
 fn wrap_split(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Line<'static>> {
     let mut rows: Vec<Line> = Vec::new();
     let mut spans: Vec<Span> = vec![
@@ -197,24 +199,24 @@ fn wrap_split(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Li
             .cloned()
             .unwrap_or_else(|| blank_gutter(gutter_width)),
     ];
-    let mut used = 0usize;
+    let mut wrap = text::WrapCursor::new(width);
     for span in line.spans.iter().skip(1) {
-        let chars: Vec<char> = span.content.chars().collect();
-        let mut idx = 0;
-        while idx < chars.len() {
-            let take = (width - used).min(chars.len() - idx);
-            if take == 0 {
+        let mut segment = String::new();
+        // ratatui の描画と同じ単位で送るため grapheme で辿る (ZWJ 絵文字を割らない)
+        for grapheme in span.styled_graphemes(Style::default()) {
+            if wrap.push(grapheme.symbol) {
+                if !segment.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut segment), span.style));
+                }
                 rows.push(Line::from(std::mem::replace(
                     &mut spans,
                     vec![blank_gutter(gutter_width)],
                 )));
-                used = 0;
-                continue;
             }
-            let segment: String = chars[idx..idx + take].iter().collect();
+            segment.push_str(grapheme.symbol);
+        }
+        if !segment.is_empty() {
             spans.push(Span::styled(segment, span.style));
-            used += take;
-            idx += take;
         }
     }
     rows.push(Line::from(spans));

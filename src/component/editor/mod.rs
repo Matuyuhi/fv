@@ -214,7 +214,7 @@ impl EditState {
             col,
             self.gutter_width(),
             self.buffer.line_count(),
-            |i| self.display_len(i),
+            |i| self.buffer.line(i),
         );
         let col = text::char_col_at(self.buffer.line(line), display);
         self.cursor = (line, col);
@@ -387,15 +387,18 @@ impl EditState {
                 vp.scroll = line;
             }
             let width = self.content_width(vp);
-            let cursor_row = text::display_col(self.buffer.line(line), col) / width;
+            let display = text::display_col(self.buffer.line(line), col);
+            // 折返し位置は描画 (text_pane) と同じ規則で引く。全角文字は境界を跨げないので
+            // 「表示桁 / 幅」では視覚行が求まらない
+            let (cursor_row, _) = text::wrap_position(self.buffer.line(line), display, width);
             let mut rows = cursor_row + 1;
             for i in vp.scroll..line {
-                rows += text::wrap_rows(self.display_len(i), width);
+                rows += text::wrap_rows(self.buffer.line(i), width);
             }
             // カーソル行自体が viewport より背が高い場合は先頭合わせが限界 (閲覧時と同じ制約)
             let height = vp.height.max(1);
             while rows > height && vp.scroll < line {
-                rows -= text::wrap_rows(self.display_len(vp.scroll), width);
+                rows -= text::wrap_rows(self.buffer.line(vp.scroll), width);
                 vp.scroll += 1;
             }
             return;
@@ -408,9 +411,5 @@ impl EditState {
     // gutter を除いたコンテンツ部の桁数。wrap の折返し幅と hscroll のクランプ幅を兼ねる
     fn content_width(&self, vp: &Viewport) -> usize {
         vp.width.saturating_sub(self.gutter_width()).max(1)
-    }
-
-    fn display_len(&self, line: usize) -> usize {
-        text::display_col(self.buffer.line(line), self.buffer.line_len(line))
     }
 }

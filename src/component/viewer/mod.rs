@@ -313,11 +313,11 @@ impl Viewer {
     fn point_at(&self, row: usize, col: usize) -> Option<Point> {
         let doc = self.text_doc()?;
         let gutter = text::gutter_width(doc.line_count());
-        // plain はタブ展開済みなので、表示桁 = char 数がそのまま成り立つ
+        // plain はタブ展開済みなので、返る表示桁がそのまま plain の char 座標になる
         let (line, display) = self
             .viewport
             .locate(row, col, gutter, doc.line_count(), |i| {
-                doc.plain[i].chars().count()
+                doc.plain[i].as_str()
             });
         Some(Point { line, col: display })
     }

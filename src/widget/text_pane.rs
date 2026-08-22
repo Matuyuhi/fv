@@ -4,6 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::component::viewer::{SearchState, Selection, Viewport};
+use crate::text;
 
 // 通常マッチ/カレントマッチのハイライト色
 const MATCH_BG: Color = Color::Rgb(80, 80, 0);
@@ -37,7 +38,7 @@ impl<'a> LineWindow<'a> {
 
 /// 閲覧 (viewer_pane) と編集 (editor_pane) で共通のテキスト描画パイプライン。
 /// 行加工順は mark_changed_line → highlight_matches → highlight_selection →
-/// (hscroll | char 単位 wrap) → cursor overlay で固定。順序を入れ替えると検索マッチ・
+/// (hscroll | セル単位 wrap) → cursor overlay で固定。順序を入れ替えると検索マッチ・
 /// 選択範囲・カーソルの絶対桁がズレる (CLAUDE.md の桁位置整合インバリアント)。
 /// 閲覧は search/selection だけ、編集は cursor だけを Some にする —
 /// 両方を同時に使うモードはない
@@ -75,9 +76,9 @@ impl TextPane<'_> {
             .collect()
     }
 
-    // wrap 時の描画: 論理行を width で char 単位に自前分割する。折返し位置を
+    // wrap 時の描画: 論理行を width セルずつに自前分割する。折返し位置を
     // カーソル追従 (editor の ensure_visible) とクリック座標 (click_at) の視覚行数
-    // 計算 (text::wrap_rows) と一致させるため、単語境界 wrap は使わない
+    // 計算と一致させるため、規則は text::WrapCursor 1 つに寄せ、単語境界 wrap は使わない
     fn wrapped(&self, vp: &Viewport) -> Vec<Line<'static>> {
         let width = vp.width.saturating_sub(self.gutter_width).max(1);
         let mut rows: Vec<Line> = Vec::new();
@@ -91,12 +92,20 @@ impl TextPane<'_> {
             if let Some((cursor_line, col)) = self.cursor
                 && cursor_line == self.window.first + offset
             {
-                let row = col / width;
-                // 折返し境界ちょうど (行末が width の倍数) に立った場合は空の続き行に置く
+                // 折返し位置は wrap_line と同じ規則 (text::WrapCursor) で引き直す。
+                // 全角を含む行では「表示桁 / 幅」がその規則と一致しない
+                let content: String = line
+                    .spans
+                    .iter()
+                    .skip(1)
+                    .map(|s| s.content.as_ref())
+                    .collect();
+                let (row, offset_in_row) = text::wrap_position(&content, col, width);
+                // 折返し境界ちょうど (行末で行が埋まっている) に立った場合は空の続き行に置く
                 while chunks.len() <= row {
                     chunks.push(Line::from(vec![pad_span(self.gutter_width)]));
                 }
-                chunks[row] = overlay_cursor(std::mem::take(&mut chunks[row]), col % width);
+                chunks[row] = overlay_cursor(std::mem::take(&mut chunks[row]), offset_in_row);
             }
             rows.extend(chunks);
         }
@@ -274,28 +283,33 @@ fn push_segment(spans: &mut Vec<Span<'static>>, chars: &[char], style: Style) {
     spans.push(Span::styled(chars.iter().collect::<String>(), style));
 }
 
-// 論理行 1 本を width ごとの視覚行に切る。span の style は切れ目を跨いで保存する
+// 論理行 1 本を width セルごとの視覚行に切る。span の style は切れ目を跨いで保存する。
+// 切る単位が char 数ではなくセル数なのは、端末 (ratatui の LineTruncator) が全角を
+// 2 セル送るため — char 数で詰めると行が幅を超え、はみ出した文字が次の視覚行にも
+// 現れないまま消える。走査も char ではなく grapheme 単位にするのは、ZWJ 絵文字の
+// ように「char ごとの幅の合計と実際の描画幅が食い違う」列を割らないため。
+// span の内容は normalize 済み (タブ展開済み) なのでタブの手当ては要らない
 fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Line<'static>> {
     let mut rows: Vec<Line> = Vec::new();
     let mut spans: Vec<Span> = vec![line.spans.first().cloned().unwrap_or_default()];
-    let mut used = 0usize;
+    let mut wrap = text::WrapCursor::new(width);
     for span in line.spans.iter().skip(1) {
-        let chars: Vec<char> = span.content.chars().collect();
-        let mut idx = 0;
-        while idx < chars.len() {
-            let take = (width - used).min(chars.len() - idx);
-            if take == 0 {
+        let mut segment = String::new();
+        // ratatui の描画と同じ単位で送るため grapheme で辿る (ZWJ 絵文字を割らない)
+        for grapheme in span.styled_graphemes(Style::default()) {
+            if wrap.push(grapheme.symbol) {
+                if !segment.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut segment), span.style));
+                }
                 rows.push(Line::from(std::mem::replace(
                     &mut spans,
                     vec![pad_span(gutter_width)],
                 )));
-                used = 0;
-                continue;
             }
-            let segment: String = chars[idx..idx + take].iter().collect();
+            segment.push_str(grapheme.symbol);
+        }
+        if !segment.is_empty() {
             spans.push(Span::styled(segment, span.style));
-            used += take;
-            idx += take;
         }
     }
     rows.push(Line::from(spans));
@@ -352,4 +366,101 @@ fn overlay_cursor(line: Line<'static>, col: usize) -> Line<'static> {
         ));
     }
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LineWindow, TextPane};
+    use crate::component::viewer::Viewport;
+    use ratatui::style::{Color, Style};
+    use ratatui::text::{Line, Span};
+
+    fn pane_rows(
+        spans: Vec<Span<'static>>,
+        width: usize,
+        gutter_width: usize,
+    ) -> Vec<Line<'static>> {
+        let rows = vec![Line::from(spans)];
+        let mut vp = Viewport::new(true);
+        vp.width = width;
+        vp.height = 20;
+        let pane = TextPane {
+            window: LineWindow {
+                rows: &rows,
+                first: 0,
+            },
+            changed_lines: &None,
+            search: None,
+            selection: None,
+            cursor: None,
+            gutter_width,
+        };
+        pane.visible(&vp)
+    }
+
+    fn content(rows: &[Line<'static>], gutter_width: usize) -> String {
+        rows.iter()
+            .map(|row| {
+                let body: String = row
+                    .spans
+                    .iter()
+                    .skip(1)
+                    .map(|s| s.content.as_ref())
+                    .collect();
+                // 続き行の gutter は空白詰めなので、gutter を落とせば本文だけが残る
+                debug_assert_eq!(row.spans[0].content.chars().count(), gutter_width);
+                body
+            })
+            .collect()
+    }
+
+    // 全角文字は 2 セルを占めるので、char 数で詰めると視覚行が幅を超え、
+    // はみ出した文字が次の視覚行にも現れないまま消える (#w の折返しバグ)
+    #[test]
+    fn wrapping_full_width_text_keeps_every_char() {
+        let text = "あいうえおかきくけこ漢字テスト";
+        let rows = pane_rows(
+            vec![Span::raw("1 "), Span::raw(text)],
+            12, // gutter 2 + 折返し幅 10 = 全角 5 文字ぶん
+            2,
+        );
+        assert_eq!(rows.len(), 3);
+        for row in &rows {
+            assert!(row.width() <= 12, "視覚行が幅を超えている: {row:?}");
+        }
+        assert_eq!(content(&rows, 2), text);
+    }
+
+    // ZWJ 絵文字は char ごとの幅の合計 (4) と描画幅 (2) が食い違う。char で数えると
+    // 幅 4 の行に収まらないと誤判定して列の途中で割れ、絵文字が 2 つに分かれて見える
+    #[test]
+    fn wrapping_keeps_a_zwj_sequence_whole() {
+        let text = "👩\u{200d}💻ab";
+        let rows = pane_rows(vec![Span::raw("1 "), Span::raw(text)], 6, 2);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(content(&rows, 2), text);
+        assert!(
+            rows[0].width() <= 6,
+            "視覚行が幅を超えている: {:?}",
+            rows[0]
+        );
+    }
+
+    // 折返しは span の切れ目と無関係に起きるので、style を跨いでも本文は落ちない
+    #[test]
+    fn wrapping_splits_inside_a_span_and_keeps_styles() {
+        let rows = pane_rows(
+            vec![
+                Span::raw("1 "),
+                Span::styled("あa", Style::default().fg(Color::Red)),
+                Span::styled("bいc", Style::default().fg(Color::Blue)),
+            ],
+            6, // 折返し幅 4
+            2,
+        );
+        assert_eq!(content(&rows, 2), "あabいc");
+        for row in &rows {
+            assert!(row.width() <= 6, "視覚行が幅を超えている: {row:?}");
+        }
+    }
 }
