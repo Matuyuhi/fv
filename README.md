@@ -14,7 +14,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 - File tree with `.gitignore`-aware scanning and git status markers (`i` shows ignored files too — `.gitignore` / `.ignore` / `.git/info/exclude` — dimmed)
 - Syntax highlighting (syntect)
 - **Inline editing** (`e`) — insert, delete, undo/redo, paste, save
-- **Git mode** — tree filtered to changed files only (hierarchy preserved), unified diff with hunk jumping
+- **Git mode** — tree filtered to changed files only (hierarchy preserved), unified diff with hunk jumping, and staging by file, hunk, or individual line
 - Live changed-line markers (`▎`) in the gutter while editing (LCS diff against git HEAD, no per-keystroke git calls)
 - Fuzzy file finder (`Ctrl+p`)
 - In-file search (`/`, `n`/`N`) and line jump (`:N`)
@@ -90,12 +90,14 @@ The tree is filtered down to changed files with the directory hierarchy preserve
 
 | Key | Action |
 | --- | --- |
-| `j`/`k`, `↑`/`↓` | Move between changed files / scroll the diff |
+| `j`/`k`, `↑`/`↓` | Move between changed files / move the line cursor in the diff |
 | `h`/`l`, `←`/`→` | Collapse/expand (tree), horizontal scroll (diff) |
 | `Enter` | Show the diff of the selected file |
 | `]`/`[` | Next / previous hunk |
 | `Space` (tree) | Stage / unstage the selected file or directory |
-| `Space` (diff) | Stage just the hunk you are looking at (`unstage` when the diff base is `staged`) |
+| `Space` (diff) | Stage the hunk the line cursor is in (`unstage` when the diff base is `staged`) |
+| `S` (diff) | Stage just the cursor line — or the `V` selection (`unstage` when the base is `staged`) |
+| `V` (diff) | Start / clear a line selection for `S` (`j`/`k` extend it, `Esc` clears) |
 | `t` | Cycle the diff base (HEAD → staged → unstaged) |
 | `w` | Toggle wrap (diff only, not persisted) |
 | `r` | Rescan (also refreshes git status) |

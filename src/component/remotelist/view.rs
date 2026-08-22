@@ -136,6 +136,7 @@ pub(crate) fn draw_text_detail(
         search: None,
         selection: None,
         cursor: None,
+        cursor_band: None,
         gutter_width: 0,
     };
     let visible = pane.visible(viewport);

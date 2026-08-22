@@ -59,6 +59,7 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
         search: viewer.search.as_ref(),
         selection: viewer.selection.as_ref(),
         cursor: None,
+        cursor_band: None,
         gutter_width,
     };
     let visible = pane.visible(&viewer.viewport);

@@ -40,9 +40,13 @@ pub(crate) fn draw_git(
     // (viewer の hscroll 表示と同じ場所・作法)。side-by-side を要求していても幅不足で
     // inline に落ちている間は、それが分かるようヒントを足す
     let mut title = format!("{title}  [{}]", git.base_label());
-    // Space の対象 (上端に見えている行が属する hunk) を暗黙にしないため、序数を常に出す
+    // Space の対象 (カーソル行が属する hunk) を暗黙にしないため、序数を常に出す
     if let Some((ordinal, total)) = git.hunk_position() {
         title.push_str(&format!("  hunk {ordinal}/{total}"));
+    }
+    // V の行選択中は、S が何行に効くのかをタイトルにも出す (帯だけだと端末の色設定に依存する)
+    if let Some(lines) = git.selected_line_count() {
+        title.push_str(&format!("  selected {lines} lines"));
     }
     if git.side_by_side_requested() && !git.side_by_side_active() {
         title.push_str("  (narrow: inline)");
@@ -70,12 +74,14 @@ pub(crate) fn draw_git(
 
     let pane = TextPane {
         window: LineWindow::slice(git.lines(), &git.viewport),
-        // diff 自体が変更の表示なので、閲覧側の変更行マークは使わない。カーソルも同様。
+        // diff 自体が変更の表示なので、閲覧側の変更行マークは使わない。文字単位のカーソルも
+        // 持たない (diff には桁の意味が無い) 代わりに、Space/S の対象を行の帯で見せる。
         // 検索 (#31) は inline 表示 (単一ファイル/まとめ diff とも) でだけ有効にする
         changed_lines: &None,
         search: git.search(),
         selection: None,
         cursor: None,
+        cursor_band: Some(git.cursor_band()),
         gutter_width: git.gutter_width(),
     };
     let mut visible = pane.visible(&git.viewport);
@@ -141,12 +147,15 @@ fn draw_side_by_side(
     let mut vp = git.viewport.clone();
     vp.wrap = false;
 
+    // 帯は左右そろえて敷く (vp.scroll と同じく、行 index は 2 カラムで共有している)
+    let band = Some(git.cursor_band());
     let left_pane = TextPane {
         window: LineWindow::slice(left_lines, &vp),
         changed_lines: &None,
         search: None,
         selection: None,
         cursor: None,
+        cursor_band: band,
         gutter_width: left_gutter,
     };
     let right_pane = TextPane {
@@ -155,6 +164,7 @@ fn draw_side_by_side(
         search: None,
         selection: None,
         cursor: None,
+        cursor_band: band,
         gutter_width: right_gutter,
     };
     let left_visible = left_pane.visible(&vp);

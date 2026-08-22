@@ -199,6 +199,7 @@ fn draw_pr_diff(
         search: None,
         selection: None,
         cursor: None,
+        cursor_band: None,
         gutter_width: prs.gutter_width(),
     };
     let mut rows = pane.visible(&prs.diff_viewport);

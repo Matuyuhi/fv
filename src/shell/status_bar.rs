@@ -254,13 +254,20 @@ fn git_status_line(app: &App) -> Line<'static> {
                 .to_string()
         }
         Focus::Viewer => {
-            let mut hint = "j/k: scroll  ]/[: hunk".to_string();
-            // Space の向きは diff 基準で決まるので、押す前にどちらになるかを出す
+            // 選択中は他のヒントより優先して S の対象行数を出す (VIEW の範囲選択と同じ作法)
+            if let Some(lines) = git.selected_line_count() {
+                let verb = if git.unstaging() { "unstage" } else { "stage" };
+                return Line::from(format!(
+                    "selected {lines} lines  S: {verb} lines  j/k: extend  Esc: clear"
+                ));
+            }
+            let mut hint = "j/k: move  ]/[: hunk".to_string();
+            // Space/S の向きは diff 基準で決まるので、押す前にどちらになるかを出す
             if !git.showing_all() {
                 hint.push_str(if git.unstaging() {
-                    "  Space: unstage hunk"
+                    "  Space: unstage hunk  S/V: unstage lines"
                 } else {
-                    "  Space: stage hunk"
+                    "  Space: stage hunk  S/V: stage lines"
                 });
             }
             hint.push_str("  /: search  A: all files");

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use crate::component::gitlane::HunkPatch;
+use crate::component::gitlane::{HunkPatch, LinePatch};
 use crate::git;
 
 use super::{App, ConfirmAction, Lane, Mode};
@@ -128,6 +128,72 @@ impl App {
             // HEAD 基準の diff は「index にも worktree にも変更がある」状態を 1 本にまとめて
             // 見せるため、その hunk の文脈行が既にステージ済みだと index に対して適用できない。
             // 基準を切り替えれば通ることが多いので、失敗の理由ではなく次の一手を添える
+            if !unstaging && matches!(self.lane, Lane::Git(ref g) if g.base_label() == "HEAD") {
+                message.push_str(" (t で unstaged 基準に切り替えると通ることがあります)");
+            }
+            self.set_notice(message, true);
+        }
+    }
+
+    /// S (GIT レーンの右ペイン): カーソル行 (V の選択中は選択範囲) の変更行だけを index へ
+    /// 移す / index から外す。hunk 単位 (Space) と同じく非破壊的なので Mode::Confirm は挟まず、
+    /// 同じ debounce・同じ rescan 経路に相乗りする (粒度だけが違う操作なので分岐を増やさない)
+    pub(super) fn stage_current_lines(&mut self) {
+        if self.last_stage_toggle.elapsed() < super::STAGE_DEBOUNCE {
+            return;
+        }
+        let Lane::Git(git) = &self.lane else {
+            return;
+        };
+        let unstaging = git.unstaging();
+        let (patch, lines) = match git.current_line_patch() {
+            LinePatch::Ready { patch, lines } => (patch, lines),
+            LinePatch::ShowingAll => {
+                self.set_notice(
+                    "まとめ diff 表示中は行単位でステージできません (A で解除)",
+                    true,
+                );
+                return;
+            }
+            LinePatch::SideBySide => {
+                self.set_notice(
+                    "side-by-side 表示中は行単位でステージできません (v で inline に戻す)",
+                    true,
+                );
+                return;
+            }
+            LinePatch::NotApplicable => {
+                self.set_notice(
+                    "untracked は行単位で stage できません (ツリー側の Space を使ってください)",
+                    true,
+                );
+                return;
+            }
+            LinePatch::NoChangedLines => {
+                self.set_notice("選んだ範囲に + / - の行がありません", true);
+                return;
+            }
+            LinePatch::Empty => return,
+        };
+
+        self.last_stage_toggle = Instant::now();
+        let outcome = git::apply_cached(&self.root, &patch, unstaging);
+        if outcome.ok {
+            let verb = if unstaging { "unstage" } else { "stage" };
+            self.set_notice(format!("{lines} 行を {verb} しました"), false);
+            // 適用した行は diff から消えるので、選択を残すと別の行を指したままになる
+            if let Lane::Git(git) = &mut self.lane {
+                git.clear_selection();
+            }
+            self.rescan_now();
+        } else {
+            let mut message = if outcome.message.is_empty() {
+                "行の適用に失敗しました".to_string()
+            } else {
+                outcome.message
+            };
+            // hunk 単位と同じ理由 (HEAD 基準では文脈行が既にステージ済みだと index に
+            // 適用できない)。失敗の理由ではなく次の一手を添える
             if !unstaging && matches!(self.lane, Lane::Git(ref g) if g.base_label() == "HEAD") {
                 message.push_str(" (t で unstaged 基準に切り替えると通ることがあります)");
             }

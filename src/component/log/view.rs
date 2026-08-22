@@ -89,6 +89,7 @@ pub(crate) fn draw_log_diff(
         search: None,
         selection: None,
         cursor: None,
+        cursor_band: None,
         gutter_width: log.gutter_width(),
     };
     let mut rows = pane.visible(&log.viewport);

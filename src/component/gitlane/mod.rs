@@ -19,6 +19,7 @@
 //! 定数・Kind・各 *Diff 構造体をここに残すのは、レンダラ 3 種が同じ形を組み立てるため。
 pub mod view;
 
+mod patch;
 mod render;
 mod side;
 mod word;
@@ -26,6 +27,7 @@ mod word;
 pub use render::render_commit;
 pub use side::side_by_side_wrapped;
 
+use patch::build_line_patch;
 use render::{classify, render_inline};
 use side::render_side_by_side;
 
@@ -36,6 +38,7 @@ use ratatui::text::Line;
 
 use crate::component::viewer::{Match, SearchState, Viewport, search_matches};
 use crate::git::{self, DiffBase};
+use crate::text;
 
 const ADDED: Color = Color::Green;
 const DELETED: Color = Color::Red;
@@ -108,6 +111,10 @@ struct GitDiff {
     /// するので、この一覧は inline.hunks / side.hunks と同じ順序・同じ個数になる。
     /// 表示行 → 生 diff の対応付けを「何番目の hunk か」だけに絞れるのはこの 1:1 が根拠
     raw_hunks: Vec<usize>,
+    /// inline 表示の行 index → 生 diff の行 index。classify がファイルヘッダを落とすぶんだけ
+    /// ずれるだけで単調増加なので、表示行の閉区間はそのまま生 diff 上の閉区間に写せる
+    /// (行単位ステージ (`S`) が選択範囲を生 diff 側へ持ち込む唯一の経路)
+    body_raw: Vec<usize>,
     /// hunk 単位で index に適用できるか。untracked の `--no-index` フォールバックで作った
     /// diff はヘッダのパスが repo 相対でない (呼び出し側が絶対パスを渡すため) ので、
     /// そのまま `git apply --cached` に通すと repo 外へファイルを作ろうとして失敗する。
@@ -130,6 +137,27 @@ pub enum HunkPatch {
     ShowingAll,
     /// untracked (`--no-index`) 由来の diff。ツリー側の Space でファイル単位に stage する
     NotApplicable,
+    /// diff が空 / hunk header が 1 つも無い (binary 等)
+    Empty,
+}
+
+/// `S` (GIT レーン右ペイン) の対象。HunkPatch と同じく、組み立てられなかった理由まで
+/// 型で返して notice の文言は App 側 (app/git_ops.rs) に決めさせる
+pub enum LinePatch {
+    Ready {
+        /// git apply にそのまま渡せる 1 ファイル分のパッチ (選んだ行だけを反映する)
+        patch: String,
+        /// 実際に反映される変更行 (+/-) の数。notice に出す
+        lines: usize,
+    },
+    /// `A` のまとめ表示中。hunk 単位と同じ理由で単一ファイル表示に戻してもらう
+    ShowingAll,
+    /// side-by-side 表示中。左右で 1 つの行 index が 2 本の行を指すので生 diff に写せない
+    SideBySide,
+    /// untracked (`--no-index`) 由来の diff。ツリー側の Space でファイル単位に stage する
+    NotApplicable,
+    /// 選択範囲に + / - の行が 1 つも無い (文脈行・hunk header だけを選んでいる)
+    NoChangedLines,
     /// diff が空 / hunk header が 1 つも無い (binary 等)
     Empty,
 }
@@ -172,6 +200,14 @@ pub struct GitState {
     all: Option<Box<AllDiff>>,
     /// `A` のトグル状態。ツリーでファイルを選び直すと `exit_all` で false に戻す
     showing_all: bool,
+    /// 行カーソル (今表示している行リスト上の論理行 index)。diff ペインには EDIT のような
+    /// 文字カーソルが無いので、以前は Space の対象を「上端に見えている行が属する hunk」と
+    /// していたが、画面のどこを指しているのかが一切見えず対象が当てられなかった。
+    /// j/k はこのカーソルを動かし viewport が追従する形にして、描画でも帯として見せる
+    cursor: usize,
+    /// `V` で始めた行選択の起点。None の間は対象がカーソル行 1 行だけになる。
+    /// 表示中の行リストが変わる操作 (ファイル切替・基準切替・v/A のトグル) では捨てる
+    selection_anchor: Option<usize>,
 }
 
 impl GitState {
@@ -185,6 +221,8 @@ impl GitState {
             search: None,
             all: None,
             showing_all: false,
+            cursor: 0,
+            selection_anchor: None,
         }
     }
 
@@ -199,7 +237,14 @@ impl GitState {
             .display()
             .to_string();
         let raw = git::file_diff(root, path, self.base).unwrap_or_default();
-        let body: Vec<(Kind, &str)> = raw.iter().filter_map(|line| classify(line)).collect();
+        let mut body: Vec<(Kind, &str)> = Vec::with_capacity(raw.len());
+        let mut body_raw: Vec<usize> = Vec::with_capacity(raw.len());
+        for (i, line) in raw.iter().enumerate() {
+            if let Some(item) = classify(line) {
+                body.push(item);
+                body_raw.push(i);
+            }
+        }
         let raw_hunks = raw
             .iter()
             .enumerate()
@@ -214,10 +259,13 @@ impl GitState {
             path: path.to_path_buf(),
             raw,
             raw_hunks,
+            body_raw,
             stageable,
         });
         self.viewport.scroll = 0;
         self.viewport.hscroll = 0;
+        self.cursor = 0;
+        self.selection_anchor = None;
         self.side_wrap_cache = None;
         self.recompute_search();
     }
@@ -239,6 +287,8 @@ impl GitState {
         };
         self.viewport.scroll = 0;
         self.viewport.hscroll = 0;
+        self.cursor = 0;
+        self.selection_anchor = None;
         self.side_wrap_cache = None;
         self.recompute_search();
         truncated
@@ -283,15 +333,21 @@ impl GitState {
             let truncated = self.load_all(root, untracked);
             let last = self.line_count().saturating_sub(1);
             self.viewport.scroll = self.viewport.scroll.min(last);
+            self.cursor = self.cursor.min(last);
             self.recompute_search();
             return truncated;
         }
         let Some(path) = self.current.as_ref().map(|d| d.path.clone()) else {
             return false;
         };
+        // stage/unstage の直後もここを通る。読んでいた位置とカーソルはどちらも維持したい
+        // (適用した hunk が diff から消えて行数が縮んでも、近い行に留めるだけでよい)
         let scroll = self.viewport.scroll;
+        let cursor = self.cursor;
         self.open(root, &path);
-        self.viewport.scroll = scroll.min(self.line_count().saturating_sub(1));
+        let last = self.line_count().saturating_sub(1);
+        self.viewport.scroll = scroll.min(last);
+        self.cursor = cursor.min(last);
         false
     }
 
@@ -336,19 +392,147 @@ impl GitState {
         self.lines().len()
     }
 
+    /// マウスホイール専用: 画面だけを送り、カーソルは可視範囲の端に寄せて連れて行く。
+    /// カーソルが画面外に置き去りになると Space/S の対象が見えないまま押せてしまう
     pub fn scroll_by(&mut self, delta: isize) {
         let last = self.line_count().saturating_sub(1);
         self.viewport.scroll_by(delta, last);
+        if self.viewport.height == 0 {
+            return;
+        }
+        let top = self.viewport.scroll;
+        let bottom = (top + self.viewport.height - 1).min(last);
+        self.cursor = self.cursor.clamp(top, bottom);
+    }
+
+    /// j/k/Ctrl+d/Ctrl+u: カーソルを動かし viewport を追従させる (EDIT と同じ向きの操作)
+    pub fn move_cursor(&mut self, delta: isize) {
+        let last = self.line_count().saturating_sub(1);
+        let next = (self.cursor_line() as isize + delta).clamp(0, last as isize) as usize;
+        self.cursor_to(next);
+    }
+
+    /// カーソルを指定行へ置き、その行が見えるところまでスクロールする
+    pub fn cursor_to(&mut self, line: usize) {
+        let last = self.line_count().saturating_sub(1);
+        self.cursor = line.min(last);
+        self.ensure_cursor_visible();
+    }
+
+    /// 今どの行に居るか (行数が縮んでも常に有効な index に丸めて返す)
+    pub fn cursor_line(&self) -> usize {
+        self.cursor.min(self.line_count().saturating_sub(1))
+    }
+
+    /// 帯を敷く閉区間。V の選択中は起点〜カーソル、そうでなければカーソル行 1 行だけ
+    pub fn cursor_band(&self) -> (usize, usize) {
+        let cursor = self.cursor_line();
+        match self.selection_anchor {
+            Some(anchor) => {
+                let anchor = anchor.min(self.line_count().saturating_sub(1));
+                (anchor.min(cursor), anchor.max(cursor))
+            }
+            None => (cursor, cursor),
+        }
+    }
+
+    /// V: 行選択の開始 / 解除。開始位置は今のカーソル行
+    pub fn toggle_selection(&mut self) {
+        self.selection_anchor = match self.selection_anchor {
+            Some(_) => None,
+            None => Some(self.cursor_line()),
+        };
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection_anchor = None;
+    }
+
+    /// 選択中の行数 (選択していなければ None)。ステータスバーのヒントに出す
+    pub fn selected_line_count(&self) -> Option<usize> {
+        self.selection_anchor?;
+        let (start, end) = self.cursor_band();
+        Some(end - start + 1)
+    }
+
+    // カーソル行が縦範囲に収まるまでスクロールする。wrap 中は視覚行数で判定する
+    // (EditState::ensure_visible と同じ数え方。side-by-side は wrap でも事前分割済みの
+    // 行を 1 視覚行として渡しているので、常に論理行 = 視覚行の扱いでよい)
+    fn ensure_cursor_visible(&mut self) {
+        // height はペインを描いた時に ui 側が書き戻す。まだ 0 = このレーンを 1 度も描いて
+        // いない間は「何行見えているか」が分からないので動かさない (1 行として扱うと、
+        // 描く前に届いたキーでカーソル行が画面上端に貼り付いてしまう)
+        if self.viewport.height == 0 {
+            return;
+        }
+        let line = self.cursor_line();
+        self.viewport.ensure_row_visible(line);
+        if !self.viewport.wrap || self.side_by_side_active() {
+            return;
+        }
+        // ensure_row_visible で scroll..line の距離は高々 height に収まっているので、
+        // ここからの数え直しは画面の大きさに比例する範囲で終わる
+        let width = self
+            .viewport
+            .width
+            .saturating_sub(self.gutter_width())
+            .max(1);
+        let height = self.viewport.height.max(1);
+        let mut scroll = self.viewport.scroll;
+        let lines = self.lines();
+        let mut rows = 1usize;
+        for row in &lines[scroll..line] {
+            rows += text::wrap_rows(&line_plain_text(row), width);
+        }
+        while rows > height && scroll < line {
+            rows -= text::wrap_rows(&line_plain_text(&lines[scroll]), width);
+            scroll += 1;
+        }
+        self.viewport.scroll = scroll;
+    }
+
+    /// diff ペインのクリック: 画面内座標の行 → カーソル行。折返し中は描画と同じ規則で
+    /// 視覚行を辿る (Viewport::locate と同じ数え方だが、桁は要らないので行だけを見る)
+    pub fn click_row(&mut self, row: usize) {
+        let last = self.line_count().saturating_sub(1);
+        if !self.viewport.wrap || self.side_by_side_active() {
+            self.cursor = (self.viewport.scroll + row).min(last);
+            return;
+        }
+        let width = self
+            .viewport
+            .width
+            .saturating_sub(self.gutter_width())
+            .max(1);
+        let lines = self.lines();
+        let mut line = self.viewport.scroll.min(last);
+        let mut remaining = row;
+        while line < last {
+            let rows = text::wrap_rows(&line_plain_text(&lines[line]), width);
+            if remaining < rows {
+                break;
+            }
+            remaining -= rows;
+            line += 1;
+        }
+        self.cursor = line;
+    }
+
+    /// sticky header が 1 行目を占めているか。クリック座標を行 index に直す側が引く
+    pub fn sticky_rows(&self) -> usize {
+        usize::from(self.sticky_label().is_some())
     }
 
     pub fn jump_to_top(&mut self) {
         self.viewport.scroll = 0;
+        self.cursor = 0;
     }
 
     pub fn jump_to_bottom(&mut self) {
         let total = self.line_count();
         let last = total.saturating_sub(1);
         self.viewport.scroll = total.saturating_sub(self.viewport.height).min(last);
+        self.cursor = last;
     }
 
     pub fn hscroll_by(&mut self, delta: isize) {
@@ -375,22 +559,20 @@ impl GitState {
         self.viewport.hscroll = 0;
     }
 
-    /// n: 現在位置より後ろの最初の hunk header へ。無ければ位置を変えない
+    /// ]: 現在位置より後ろの最初の hunk header へ。無ければ位置を変えない。
+    /// 基準はスクロール位置ではなくカーソル行 (Space の対象と一致させる)
     pub fn next_hunk(&mut self) {
-        if let Some(&target) = self.hunks().iter().find(|&&i| i > self.viewport.scroll) {
+        if let Some(&target) = self.hunks().iter().find(|&&i| i > self.cursor_line()) {
             self.viewport.scroll = target;
+            self.cursor = target;
         }
     }
 
-    /// N: 現在位置より前の最後の hunk header へ
+    /// [: 現在位置より前の最後の hunk header へ
     pub fn prev_hunk(&mut self) {
-        if let Some(&target) = self
-            .hunks()
-            .iter()
-            .rev()
-            .find(|&&i| i < self.viewport.scroll)
-        {
+        if let Some(&target) = self.hunks().iter().rev().find(|&&i| i < self.cursor_line()) {
             self.viewport.scroll = target;
+            self.cursor = target;
         }
     }
 
@@ -417,14 +599,15 @@ impl GitState {
             .map_or(&[] as &[usize], |d| d.inline.hunks.as_slice())
     }
 
-    /// 今スクロール位置が居る hunk の序数 (0-origin)。「上端に見えている行が属する hunk」を
-    /// 対象とする定義なので、`]`/`[` のジャンプ先とそのまま一致する。
+    /// カーソル行が居る hunk の序数 (0-origin)。以前は「上端に見えている行が属する hunk」
+    /// だったが、その行が画面のどこかを示すものが無く Space の対象が当てられなかったので、
+    /// 帯として見えている行カーソルを基準にする (`]`/`[` のジャンプ先とも一致したまま)。
     /// hunks() を使うので inline / side-by-side / wrap のどの表示でも同じ序数が出る
     /// (どの表示でも hunk の並び順は生 diff と同じで、変わるのは行 index だけ)
     fn current_hunk_ordinal(&self) -> Option<usize> {
         let idx = self
             .hunks()
-            .partition_point(|&line| line <= self.viewport.scroll);
+            .partition_point(|&line| line <= self.cursor_line());
         (idx > 0).then(|| idx - 1)
     }
 
@@ -486,14 +669,53 @@ impl GitState {
         }
     }
 
+    /// S: カーソル行 (V の選択中は選択範囲) の変更行だけを反映するパッチを組み立てる。
+    /// 表示行 → 生 diff の写像は `body_raw` が持つ。選ばなかった変更行の扱い (落とす /
+    /// 文脈行にする) は `patch::build_line_patch` が `git add -p` と同じ作法で決める
+    pub fn current_line_patch(&self) -> LinePatch {
+        if self.showing_all {
+            return LinePatch::ShowingAll;
+        }
+        if self.side_by_side_active() {
+            return LinePatch::SideBySide;
+        }
+        let Some(diff) = &self.current else {
+            return LinePatch::Empty;
+        };
+        if !diff.stageable {
+            return LinePatch::NotApplicable;
+        }
+        if diff.raw_hunks.is_empty() {
+            return LinePatch::Empty;
+        }
+        let (start, end) = self.cursor_band();
+        let (Some(&lo), Some(&hi)) = (diff.body_raw.get(start), diff.body_raw.get(end)) else {
+            return LinePatch::Empty;
+        };
+        // 反映される行数は「選択範囲に入っている + / - の数」。ファイルヘッダより手前は
+        // body_raw に入らないので、ここで数えるのは常に hunk の中の行だけになる
+        let lines = diff.raw[lo..=hi]
+            .iter()
+            .filter(|l| matches!(l.as_bytes().first(), Some(b'+') | Some(b'-')))
+            .count();
+        if lines == 0 {
+            return LinePatch::NoChangedLines;
+        }
+        match build_line_patch(&diff.raw, &diff.raw_hunks, lo, hi, self.unstaging()) {
+            Some(patch) => LinePatch::Ready { patch, lines },
+            None => LinePatch::NoChangedLines,
+        }
+    }
+
     /// }: まとめ diff 中の次のファイル境界へ。単一ファイル表示中は boundaries が空なので no-op
     pub fn next_file(&mut self) {
         if let Some(&(line, _)) = self
             .boundaries()
             .iter()
-            .find(|(l, _)| *l > self.viewport.scroll)
+            .find(|(l, _)| *l > self.cursor_line())
         {
             self.viewport.scroll = line;
+            self.cursor = line;
         }
     }
 
@@ -503,9 +725,10 @@ impl GitState {
             .boundaries()
             .iter()
             .rev()
-            .find(|(l, _)| *l < self.viewport.scroll)
+            .find(|(l, _)| *l < self.cursor_line())
         {
             self.viewport.scroll = line;
+            self.cursor = line;
         }
     }
 
@@ -609,6 +832,7 @@ impl GitState {
     fn center_on_line(&mut self, line: usize) {
         let last = self.line_count().saturating_sub(1);
         self.viewport.center_on(line, last);
+        self.cursor = line.min(last);
     }
 
     // 検索対象は常に「今表示している inline 行」(単一ファイル/まとめ diff の両方に対応)。
@@ -640,6 +864,8 @@ impl GitState {
     pub fn toggle_side_by_side(&mut self) {
         self.side_by_side = !self.side_by_side;
         self.side_wrap_cache = None;
+        // inline と side-by-side では同じ行 index が別の行を指すので、選択は持ち越さない
+        self.selection_anchor = None;
     }
 
     /// side-by-side をユーザーが要求しているか (幅不足で実際は inline に落ちていても true)。

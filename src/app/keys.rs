@@ -619,11 +619,17 @@ impl App {
                 return;
             }
         }
-        // Space: 今見ている hunk だけを index へ適用/取り消し (hunk 単位ステージ)。git の実行と
-        // rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う。ツリー側 (Focus::Tree)
-        // の Space がファイル単位のトグルなのと対になっていて、粒度だけがフォーカスで変わる
+        // Space: カーソル行が属する hunk を index へ適用/取り消し (hunk 単位ステージ)。
+        // S: カーソル行 (V の選択中は選択範囲) の変更行だけ (行単位ステージ)。どちらも git の
+        // 実行と rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う。ツリー側
+        // (Focus::Tree) の Space がファイル単位のトグルなのと合わせて、同じ「index へ移す」
+        // 操作が ファイル → hunk → 行 の 3 段階の粒度で並ぶ
         if key.code == KeyCode::Char(' ') {
             self.stage_current_hunk();
+            return;
+        }
+        if key.code == KeyCode::Char('S') {
+            self.stage_current_lines();
             return;
         }
         // A (まとめ diff トグル) / t (基準循環) は git diff の取り直しを伴いうるため、untracked
@@ -655,10 +661,13 @@ impl App {
         };
         let half_page = (git.viewport.height / 2).max(1) as isize;
         match key.code {
-            KeyCode::Char('d') if ctrl => git.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => git.scroll_by(-half_page),
-            KeyCode::Char('j') | KeyCode::Down => git.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => git.scroll_by(-1),
+            // 移動はスクロールではなく行カーソルを動かす (viewport が追従する)。
+            // Space/S の対象がカーソル行に決まる以上、動かせるのはカーソルの方でなければ
+            // 「今どこを指しているか」と「どこへ動かしたか」が食い違う
+            KeyCode::Char('d') if ctrl => git.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => git.move_cursor(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => git.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => git.move_cursor(-1),
             // diff は VIEW とは別ドキュメントなので折返しも独立させる (config には保存しない)
             KeyCode::Char('w') => git.viewport.toggle_wrap(),
             KeyCode::Char('h') | KeyCode::Left => git.hscroll_by(-6),
@@ -684,6 +693,10 @@ impl App {
             }
             // inline ⇔ side-by-side (#30)。w と同じく config には保存しない
             KeyCode::Char('v') => git.toggle_side_by_side(),
+            // V: 行単位ステージ (S) の対象を複数行に広げる。VIEW の範囲選択と同じく
+            // j/k がそのまま伸縮になる (カーソルが端で、起点は V を押した行のまま)
+            KeyCode::Char('V') => git.toggle_selection(),
+            KeyCode::Esc => git.clear_selection(),
             _ => {}
         }
     }

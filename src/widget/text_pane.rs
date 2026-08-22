@@ -13,6 +13,9 @@ const CURRENT_MATCH_BG: Color = Color::Rgb(255, 220, 0);
 // (カレントマッチが黄色地に黒文字を固定しているのと同じ理由)
 const SELECTION_BG: Color = Color::Rgb(58, 82, 128);
 const SELECTION_FG: Color = Color::Rgb(236, 240, 248);
+// GIT レーンの diff ペインの行カーソル。diff の行は既に赤/緑の前景色と word-level の
+// 濃い背景を持つので、背景が未設定の span にだけ敷いて既存の色を潰さない
+const CURSOR_BAND_BG: Color = Color::Rgb(56, 62, 80);
 
 /// TextPane に渡す可視ウィンドウ。文書全体ではなく「vp.scroll から height 論理行」だけを
 /// 持つ形にしてあるのは、大きなファイルを丸ごとハイライトせずに済ませる
@@ -37,9 +40,11 @@ impl<'a> LineWindow<'a> {
 }
 
 /// 閲覧 (viewer_pane) と編集 (editor_pane) で共通のテキスト描画パイプライン。
-/// 行加工順は mark_changed_line → highlight_matches → highlight_selection →
-/// (hscroll | セル単位 wrap) → cursor overlay で固定。順序を入れ替えると検索マッチ・
+/// 行加工順は mark_changed_line → band_line → highlight_matches → highlight_selection →
+/// (hscroll | セル単位 wrap) → cursor overlay → fill_row で固定。順序を入れ替えると検索マッチ・
 /// 選択範囲・カーソルの絶対桁がズレる (CLAUDE.md の桁位置整合インバリアント)。
+/// band_line を検索・選択より前に置くのは、帯の背景で検索マッチを塗り潰さないため
+/// (後段の bg 指定が必ず勝つ)。
 /// 閲覧は search/selection だけ、編集は cursor だけを Some にする —
 /// 両方を同時に使うモードはない
 pub(crate) struct TextPane<'a> {
@@ -50,6 +55,10 @@ pub(crate) struct TextPane<'a> {
     pub selection: Option<&'a Selection>,
     /// ブロックカーソルの (論理行, 表示桁)
     pub cursor: Option<(usize, usize)>,
+    /// 行カーソルの帯を敷く論理行の閉区間 (GIT レーンの diff ペイン)。diff には文字単位の
+    /// カーソルが無いので、Space/S の対象がどこかを行の帯で見せる。V の行選択中は範囲全体、
+    /// 選択していない間はカーソル行だけを (n, n) で渡す
+    pub cursor_band: Option<(usize, usize)>,
     /// 行番号 gutter (span[0]) の char 幅。wrap の続き行 pad と hscroll の除外幅に使う
     pub gutter_width: usize,
 }
@@ -66,12 +75,13 @@ impl TextPane<'_> {
             .map(|offset| {
                 let line = self.marked_and_highlighted(offset);
                 let line = hscroll_line(&line, vp.hscroll);
-                match self.cursor {
+                let line = match self.cursor {
                     Some((cursor_line, col)) if cursor_line == self.window.first + offset => {
                         overlay_cursor(line, col.saturating_sub(vp.hscroll))
                     }
                     _ => line,
-                }
+                };
+                self.fill_band(line, self.window.first + offset, vp.width)
             })
             .collect()
     }
@@ -107,10 +117,32 @@ impl TextPane<'_> {
                 }
                 chunks[row] = overlay_cursor(std::mem::take(&mut chunks[row]), offset_in_row);
             }
+            if self.in_band(self.window.first + offset) {
+                // 折返した続き行まで帯を伸ばさないと、1 論理行が途中で切れて見える
+                chunks = chunks
+                    .into_iter()
+                    .map(|row| fill_row(row, vp.width))
+                    .collect();
+            }
             rows.extend(chunks);
         }
         rows.truncate(vp.height);
         rows
+    }
+
+    fn in_band(&self, line: usize) -> bool {
+        self.cursor_band
+            .is_some_and(|(start, end)| start <= line && line <= end)
+    }
+
+    // 帯は行末までではなくペイン幅いっぱいまで伸ばす。ここだけ描画の最後 (hscroll/wrap の後)
+    // に置くのは、桁を持たない純粋な余白なので絶対桁の計算に一切影響させないため
+    fn fill_band(&self, line: Line<'static>, index: usize, width: usize) -> Line<'static> {
+        if self.in_band(index) {
+            fill_row(line, width)
+        } else {
+            line
+        }
     }
 
     // offset はウィンドウ内の位置。変更行マーク・検索マッチは文書全体での論理行
@@ -118,6 +150,11 @@ impl TextPane<'_> {
     fn marked_and_highlighted(&self, offset: usize) -> Line<'static> {
         let i = self.window.first + offset;
         let line = mark_changed_line(&self.window.rows[offset], i, self.changed_lines);
+        let line = if self.in_band(i) {
+            band_line(&line)
+        } else {
+            line
+        };
         let line = match self.search {
             Some(search) => highlight_matches(&line, i, search),
             None => line,
@@ -276,6 +313,42 @@ fn highlight_selection(line: &Line<'static>, start: usize, end: usize) -> Line<'
     Line::from(spans)
 }
 
+// 行カーソルの帯。背景が未設定の span にだけ敷くので、diff の word-level ハイライト
+// (既に bg を持つ span) は帯の中でもそのまま残る。span 数・char 数はどちらも変えないため
+// 後段の桁計算 (highlight_matches / hscroll_line) には一切影響しない
+fn band_line(line: &Line<'static>) -> Line<'static> {
+    let spans = line
+        .spans
+        .iter()
+        .map(|span| {
+            if span.style.bg.is_some() {
+                span.clone()
+            } else {
+                Span::styled(span.content.clone(), span.style.bg(CURSOR_BAND_BG))
+            }
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans)
+}
+
+// 行の右側をペイン幅まで帯の背景で埋める。行なりのラギッドな右端だと「今どの行に居るか」が
+// 行の長さで揺れて読み取りにくいため、帯だけは全幅に伸ばす (widen_boundary_bands と同じ手)。
+// 幅はセル数で数える — 全角 1 文字は 2 セルなので char 数で数えると埋め過ぎて行が幅を超える
+fn fill_row(line: Line<'static>, width: usize) -> Line<'static> {
+    // Line::width() は描画と同じセル幅で数える (char 数で数えると全角のぶん埋め過ぎて
+    // 行が幅を超え、ratatui 側で切り詰められる)
+    let used = line.width();
+    if used >= width {
+        return line;
+    }
+    let mut spans = line.spans;
+    spans.push(Span::styled(
+        " ".repeat(width - used),
+        Style::default().bg(CURSOR_BAND_BG),
+    ));
+    Line::from(spans)
+}
+
 fn push_segment(spans: &mut Vec<Span<'static>>, chars: &[char], style: Style) {
     if chars.is_empty() {
         return;
@@ -393,6 +466,7 @@ mod tests {
             search: None,
             selection: None,
             cursor: None,
+            cursor_band: None,
             gutter_width,
         };
         pane.visible(&vp)

@@ -47,6 +47,7 @@ impl App {
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
                     self.begin_viewer_selection(&mouse);
+                    self.click_git_row(&mouse);
                 }
             }
             // ボタン状態を報告しない端末では Drag が Moved で届くため両方受ける
@@ -88,6 +89,25 @@ impl App {
             return;
         };
         self.viewer.begin_drag(row as usize, col as usize);
+    }
+
+    // GIT レーンの diff ペインでの押下 = 行カーソルの移動。VIEW の範囲選択 (begin_viewer_selection)
+    // と対になる操作で、どちらも「クリックした行が対象になる」ことを見えるようにする
+    fn click_git_row(&mut self, mouse: &MouseEvent) {
+        if !matches!(self.lane, Lane::Git(_)) {
+            return;
+        }
+        // 枠線 (上 1 セル) の内側だけを、さらに sticky header の 1 行を除いた本文座標に直す
+        let Some(row) = mouse.row.checked_sub(self.viewer_area.y + 1) else {
+            return;
+        };
+        let Lane::Git(git) = &mut self.lane else {
+            return;
+        };
+        let Some(row) = (row as usize).checked_sub(git.sticky_rows()) else {
+            return;
+        };
+        git.click_row(row);
     }
 
     // 押したまま動かしている間の伸縮。ペインの外まで引っ張ったら 1 行ずつ送るので、

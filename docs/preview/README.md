@@ -30,8 +30,10 @@
 | --- | --- |
 | **git** — 単一ファイルの inline diff (word-level 強調) | **git-side** — side-by-side diff |
 | <img width="500" src="git.svg" /> | <img width="500" src="git-side.svg" /> |
-| **git-all** — 全ファイルまとめ diff (sticky header 付き) | **confirm** — `X` 破棄の確認オーバーレイ |
-| <img width="500" src="git-all.svg" /> | <img width="500" src="confirm.svg" /> |
+| **git-all** — 全ファイルまとめ diff (sticky header 付き) | **git-lines** — 行カーソルと `V` の行選択 (`S` で行単位ステージ) |
+| <img width="500" src="git-all.svg" /> | <img width="500" src="git-lines.svg" /> |
+| **confirm** — `X` 破棄の確認オーバーレイ | |
+| <img width="500" src="confirm.svg" /> | |
 
 ## LOG レーン
 
