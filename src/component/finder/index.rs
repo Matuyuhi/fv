@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::thread;
 
-use ignore::WalkBuilder;
+use crate::component::tree::ScanOptions;
 
 pub struct FileIndex {
     root: PathBuf,
-    show_hidden: bool,
+    opts: ScanOptions,
     files: Option<Vec<PathBuf>>,
     // 走査中のスレッドからの受け口。None なら走査していない
     pending: Option<Receiver<Vec<PathBuf>>>,
@@ -22,10 +22,10 @@ pub struct FileIndex {
 }
 
 impl FileIndex {
-    pub fn new(root: PathBuf, show_hidden: bool) -> Self {
+    pub fn new(root: PathBuf, opts: ScanOptions) -> Self {
         Self {
             root,
-            show_hidden,
+            opts,
             files: None,
             pending: None,
             stale: false,
@@ -81,19 +81,21 @@ impl FileIndex {
         self.stale = true;
     }
 
-    pub fn set_show_hidden(&mut self, show_hidden: bool) {
-        self.show_hidden = show_hidden;
+    /// 表示条件 (隠し項目・無視ファイル) が変わったら候補を作り直させる。
+    /// ツリーと同じ ScanOptions をそのまま受け取り、走査条件の二重管理を避ける
+    pub fn set_options(&mut self, opts: ScanOptions) {
+        self.opts = opts;
         self.stale = true;
     }
 
     fn spawn(&mut self) {
         let (tx, rx) = channel();
         let root = self.root.clone();
-        let show_hidden = self.show_hidden;
+        let opts = self.opts;
         // 走査中に終了された場合は send が失敗するだけ (受け口が drop されている)
         if thread::Builder::new()
             .spawn(move || {
-                let _ = tx.send(walk_files(&root, show_hidden));
+                let _ = tx.send(walk_files(&root, opts));
             })
             .is_ok()
         {
@@ -106,13 +108,10 @@ impl FileIndex {
 }
 
 // ツリーの走査 (component/tree/scan.rs) と同じ無視設定で root 以下の全ファイルを相対パスで集める
-fn walk_files(root: &Path, show_hidden: bool) -> Vec<PathBuf> {
+// (WalkBuilder の組み立ては ScanOptions::walker が唯一の定義)
+fn walk_files(root: &Path, opts: ScanOptions) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    let walker = WalkBuilder::new(root)
-        .require_git(false)
-        .hidden(!show_hidden)
-        .build();
-    for entry in walker.flatten() {
+    for entry in opts.walker(root).build().flatten() {
         if entry.file_type().is_some_and(|t| t.is_dir()) {
             continue;
         }

@@ -25,6 +25,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
 
     let values = [
         on_off(app.tree.show_hidden()),
+        on_off(app.tree.show_ignored()),
         on_off(app.icons),
         on_off(app.viewer.viewport.wrap),
         app.viewer.theme_name().to_string(),

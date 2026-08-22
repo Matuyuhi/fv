@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -i, --ignored show ignored files (.gitignore / .ignore / .git/info/exclude)\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
         #[cfg(feature = "preview")]
@@ -156,6 +156,7 @@ fn run(
 fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn Error>> {
     let mut args = args;
     let mut cli_hidden = false;
+    let mut cli_ignored = false;
     let mut cli_icons = None;
     let mut cli_github = false;
     // --preview 指定時は位置引数の意味がディレクトリからシーン名に変わるため、
@@ -176,6 +177,7 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
             "--version" | "-V" => return Ok(Command::Version),
             "--help" | "-h" => return Ok(Command::Help),
             "--hidden" | "-a" => cli_hidden = true,
+            "--ignored" | "-i" => cli_ignored = true,
             "--icons" => cli_icons = Some(true),
             "--no-icons" => cli_icons = Some(false),
             "--github" => cli_github = true,
@@ -198,7 +200,7 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(".")),
     )?;
-    let config = resolve_config(cli_hidden, cli_icons);
+    let config = resolve_config(cli_hidden, cli_ignored, cli_icons);
     Ok(Command::Run {
         root,
         config,
@@ -209,10 +211,11 @@ fn parse_command(args: impl Iterator<Item = String>) -> Result<Command, Box<dyn 
 // CLI での明示指定 > 前回セッションで設定画面から保存された値 > 既存の自動判定、の優先順位で確定する。
 // github は他と違い cli フラグをここで折り込まない (App::new 側で github_enabled として
 // その起動限り上乗せし、config.github 自体は永続化された値のまま保つ)
-fn resolve_config(cli_hidden: bool, cli_icons: Option<bool>) -> Config {
+fn resolve_config(cli_hidden: bool, cli_ignored: bool, cli_icons: Option<bool>) -> Config {
     let saved = Config::load();
     Config {
         show_hidden: cli_hidden || saved.as_ref().is_some_and(|c| c.show_hidden),
+        show_ignored: cli_ignored || saved.as_ref().is_some_and(|c| c.show_ignored),
         icons: cli_icons
             .or_else(|| saved.as_ref().map(|c| c.icons))
             .unwrap_or_else(icons_default),

@@ -62,7 +62,12 @@ fn help_lines() -> Vec<Line<'static>> {
             ("?", "このヘルプを開く"),
             ("s", "設定画面を開く"),
             ("a", "隠し項目の表示を切替"),
+            (
+                "i",
+                "無視ファイル (.gitignore/.ignore/exclude) の表示を切替",
+            ),
             ("-a, --hidden", "起動時に隠し項目を表示"),
+            ("-i, --ignored", "起動時に無視ファイルも表示"),
             (
                 "ステータスバー",
                 "現在ブランチ + ahead/behind を常時表示 (git repo のみ)",
