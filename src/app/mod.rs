@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
 
+use crate::clipboard;
 use crate::component::editor::EditState;
 use crate::component::finder::index::FileIndex;
 use crate::component::gitlane::GitState;
@@ -703,6 +704,39 @@ impl App {
         let next = (idx + delta).rem_euclid(len) as usize;
         self.viewer.set_theme(names[next]);
         self.persist_config();
+    }
+
+    /// y: VIEW レーンの選択範囲をクリップボードへ。コピー後も選択は残す
+    /// (同じ範囲をもう一度取り直せるようにする。消すのは Esc)
+    pub(super) fn copy_selection(&mut self) {
+        match self.viewer.selection_text() {
+            Some(text) => self.copy_to_clipboard(text),
+            None => self.set_notice("選択がありません (ドラッグ または v で選択)", true),
+        }
+    }
+
+    /// Y: 開いているファイル全体をクリップボードへ。「AI に丸ごと渡す」用途が
+    /// この機能の本命なので、範囲選択を経由せず 1 打鍵で取れるようにする
+    pub(super) fn copy_open_file(&mut self) {
+        match self.viewer.all_text() {
+            Some(text) => self.copy_to_clipboard(text),
+            None => self.set_notice("コピーできるテキストがありません", true),
+        }
+    }
+
+    // コピー手段 (clipboard.rs) は notice に出す。OSC 52 は端末側に拒否されても
+    // こちらには何も返らない (無音で失敗する) ので、どの経路だったかが見えないと
+    // 「貼り付けられない」時に何も切り分けられない
+    fn copy_to_clipboard(&mut self, text: String) {
+        let lines = text.lines().count();
+        let chars = text.chars().count();
+        match clipboard::copy(&text) {
+            Ok(via) => self.set_notice(
+                format!("copied {lines} lines / {chars} chars ({via})"),
+                false,
+            ),
+            Err(e) => self.set_notice(format!("copy failed: {e}"), true),
+        }
     }
 
     /// 全レーン共通の一時通知をセットする。書き込み系操作 (run_git_write) の結果表示など、

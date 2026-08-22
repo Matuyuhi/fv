@@ -45,6 +45,7 @@ pub(crate) fn draw_editor(
         window: LineWindow { rows, first },
         changed_lines: &state.changed_lines,
         search: None,
+        selection: None,
         cursor: Some((cursor_line, cursor_display)),
         gutter_width,
     };

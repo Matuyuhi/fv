@@ -292,6 +292,13 @@ fn normal_status_line(app: &App) -> Line<'static> {
     if app.pending_g {
         return Line::from("g");
     }
+    // 選択中は他のヒントより優先して出す。y を押すまで何行取れるのかが見えないと、
+    // マウスのドラッグで「どこまで掴めているか」を確かめる手段が色だけになる
+    if let Some(lines) = app.viewer.selected_line_count() {
+        return Line::from(format!(
+            "selected {lines} lines  y: copy  Esc: clear  Y: copy whole file"
+        ));
+    }
     if let Some(search) = &app.viewer.search
         && let Some(current) = search.current
     {
@@ -308,7 +315,7 @@ fn normal_status_line(app: &App) -> Line<'static> {
             "j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: quit  ?: help"
         }
         Focus::Viewer => {
-            "j/k: scroll  w: wrap  /: search  e: edit  Shift+Tab: mode  q: quit  ?: help"
+            "j/k: scroll  w: wrap  /: search  v: select  y: copy  e: edit  Shift+Tab: mode  ?: help"
         }
     };
     Line::from(hint)

@@ -197,6 +197,7 @@ fn draw_pr_diff(
         window: LineWindow::slice(prs.lines(), &prs.diff_viewport),
         changed_lines: &None,
         search: None,
+        selection: None,
         cursor: None,
         gutter_width: prs.gutter_width(),
     };

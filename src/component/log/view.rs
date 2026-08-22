@@ -87,6 +87,7 @@ pub(crate) fn draw_log_diff(
         window: LineWindow::slice(log.lines(), &log.viewport),
         changed_lines: &None,
         search: None,
+        selection: None,
         cursor: None,
         gutter_width: log.gutter_width(),
     };

@@ -69,9 +69,93 @@ impl Viewport {
         }
     }
 
+    /// 画面内座標 (ペイン内側の row/col) → (論理行, 表示桁)。wrap 中は描画 (text_pane) と
+    /// 同じ数え方 (text::wrap_rows) で視覚行を辿る。描画・カーソル追従・クリック座標の
+    /// 3 者が同じ折返し計算を共有するための入口 (CLAUDE.md の桁インバリアント) なので、
+    /// クリック位置を解釈する側 (編集のカーソル移動・閲覧の範囲選択) はここだけを通す。
+    /// display_len は「その論理行が占める表示桁数」を返すクロージャ
+    pub fn locate(
+        &self,
+        row: usize,
+        col: usize,
+        gutter_width: usize,
+        line_count: usize,
+        display_len: impl Fn(usize) -> usize,
+    ) -> (usize, usize) {
+        let last = line_count.saturating_sub(1);
+        let content_col = col.saturating_sub(gutter_width);
+        if !self.wrap {
+            return ((self.scroll + row).min(last), self.hscroll + content_col);
+        }
+        let width = self.width.saturating_sub(gutter_width).max(1);
+        let mut line = self.scroll.min(last);
+        let mut remaining = row;
+        loop {
+            let rows = crate::text::wrap_rows(display_len(line), width);
+            if remaining < rows || line >= last {
+                remaining = remaining.min(rows - 1);
+                break;
+            }
+            remaining -= rows;
+            line += 1;
+        }
+        (line, remaining * width + content_col)
+    }
+
     /// 指定行が viewport の中央付近に来るようスクロールする (検索ジャンプ・:N 用)
     pub fn center_on(&mut self, line: usize, last_line: usize) {
         let half = self.height / 2;
         self.scroll = line.saturating_sub(half).min(last_line);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Viewport;
+
+    fn viewport(wrap: bool, scroll: usize, hscroll: usize, width: usize) -> Viewport {
+        let mut vp = Viewport::new(wrap);
+        vp.scroll = scroll;
+        vp.hscroll = hscroll;
+        vp.width = width;
+        vp.height = 10;
+        vp
+    }
+
+    #[test]
+    fn locate_without_wrap_is_scroll_plus_row() {
+        let vp = viewport(false, 5, 3, 40);
+        // gutter 2 桁のぶんだけコンテンツ桁が右にずれ、hscroll が足し戻される
+        assert_eq!(vp.locate(2, 9, 2, 100, |_| 80), (7, 3 + 7));
+        // gutter の上をクリックしたらコンテンツ桁 0 に丸める
+        assert_eq!(vp.locate(0, 1, 2, 100, |_| 80), (5, 3));
+    }
+
+    #[test]
+    fn locate_without_wrap_clamps_past_the_last_line() {
+        let vp = viewport(false, 5, 0, 40);
+        assert_eq!(vp.locate(50, 2, 2, 8, |_| 10).0, 7);
+    }
+
+    #[test]
+    fn locate_with_wrap_walks_visual_rows() {
+        // 幅 40・gutter 2 → 折返し幅 38。行 0 は 3 視覚行、以降は 1 視覚行ずつ
+        let vp = viewport(true, 0, 0, 40);
+        let len = |line: usize| if line == 0 { 100 } else { 10 };
+        assert_eq!(vp.locate(0, 2, 2, 5, len), (0, 0));
+        // 行 0 の 2 段目の先頭
+        assert_eq!(vp.locate(1, 2, 2, 5, len), (0, 38));
+        // 行 0 の 3 段目 + 5 桁
+        assert_eq!(vp.locate(2, 7, 2, 5, len), (0, 76 + 5));
+        // 行 0 を跨いだ次の視覚行が論理行 1
+        assert_eq!(vp.locate(3, 2, 2, 5, len), (1, 0));
+        assert_eq!(vp.locate(4, 4, 2, 5, len), (2, 2));
+    }
+
+    #[test]
+    fn locate_with_wrap_clamps_to_the_last_visual_row() {
+        let vp = viewport(true, 0, 0, 40);
+        // 最終行より下をクリックしても、その行の最後の視覚行に留める
+        assert_eq!(vp.locate(9, 2, 2, 2, |_| 10), (1, 0));
     }
 }

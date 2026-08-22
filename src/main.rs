@@ -1,4 +1,5 @@
 mod app;
+mod clipboard;
 mod component;
 mod config;
 mod git;

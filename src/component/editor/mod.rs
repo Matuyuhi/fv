@@ -208,32 +208,14 @@ impl EditState {
 
     /// マウスクリック。row/col はコンテンツ領域 (枠線の内側) 相対の画面座標
     pub fn click_at(&mut self, row: usize, col: usize, vp: &Viewport) {
-        let (line, display) = if vp.wrap {
-            // 描画 (ui/text_pane) と同じ視覚行数の計算で、クリック行が
-            // どの論理行の何段目かを scroll から辿って特定する
-            let width = self.content_width(vp);
-            let mut line = vp.scroll.min(self.buffer.line_count() - 1);
-            let mut remaining = row;
-            loop {
-                let rows = text::wrap_rows(self.display_len(line), width);
-                if remaining < rows || line + 1 >= self.buffer.line_count() {
-                    remaining = remaining.min(rows - 1);
-                    break;
-                }
-                remaining -= rows;
-                line += 1;
-            }
-            (
-                line,
-                remaining * width + col.saturating_sub(self.gutter_width()),
-            )
-        } else {
-            (
-                vp.scroll + row,
-                vp.hscroll + col.saturating_sub(self.gutter_width()),
-            )
-        };
-        let line = line.min(self.buffer.line_count() - 1);
+        // 折返し中の視覚行の辿り方は描画 (text_pane) と共有する (Viewport::locate)
+        let (line, display) = vp.locate(
+            row,
+            col,
+            self.gutter_width(),
+            self.buffer.line_count(),
+            |i| self.display_len(i),
+        );
         let col = text::char_col_at(self.buffer.line(line), display);
         self.cursor = (line, col);
         self.desired_col = col;

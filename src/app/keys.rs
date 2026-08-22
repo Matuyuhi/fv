@@ -522,11 +522,22 @@ impl App {
         if self.pending_g {
             self.pending_g = false;
             if key.code == KeyCode::Char('g') && self.viewer.is_text() {
-                self.viewer.jump_to_top();
+                // 行単位選択中の gg は移動ではなく「選択を先頭まで伸ばす」(vim の visual mode)
+                if self.viewer.line_selecting() {
+                    self.viewer.move_line_selection_to(0);
+                } else {
+                    self.viewer.jump_to_top();
+                }
                 return;
             }
         }
         let half_page = (self.viewer.viewport.height / 2).max(1) as isize;
+        // v で始めた行単位選択の間だけ、移動キーが選択の伸縮に化ける。マウスのドラッグで
+        // 作った char 単位選択は対象外 — スクロールして全体を確かめてから y を押せるよう、
+        // 移動キーは通常どおり画面だけを動かす
+        if self.viewer.line_selecting() && self.extend_selection_key(key, ctrl, half_page) {
+            return;
+        }
         match key.code {
             KeyCode::Char('d') if ctrl => self.viewer.scroll_by(half_page),
             KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
@@ -569,8 +580,31 @@ impl App {
             // 未確定 (Enter していない) 状態では no-op。Viewer::next_match/prev_match が保証する
             KeyCode::Char('n') => self.viewer.next_match(),
             KeyCode::Char('N') => self.viewer.prev_match(),
+            // 範囲選択とコピー。マウスを持たない (ssh 越し・トラックパッドが遠い) 使い方でも
+            // 同じことができるよう、v の行単位選択をキーボード側の入口として用意する
+            KeyCode::Char('v') if self.viewer.is_text() => self.viewer.toggle_line_selection(),
+            KeyCode::Char('y') => self.copy_selection(),
+            KeyCode::Char('Y') => self.copy_open_file(),
+            KeyCode::Esc => self.viewer.clear_selection(),
             _ => {}
         }
+    }
+
+    // 行単位選択中の移動キー。消費したら true を返し、それ以外は通常処理へ流す
+    // (選択は残したままスクロールできる)
+    fn extend_selection_key(&mut self, key: KeyEvent, ctrl: bool, half_page: isize) -> bool {
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => self.viewer.extend_line_selection(1),
+            KeyCode::Char('k') | KeyCode::Up => self.viewer.extend_line_selection(-1),
+            KeyCode::Char('d') if ctrl => self.viewer.extend_line_selection(half_page),
+            KeyCode::Char('u') if ctrl => self.viewer.extend_line_selection(-half_page),
+            KeyCode::Char('G') => {
+                let last = self.viewer.line_count().saturating_sub(1);
+                self.viewer.move_line_selection_to(last);
+            }
+            _ => return false,
+        }
+        true
     }
 
     // GIT レーンの diff ペイン。hunk ジャンプは ]/[ に一本化し (#31)、n/N は検索の

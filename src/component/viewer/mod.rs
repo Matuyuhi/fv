@@ -2,6 +2,7 @@ mod content;
 mod highlight;
 mod render;
 mod search;
+mod selection;
 pub mod view;
 mod viewport;
 
@@ -10,6 +11,8 @@ pub use highlight::Highlighter;
 pub use render::{HighlightCache, LineSource};
 pub use search::SearchState;
 pub(crate) use search::{Match, search_matches};
+use selection::Point;
+pub use selection::Selection;
 pub use viewport::Viewport;
 
 use std::collections::HashMap;
@@ -19,6 +22,7 @@ use std::rc::Rc;
 use ratatui::style::Color;
 
 use crate::git;
+use crate::text;
 
 /// これを超えるファイルはハイライトせずプレーン表示する
 const MAX_HIGHLIGHT_BYTES: usize = 10 * 1024 * 1024;
@@ -52,6 +56,9 @@ pub struct Viewer {
     pub current: Option<Open>,
     // ファイルごとではなく viewer に1つだけ持つ検索状態
     pub search: Option<SearchState>,
+    /// 範囲選択 (マウスのドラッグ / v)。検索と同じく viewer に 1 つだけ持ち、
+    /// ファイルを開き直した時点で捨てる (別の文書の桁を指したままにしないため)
+    pub selection: Option<Selection>,
     // open() の度に更新される root。reload() は path しか受け取らないので、
     // changed_lines の再取得に使う root をここに保持しておく
     root: PathBuf,
@@ -74,6 +81,7 @@ impl Viewer {
             cache: HashMap::new(),
             current: None,
             search: None,
+            selection: None,
             root: PathBuf::new(),
             history: Vec::new(),
             history_index: 0,
@@ -179,6 +187,7 @@ impl Viewer {
             }
         };
         self.render.reset(path, plain_only(&content));
+        self.selection = None;
         self.viewport.scroll = scroll;
         // ファイルを跨ぐたびに水平位置はリセットする (wrap は跨いで維持する設定なのでここでは触らない)
         self.viewport.hscroll = 0;
@@ -202,6 +211,8 @@ impl Viewer {
         let loaded = Rc::new(content::load(path));
         self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
         self.render.reset(path, plain_only(&loaded));
+        // 行が入れ替わった後の桁を指したままにしない (外部から書き換えられたファイル)
+        self.selection = None;
         let changed_lines = git::changed_lines(&self.root, path);
         if let Some(open) = &mut self.current {
             open.content = loaded;
@@ -286,6 +297,130 @@ impl Viewer {
     /// 切替先に存在しなくなった場合に使う (cache・履歴には触れず current だけ落とす)
     pub fn close(&mut self) {
         self.current = None;
+        self.selection = None;
+    }
+
+    // 表示中のテキスト文書。バイナリ・エラー・未選択では None
+    fn text_doc(&self) -> Option<&content::TextDoc> {
+        match self.current.as_ref()?.content.as_ref() {
+            Content::Text(doc) => Some(doc),
+            _ => None,
+        }
+    }
+
+    // ペイン内側の (row, col) を plain 座標へ。行末より右・最終行より下を指した場合も
+    // そのまま返す (テキストを取り出す側が行の長さでクランプする)
+    fn point_at(&self, row: usize, col: usize) -> Option<Point> {
+        let doc = self.text_doc()?;
+        let gutter = text::gutter_width(doc.line_count());
+        // plain はタブ展開済みなので、表示桁 = char 数がそのまま成り立つ
+        let (line, display) = self
+            .viewport
+            .locate(row, col, gutter, doc.line_count(), |i| {
+                doc.plain[i].chars().count()
+            });
+        Some(Point { line, col: display })
+    }
+
+    /// マウスの押下: その位置を掴み直す (前の選択は捨てる)。押しただけの空選択は
+    /// 何もハイライトせず、`y` も「選択が無い」として扱われる
+    pub fn begin_drag(&mut self, row: usize, col: usize) {
+        self.selection = self
+            .point_at(row, col)
+            .map(|at| Selection::new(at, false, true));
+    }
+
+    /// ドラッグ中の伸縮。押下を見ていない (dragging でない) 間は何もしない
+    pub fn drag_to(&mut self, row: usize, col: usize) {
+        if !self.dragging() {
+            return;
+        }
+        if let Some(at) = self.point_at(row, col)
+            && let Some(sel) = &mut self.selection
+        {
+            sel.set_head(at);
+        }
+    }
+
+    pub fn end_drag(&mut self) {
+        if let Some(sel) = &mut self.selection {
+            sel.dragging = false;
+        }
+    }
+
+    pub fn dragging(&self) -> bool {
+        self.selection.as_ref().is_some_and(|s| s.dragging)
+    }
+
+    /// v: 画面上端の行から行単位選択を始める。既に行単位選択中なら解除 (トグル)
+    pub fn toggle_line_selection(&mut self) {
+        if self.line_selecting() {
+            self.selection = None;
+            return;
+        }
+        if self.text_doc().is_none() {
+            return;
+        }
+        let line = self
+            .viewport
+            .scroll
+            .min(self.line_count().saturating_sub(1));
+        self.selection = Some(Selection::new(Point { line, col: 0 }, true, false));
+    }
+
+    /// 行単位選択 (v) の最中か。この間だけ j/k 等が選択の伸縮に化ける
+    pub fn line_selecting(&self) -> bool {
+        self.selection.as_ref().is_some_and(|s| s.linewise)
+    }
+
+    /// 行単位選択を delta 行ぶん伸縮し、伸ばした先が見えるまでスクロールする
+    pub fn extend_line_selection(&mut self, delta: isize) {
+        let last = self.line_count().saturating_sub(1);
+        let Some(sel) = &mut self.selection else {
+            return;
+        };
+        let line = (sel.head_line() as isize + delta).clamp(0, last as isize) as usize;
+        sel.set_head(Point { line, col: 0 });
+        self.viewport.ensure_row_visible(line);
+    }
+
+    /// 行単位選択の伸ばす側を指定行へ飛ばす (gg / G)
+    pub fn move_line_selection_to(&mut self, line: usize) {
+        let last = self.line_count().saturating_sub(1);
+        let line = line.min(last);
+        if let Some(sel) = &mut self.selection {
+            sel.set_head(Point { line, col: 0 });
+        }
+        self.viewport.ensure_row_visible(line);
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    /// ステータスバー表示用の選択行数。空選択・選択なしでは None
+    pub fn selected_line_count(&self) -> Option<usize> {
+        let sel = self.selection.as_ref()?;
+        (!sel.is_empty()).then(|| sel.line_count())
+    }
+
+    /// 選択範囲のテキスト。空選択・非テキストでは None
+    pub fn selection_text(&self) -> Option<String> {
+        let sel = self.selection.as_ref()?;
+        if sel.is_empty() {
+            return None;
+        }
+        Some(sel.text(self.text_doc()?.raw()))
+    }
+
+    /// 開いているファイル全体のテキスト (末尾改行の有無も元ファイルどおり)
+    pub fn all_text(&self) -> Option<String> {
+        let doc = self.text_doc()?;
+        let mut out = doc.raw().join("\n");
+        if doc.has_trailing_newline() {
+            out.push('\n');
+        }
+        Some(out)
     }
 
     pub fn is_text(&self) -> bool {
