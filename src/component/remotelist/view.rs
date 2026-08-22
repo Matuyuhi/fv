@@ -134,6 +134,7 @@ pub(crate) fn draw_text_detail(
         window: LineWindow::slice(lines, viewport),
         changed_lines: &None,
         search: None,
+        selection: None,
         cursor: None,
         gutter_width: 0,
     };

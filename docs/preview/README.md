@@ -15,6 +15,8 @@
 | <img width="500" src="wrap.svg" /> | <img width="500" src="view-binary.svg" /> |
 | **search** — 検索ハイライトと `n`/`N` の状態 | **narrow** — 狭い端末 (列が落ちる閾値の確認) |
 | <img width="500" src="search.svg" /> | <img width="500" src="narrow.svg" /> |
+| **select** — 行単位の範囲選択 (`v` → `j`) とコピーのヒント | |
+| <img width="500" src="select.svg" /> | |
 
 ## EDIT レーン
 

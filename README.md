@@ -18,8 +18,9 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 - Live changed-line markers (`▎`) in the gutter while editing (LCS diff against git HEAD, no per-keystroke git calls)
 - Fuzzy file finder (`Ctrl+p`)
 - In-file search (`/`, `n`/`N`) and line jump (`:N`)
+- **Copy out of the viewer** — drag with the mouse for a character range, `v` for a line range, `y` to copy, `Y` for the whole file (`pbcopy`/`wl-copy`/`xclip`/`xsel`/`clip.exe`, falling back to OSC 52 so it works over SSH)
 - Auto-reload on file system changes
-- Mouse support (click to select/open/move cursor, wheel to scroll)
+- Mouse support (click to select/open/move cursor, press-and-drag to select text, wheel to scroll)
 - Wrap toggle, horizontal scroll, navigation history (`Ctrl+o`/`Ctrl+i`)
 - Settings popup (`s`) for hidden files / icons / wrap default / syntax theme, persisted to `~/.config/fv/config`
 
@@ -60,6 +61,8 @@ Press `?` inside fv for the full list.
 | `/`, `n`/`N` | Search, next/previous match |
 | `:N` `Enter` | Jump to line N |
 | `w` | Toggle wrap |
+| drag / `v` | Select a range in the viewer (character-wise / line-wise) |
+| `y` / `Y` | Copy the selection / the whole file to the clipboard |
 | `Ctrl+o`/`Ctrl+i` | History back / forward |
 | `r` | Rescan tree |
 | `s` | Settings |

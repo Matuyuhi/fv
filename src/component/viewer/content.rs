@@ -37,6 +37,16 @@ impl TextDoc {
     pub fn line_count(&self) -> usize {
         self.plain.len()
     }
+
+    /// タブ未展開の元の行。範囲選択のコピー (selection.rs) はこちらから取り出す —
+    /// plain のままだとタブが空白 4 個に化けて貼り付け先のインデントが壊れる
+    pub fn raw(&self) -> &[String] {
+        &self.raw
+    }
+
+    pub fn has_trailing_newline(&self) -> bool {
+        self.trailing_newline
+    }
 }
 
 pub struct Open {

@@ -3,11 +3,15 @@ use std::collections::HashSet;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::component::viewer::{SearchState, Viewport};
+use crate::component::viewer::{SearchState, Selection, Viewport};
 
 // 通常マッチ/カレントマッチのハイライト色
 const MATCH_BG: Color = Color::Rgb(80, 80, 0);
 const CURRENT_MATCH_BG: Color = Color::Rgb(255, 220, 0);
+// 範囲選択の色。テーマごとの前景色に依らず必ず読めるよう、前景も一緒に固定する
+// (カレントマッチが黄色地に黒文字を固定しているのと同じ理由)
+const SELECTION_BG: Color = Color::Rgb(58, 82, 128);
+const SELECTION_FG: Color = Color::Rgb(236, 240, 248);
 
 /// TextPane に渡す可視ウィンドウ。文書全体ではなく「vp.scroll から height 論理行」だけを
 /// 持つ形にしてあるのは、大きなファイルを丸ごとハイライトせずに済ませる
@@ -32,14 +36,17 @@ impl<'a> LineWindow<'a> {
 }
 
 /// 閲覧 (viewer_pane) と編集 (editor_pane) で共通のテキスト描画パイプライン。
-/// 行加工順は mark_changed_line → highlight_matches → (hscroll | char 単位 wrap) →
-/// cursor overlay で固定。順序を入れ替えると検索マッチ・カーソルの絶対桁がズレる
-/// (CLAUDE.md の桁位置整合インバリアント)。
-/// 閲覧は search だけ、編集は cursor だけを Some にする — 両方を同時に使うモードはない
+/// 行加工順は mark_changed_line → highlight_matches → highlight_selection →
+/// (hscroll | char 単位 wrap) → cursor overlay で固定。順序を入れ替えると検索マッチ・
+/// 選択範囲・カーソルの絶対桁がズレる (CLAUDE.md の桁位置整合インバリアント)。
+/// 閲覧は search/selection だけ、編集は cursor だけを Some にする —
+/// 両方を同時に使うモードはない
 pub(crate) struct TextPane<'a> {
     pub window: LineWindow<'a>,
     pub changed_lines: &'a Option<HashSet<usize>>,
     pub search: Option<&'a SearchState>,
+    /// VIEW レーンの範囲選択。検索ハイライトの後に重ねるので、重なった桁は選択側が勝つ
+    pub selection: Option<&'a Selection>,
     /// ブロックカーソルの (論理行, 表示桁)
     pub cursor: Option<(usize, usize)>,
     /// 行番号 gutter (span[0]) の char 幅。wrap の続き行 pad と hscroll の除外幅に使う
@@ -102,8 +109,12 @@ impl TextPane<'_> {
     fn marked_and_highlighted(&self, offset: usize) -> Line<'static> {
         let i = self.window.first + offset;
         let line = mark_changed_line(&self.window.rows[offset], i, self.changed_lines);
-        match self.search {
+        let line = match self.search {
             Some(search) => highlight_matches(&line, i, search),
+            None => line,
+        };
+        match self.selection.and_then(|sel| sel.columns_at(i)) {
+            Some((start, end)) => highlight_selection(&line, start, end),
             None => line,
         }
     }
@@ -221,6 +232,42 @@ fn highlight_matches(line: &Line<'static>, line_idx: usize, search: &SearchState
         col += chars.len();
     }
     Line::from(spans)
+}
+
+// 選択範囲 (絶対桁 [start, end)、end は行末までなら usize::MAX) に色を重ねた新しい Line を
+// 返す。span[0] の gutter を対象外にするのは highlight_matches と同じ。選択が行末より右まで
+// 伸びていても足りない桁は描かない (行の実際の長さより先に文字は無いため、右端は行なりに揃う)
+fn highlight_selection(line: &Line<'static>, start: usize, end: usize) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(line.spans.len() + 2);
+    if let Some(gutter) = line.spans.first() {
+        spans.push(gutter.clone());
+    }
+    let selected = Style::default().bg(SELECTION_BG).fg(SELECTION_FG);
+    let mut col = 0usize;
+    for span in line.spans.iter().skip(1) {
+        let chars: Vec<char> = span.content.chars().collect();
+        let span_end = col + chars.len();
+        // 選択と交差しない span はそのまま引き継ぐ (span 数を無駄に増やさない)
+        if span_end <= start || col >= end {
+            spans.push(span.clone());
+            col = span_end;
+            continue;
+        }
+        let from = start.saturating_sub(col);
+        let to = (end - col).min(chars.len());
+        push_segment(&mut spans, &chars[..from], span.style);
+        push_segment(&mut spans, &chars[from..to], selected);
+        push_segment(&mut spans, &chars[to..], span.style);
+        col = span_end;
+    }
+    Line::from(spans)
+}
+
+fn push_segment(spans: &mut Vec<Span<'static>>, chars: &[char], style: Style) {
+    if chars.is_empty() {
+        return;
+    }
+    spans.push(Span::styled(chars.iter().collect::<String>(), style));
 }
 
 // 論理行 1 本を width ごとの視覚行に切る。span の style は切れ目を跨いで保存する

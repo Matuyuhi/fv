@@ -57,6 +57,7 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
         window: LineWindow { rows, first },
         changed_lines: &open.changed_lines,
         search: viewer.search.as_ref(),
+        selection: viewer.selection.as_ref(),
         cursor: None,
         gutter_width,
     };

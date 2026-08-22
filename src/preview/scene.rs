@@ -70,6 +70,16 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "select",
+        description: "VIEW レーン: 行単位の範囲選択 (v → j) とコピーのヒント",
+        size: None,
+        setup: |app| {
+            open(app, "src/main.rs");
+            // マウスのドラッグはキー列で表せないので、キーボード側の入口 (v) で撮る
+            send(app, "<Tab>vjjjj");
+        },
+    },
+    Scene {
         name: "edit",
         description: "EDIT レーン: カーソル + 未保存バッファのライブ diff",
         size: None,

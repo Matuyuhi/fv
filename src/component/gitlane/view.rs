@@ -74,6 +74,7 @@ pub(crate) fn draw_git(
         // 検索 (#31) は inline 表示 (単一ファイル/まとめ diff とも) でだけ有効にする
         changed_lines: &None,
         search: git.search(),
+        selection: None,
         cursor: None,
         gutter_width: git.gutter_width(),
     };
@@ -144,6 +145,7 @@ fn draw_side_by_side(
         window: LineWindow::slice(left_lines, &vp),
         changed_lines: &None,
         search: None,
+        selection: None,
         cursor: None,
         gutter_width: left_gutter,
     };
@@ -151,6 +153,7 @@ fn draw_side_by_side(
         window: LineWindow::slice(right_lines, &vp),
         changed_lines: &None,
         search: None,
+        selection: None,
         cursor: None,
         gutter_width: right_gutter,
     };

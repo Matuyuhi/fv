@@ -46,8 +46,15 @@ impl App {
                     }
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
+                    self.begin_viewer_selection(&mouse);
                 }
             }
+            // ボタン状態を報告しない端末では Drag が Moved で届くため両方受ける
+            // (on_split_mouse と同じ手。押下を見ていない間は drag_to 側が no-op になる)
+            MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Moved => {
+                self.drag_viewer_selection(&mouse)
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.viewer.end_drag(),
             MouseEventKind::ScrollUp => {
                 if self.tree_area.contains(pos) {
                     self.scroll_left_pane(-3);
@@ -64,6 +71,44 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    // ビューア上での押下 = 範囲選択の起点。端末のネイティブ選択はマウスキャプチャ中に
+    // 使えないので、閲覧中のコピーはこちらで賄う。GIT/LOG の右ペインは diff (別ドキュメント)
+    // なので対象外にし、VIEW レーンだけに閉じる
+    fn begin_viewer_selection(&mut self, mouse: &MouseEvent) {
+        if !matches!(self.lane, Lane::View) {
+            return;
+        }
+        // 枠線 (上・左 1 セル) の内側だけをコンテンツ座標に変換する
+        let (Some(row), Some(col)) = (
+            mouse.row.checked_sub(self.viewer_area.y + 1),
+            mouse.column.checked_sub(self.viewer_area.x + 1),
+        ) else {
+            return;
+        };
+        self.viewer.begin_drag(row as usize, col as usize);
+    }
+
+    // 押したまま動かしている間の伸縮。ペインの外まで引っ張ったら 1 行ずつ送るので、
+    // 1 画面に収まらない範囲も継ぎ足しで選べる (マウスが止まればイベントも止まるため、
+    // 端に置きっぱなしでの連続スクロールにはならない)
+    fn drag_viewer_selection(&mut self, mouse: &MouseEvent) {
+        if !self.viewer.dragging() {
+            return;
+        }
+        let area = self.viewer_area;
+        let top = area.y + 1;
+        // 内側の最終行 (下枠の 1 つ上)。枠しか無い高さでは top に潰れる
+        let bottom = (area.y + area.height.saturating_sub(2)).max(top);
+        if mouse.row < top {
+            self.viewer.scroll_by(-1);
+        } else if mouse.row > bottom {
+            self.viewer.scroll_by(1);
+        }
+        let row = mouse.row.clamp(top, bottom) - top;
+        let col = mouse.column.saturating_sub(area.x + 1);
+        self.viewer.drag_to(row as usize, col as usize);
     }
 
     // ペイン境界のドラッグ。消費したら true を返し、通常のクリック処理には渡さない。
