@@ -42,7 +42,9 @@ pub fn log(root: &Path, skip: usize, limit: usize) -> Vec<CommitSummary> {
         fields.pop();
     }
     fields
-        .chunks_exact(5)
+        .as_chunks::<5>()
+        .0
+        .iter()
         .map(|c| CommitSummary {
             hash: c[0].to_string(),
             short: c[1].to_string(),
