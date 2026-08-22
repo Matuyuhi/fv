@@ -3,6 +3,9 @@ use std::path::PathBuf;
 pub(super) struct Node {
     pub(super) name: String,
     pub(super) path: PathBuf,
+    /// .gitignore 等で無視されているか。show_ignored が off の間は走査に出てこないので
+    /// 常に false で、on のときだけ「表示はするが git の対象外」を色で区別するために使う
+    pub(super) ignored: bool,
     pub(super) kind: NodeKind,
 }
 
@@ -26,4 +29,5 @@ pub struct Row {
     pub depth: usize,
     pub is_dir: bool,
     pub expanded: bool,
+    pub ignored: bool,
 }

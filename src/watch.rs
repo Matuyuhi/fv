@@ -6,6 +6,8 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::event::{EventKind, ModifyKind};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
+use crate::component::tree::ScanOptions;
+
 /// root を再帰監視し、変更パスをためておくキューを持つ。
 /// 再帰監視の登録 (inotify では配下のディレクトリ 1 つずつに watch を張る) は
 /// ツリーが大きいほど時間がかかるため別スレッドで行い、起動を待たせない。
@@ -14,7 +16,7 @@ pub struct FsWatcher {
     state: State,
     root: PathBuf,
     ignore: Option<Gitignore>,
-    show_hidden: bool,
+    opts: ScanOptions,
 }
 
 enum State {
@@ -33,7 +35,7 @@ struct Active {
 }
 
 impl FsWatcher {
-    pub fn new(root: &Path, show_hidden: bool) -> Self {
+    pub fn new(root: &Path, opts: ScanOptions) -> Self {
         let (tx, rx) = channel();
         let target = root.to_path_buf();
         let state = match thread::Builder::new().spawn(move || {
@@ -46,7 +48,7 @@ impl FsWatcher {
             state,
             root: root.to_path_buf(),
             ignore: build_gitignore(root),
-            show_hidden,
+            opts,
         }
     }
 
@@ -88,12 +90,17 @@ impl FsWatcher {
         let Ok(rel) = path.strip_prefix(&self.root) else {
             return false;
         };
-        if !self.show_hidden
+        if !self.opts.show_hidden
             && rel
                 .iter()
                 .any(|component| component.to_string_lossy().starts_with('.'))
         {
             return true;
+        }
+        // 無視ファイルも表示している間は、その変更もツリー・ビューアへ反映する必要がある
+        // (表示しているのに自動リロードだけ効かない、を避ける)
+        if self.opts.show_ignored {
+            return false;
         }
         match &self.ignore {
             // 削除イベントは path がもう存在しないため is_dir を確定できない。

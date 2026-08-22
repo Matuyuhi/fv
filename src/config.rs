@@ -8,6 +8,8 @@ use std::path::PathBuf;
 #[derive(Clone)]
 pub struct Config {
     pub show_hidden: bool,
+    /// .gitignore 等で無視されるファイルもツリー・Finder に出す
+    pub show_ignored: bool,
     pub icons: bool,
     pub wrap_default: bool,
     pub theme: String,
@@ -23,6 +25,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             show_hidden: false,
+            show_ignored: false,
             icons: false,
             wrap_default: false,
             theme: "base16-ocean.dark".to_string(),
@@ -46,6 +49,7 @@ impl Config {
             let value = value.trim();
             match key.trim() {
                 "show_hidden" => config.show_hidden = value == "true",
+                "show_ignored" => config.show_ignored = value == "true",
                 "icons" => config.icons = value == "true",
                 "wrap_default" => config.wrap_default = value == "true",
                 "theme" => config.theme = value.to_string(),
@@ -73,8 +77,9 @@ impl Config {
             fs::create_dir_all(dir)?;
         }
         let body = format!(
-            "show_hidden = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\ngithub = {}\n",
+            "show_hidden = {}\nshow_ignored = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\ngithub = {}\n",
             self.show_hidden,
+            self.show_ignored,
             self.icons,
             self.wrap_default,
             self.theme,

@@ -123,6 +123,11 @@ impl App {
                 self.toggle_hidden();
                 return;
             }
+            KeyCode::Char('i') => {
+                self.pending_g = false;
+                self.toggle_ignored();
+                return;
+            }
             KeyCode::Char('s') => {
                 self.pending_g = false;
                 self.mode = Mode::Settings(SettingsState::default());
@@ -437,10 +442,11 @@ impl App {
         let selected = state.selected;
         match selected {
             0 => self.toggle_hidden(),
-            1 => self.toggle_icons(),
-            2 => self.toggle_wrap(),
-            3 => self.cycle_theme(delta),
-            4 => self.toggle_github(),
+            1 => self.toggle_ignored(),
+            2 => self.toggle_icons(),
+            3 => self.toggle_wrap(),
+            4 => self.cycle_theme(delta),
+            5 => self.toggle_github(),
             _ => {}
         }
     }

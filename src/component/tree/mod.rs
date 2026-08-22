@@ -3,6 +3,7 @@ mod scan;
 pub mod view;
 
 pub use node::Row;
+pub(crate) use scan::ScanOptions;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ pub struct Tree {
     // (呼び出し側が毎回渡す形だと「読み込みに root が要る」操作が増えるたびに引数が伝播する)
     root: PathBuf,
     nodes: Vec<Node>,
-    show_hidden: bool,
+    opts: ScanOptions,
     // 表示を絞り込むパス集合 (対象ファイル + その祖先ディレクトリ)。None なら全表示。
     // GIT レーンの出入りで App が付け外しする
     filter: Option<HashSet<PathBuf>>,
@@ -36,12 +37,13 @@ pub struct Tree {
 impl Tree {
     /// 起動時に読むのは root 直下の 1 階層だけ。以下の階層はディレクトリを
     /// 開いた時に読む (巨大なディレクトリでも起動が待たされないようにするため)
-    pub fn new(root: &Path, show_hidden: bool) -> Self {
-        let nodes = scan::read_dir(root, show_hidden);
+    pub fn new(root: &Path, opts: ScanOptions) -> Self {
+        // root 自身は走査起点なので無視対象にはなりえない (親を持たない)
+        let nodes = scan::read_dir(root, opts, false);
         let mut tree = Self {
             root: root.to_path_buf(),
             nodes,
-            show_hidden,
+            opts,
             filter: None,
             saved_expanded: None,
             deleted: HashSet::new(),
@@ -61,18 +63,18 @@ impl Tree {
             (None, Some(paths)) => {
                 self.saved_expanded = Some(scan::collect_expanded(&self.nodes));
                 let paths = paths.clone();
-                scan::expand_all(&mut self.nodes, &paths, self.show_hidden);
+                scan::expand_all(&mut self.nodes, &paths, self.opts);
             }
             // 絞り込み中の張り替え (再走査): 新しく対象になったディレクトリだけ開く。
             // 既存のものに触らないので、ユーザーが畳んだ状態が保存のたびに開き直されない
             (Some(previous), Some(paths)) => {
                 let added: HashSet<PathBuf> = paths.difference(previous).cloned().collect();
-                scan::expand_all(&mut self.nodes, &added, self.show_hidden);
+                scan::expand_all(&mut self.nodes, &added, self.opts);
             }
             // 絞り込み解除: 退避しておいた状態へ厳密に戻す (絞り込み中の開閉は持ち越さない)
             (Some(_), None) => {
                 if let Some(saved) = self.saved_expanded.take() {
-                    scan::set_expanded(&mut self.nodes, &saved, self.show_hidden);
+                    scan::set_expanded(&mut self.nodes, &saved, self.opts);
                 }
             }
             (None, None) => {}
@@ -124,7 +126,11 @@ impl Tree {
     }
 
     pub fn show_hidden(&self) -> bool {
-        self.show_hidden
+        self.opts.show_hidden
+    }
+
+    pub fn show_ignored(&self) -> bool {
+        self.opts.show_ignored
     }
 
     pub fn move_selection(&mut self, delta: isize) {
@@ -139,7 +145,7 @@ impl Tree {
     /// ファイルならそのパスを返す。
     pub fn toggle_or_open(&mut self) -> Option<PathBuf> {
         let index_path = self.visible.get(self.selected)?.index_path.clone();
-        let show_hidden = self.show_hidden;
+        let opts = self.opts;
         let node = scan::node_mut(&mut self.nodes, &index_path)?;
         let opened = match &mut node.kind {
             NodeKind::Dir { expanded, .. } => {
@@ -151,7 +157,7 @@ impl Tree {
         // 開く時だけ走査する。畳む時に読む必要はないし、閉じたまま残った子は
         // 次に開く時のキャッシュとしてそのまま使える
         if opened {
-            scan::load(node, show_hidden);
+            scan::load(node, opts);
         }
         self.rebuild_visible();
         None
@@ -241,7 +247,7 @@ impl Tree {
     /// (走査順が変わりうるため index_path はそのまま使い回せない)。
     pub fn rescan(&mut self) {
         let selected = self.selected_path();
-        scan::refresh(&mut self.nodes, &self.root, self.show_hidden);
+        scan::refresh(&mut self.nodes, &self.root, self.opts, false);
         self.rebuild_visible();
         self.restore_selection(selected);
     }
@@ -265,10 +271,18 @@ impl Tree {
     }
 
     /// 隠し項目の表示設定を切り替え、展開状態と選択位置を保ったまま再走査する。
-    pub fn toggle_hidden(&mut self) -> bool {
-        self.show_hidden = !self.show_hidden;
+    pub fn toggle_hidden(&mut self) -> ScanOptions {
+        self.opts.show_hidden = !self.opts.show_hidden;
         self.rescan();
-        self.show_hidden
+        self.opts
+    }
+
+    /// .gitignore 等で無視されるファイルの表示を切り替える。読み込み済みの階層を
+    /// 読み直すだけなので、コストは toggle_hidden と同じく「今開いている範囲」に比例する
+    pub fn toggle_ignored(&mut self) -> ScanOptions {
+        self.opts.show_ignored = !self.opts.show_ignored;
+        self.rescan();
+        self.opts
     }
 
     /// 読み込み済みのファイルを相対パスで列挙する。Finder の候補が

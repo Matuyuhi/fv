@@ -82,11 +82,17 @@ pub(crate) fn draw_tree(
                     Style::default().fg(status_color(status)),
                 ));
             }
-            let name_style = match change_mark(git, row.is_dir, &row.path, file_status) {
-                Some(ChangeMark::Unstaged) => Style::default().fg(Color::Yellow),
-                Some(ChangeMark::Staged) => Style::default().fg(Color::Green),
-                None if row.is_dir => Style::default().fg(Color::Blue),
-                None => Style::default(),
+            // 無視されているファイルは git の対象外なので変更マークが付くことはなく、
+            // 「表示はされているが追跡されていない」ことが一目で分かるよう暗色で潰す
+            let name_style = if row.ignored {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                match change_mark(git, row.is_dir, &row.path, file_status) {
+                    Some(ChangeMark::Unstaged) => Style::default().fg(Color::Yellow),
+                    Some(ChangeMark::Staged) => Style::default().fg(Color::Green),
+                    None if row.is_dir => Style::default().fg(Color::Blue),
+                    None => Style::default(),
+                }
             };
             spans.push(Span::styled(format!("{icon}{}", row.name), name_style));
             ListItem::new(Line::from(spans))

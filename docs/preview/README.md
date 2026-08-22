@@ -15,6 +15,8 @@
 | <img width="500" src="wrap.svg" /> | <img width="500" src="view-binary.svg" /> |
 | **search** — 検索ハイライトと `n`/`N` の状態 | **narrow** — 狭い端末 (列が落ちる閾値の確認) |
 | <img width="500" src="search.svg" /> | <img width="500" src="narrow.svg" /> |
+| **tree-ignored** — `i` で `.gitignore` 対象も表示 (暗色) | |
+| <img width="500" src="tree-ignored.svg" /> | |
 
 ## EDIT レーン
 

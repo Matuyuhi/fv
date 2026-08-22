@@ -71,6 +71,15 @@ fn write_initial(root: &Path) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(root.join("docs"))?;
     fs::create_dir_all(root.join("assets"))?;
     fs::write(root.join(".gitignore"), "/target\n*.tmp\n")?;
+    // i (無視ファイルの表示) を切り替えたシーン用。既定では走査から落ちるので、
+    // 他のシーンの見え方はこれを置いても変わらない
+    fs::create_dir_all(root.join("target/debug"))?;
+    fs::write(root.join("target/debug/fv"), "(build artifact)\n")?;
+    fs::write(
+        root.join("target/CACHEDIR.TAG"),
+        "Signature: 8a477f597d28d172\n",
+    )?;
+    fs::write(root.join("scratch.tmp"), "一時メモ\n")?;
     fs::write(root.join("README.md"), README_MD)?;
     fs::write(root.join("src/main.rs"), main_rs(false))?;
     fs::write(root.join("src/ui.rs"), ui_rs(false))?;

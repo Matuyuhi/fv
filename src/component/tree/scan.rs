@@ -5,6 +5,37 @@ use ignore::WalkBuilder;
 
 use super::node::{Node, NodeKind, Row};
 
+/// 走査でどこまで見せるかの設定。ツリー (このファイル)・Finder の候補
+/// (component/finder/index.rs)・FS 監視 (watch.rs) の 3 者が同じ条件で揃っていないと
+/// 「ツリーには出るのに Finder には出ない」「表示しているのに自動リロードされない」が起きる。
+/// bool を個別に配って回らないよう、無視設定はこの型 1 つにまとめて渡す
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScanOptions {
+    pub(crate) show_hidden: bool,
+    /// .gitignore / .ignore / .git/info/exclude で無視されるファイルも表示する。
+    /// 既定 (false) では走査の時点で落ちるので、ツリーにも Finder にも現れない
+    pub(crate) show_ignored: bool,
+}
+
+impl ScanOptions {
+    /// 無視設定を反映した WalkBuilder。require_git(false) は git repo 外でも .gitignore を
+    /// 効かせるため、parents は既定の true のまま (サブディレクトリ起点の 1 階層走査でも
+    /// 祖先の .gitignore がそのまま効くのが遅延走査の前提)。
+    /// show_ignored のときは無視ファイルの読み元を全て切る — 一部だけ残すと
+    /// 「.gitignore の分だけ見える」といった中途半端な集合になり、説明できない
+    pub(crate) fn walker(&self, dir: &Path) -> WalkBuilder {
+        let mut builder = WalkBuilder::new(dir);
+        builder
+            .require_git(false)
+            .hidden(!self.show_hidden)
+            .git_ignore(!self.show_ignored)
+            .git_global(!self.show_ignored)
+            .git_exclude(!self.show_ignored)
+            .ignore(!self.show_ignored);
+        builder
+    }
+}
+
 /// filter が Some のときは集合に含まれるノードだけを出す。展開状態は絞り込み中も
 /// expanded フラグをそのまま尊重する (h/l の折りたたみを効かせるため)。
 /// 「絞り込み開始時に対象を全部開く」のは Tree::set_filter の役割
@@ -28,6 +59,7 @@ pub(super) fn flatten(
                 depth,
                 is_dir: false,
                 expanded: false,
+                ignored: node.ignored,
             }),
             NodeKind::Dir {
                 expanded, children, ..
@@ -39,6 +71,7 @@ pub(super) fn flatten(
                     depth,
                     is_dir: true,
                     expanded: *expanded,
+                    ignored: node.ignored,
                 });
                 if *expanded {
                     flatten(children, depth + 1, prefix, rows, filter);
@@ -97,13 +130,13 @@ pub(super) fn collect_expanded(nodes: &[Node]) -> HashSet<PathBuf> {
 /// 絞り込み開始時の一括展開で使う。集合は祖先も含んでいる前提で、
 /// 未走査のディレクトリはここで読み込んでから降りる (GIT の変更ファイルが
 /// 未展開の階層にあっても絞り込みツリーに現れるようにするため)
-pub(super) fn expand_all(nodes: &mut [Node], expanded: &HashSet<PathBuf>, show_hidden: bool) {
+pub(super) fn expand_all(nodes: &mut [Node], expanded: &HashSet<PathBuf>, opts: ScanOptions) {
     for node in nodes {
         if !matches!(node.kind, NodeKind::Dir { .. }) {
             continue;
         }
         if expanded.contains(&node.path) {
-            load(node, show_hidden);
+            load(node, opts);
             if let NodeKind::Dir {
                 expanded: is_expanded,
                 ..
@@ -113,21 +146,21 @@ pub(super) fn expand_all(nodes: &mut [Node], expanded: &HashSet<PathBuf>, show_h
             }
         }
         if let NodeKind::Dir { children, .. } = &mut node.kind {
-            expand_all(children, expanded, show_hidden);
+            expand_all(children, expanded, opts);
         }
     }
 }
 
 /// 展開状態を集合そのものに揃える (集合に無いディレクトリは閉じる)。
 /// 絞り込み解除時に「絞り込み前の状態」へ厳密に戻すために使う
-pub(super) fn set_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>, show_hidden: bool) {
+pub(super) fn set_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>, opts: ScanOptions) {
     for node in nodes {
         if !matches!(node.kind, NodeKind::Dir { .. }) {
             continue;
         }
         let open = expanded.contains(&node.path);
         if open {
-            load(node, show_hidden);
+            load(node, opts);
         }
         if let NodeKind::Dir {
             expanded: is_expanded,
@@ -136,7 +169,7 @@ pub(super) fn set_expanded(nodes: &mut [Node], expanded: &HashSet<PathBuf>, show
         } = &mut node.kind
         {
             *is_expanded = open;
-            set_expanded(children, expanded, show_hidden);
+            set_expanded(children, expanded, opts);
         }
     }
 }
@@ -198,6 +231,8 @@ fn insert_missing(top: &mut Vec<Node>, root: &Path, path: &Path) {
                 children.push(Node {
                     name: comp.clone(),
                     path: acc.clone(),
+                    // 削除ファイル (git が追跡している) の親なので無視対象ではありえない
+                    ignored: false,
                     // loaded=false にするのは、この合成ディレクトリが実在する可能性があるため
                     // (遅延走査では「まだ読んでいないだけ」の実ディレクトリもツリーに現れない)。
                     // true にすると実在する場合に本物の子が二度と読まれなくなる。false なら
@@ -223,6 +258,7 @@ fn insert_missing(top: &mut Vec<Node>, root: &Path, path: &Path) {
     children.push(Node {
         name,
         path: path.to_path_buf(),
+        ignored: false,
         kind: NodeKind::File,
     });
 }
@@ -242,16 +278,44 @@ pub(super) fn node_mut<'a>(nodes: &'a mut [Node], index_path: &[usize]) -> Optio
 // ディレクトリ 1 階層だけを読む。1 階層でも WalkBuilder を通すのは、既定の
 // parents(true) が祖先の .gitignore まで遡って読むため、サブディレクトリ起点の
 // 走査でも root 側の無視設定がそのまま効くから (これが効かないなら一括走査に
-// 戻す必要がある)。require_git(false) は git repo 外のディレクトリでも
-// .gitignore を効かせるため (ignore クレートの既定では git repo 内でのみ適用される)。
-pub(super) fn read_dir(dir: &Path, show_hidden: bool) -> Vec<Node> {
-    let mut nodes = Vec::new();
-    let walker = WalkBuilder::new(dir)
-        .require_git(false)
-        .hidden(!show_hidden)
+// 戻す必要がある)。
+// parent_ignored は親ディレクトリ自体が無視対象かどうか。無視されたディレクトリの
+// 配下は git 的にも全て無視対象なので、その場合は判定用の再走査を省いて全件 true にする
+pub(super) fn read_dir(dir: &Path, opts: ScanOptions, parent_ignored: bool) -> Vec<Node> {
+    let mut nodes = entries(dir, opts, parent_ignored);
+    // 無視ファイルを出している間は「どれが無視対象か」を色で示したいが、ignore クレートの
+    // 走査結果からはそれが分からない。同じ 1 階層を「無視を効かせた設定」でもう一度歩き、
+    // そちらに出てこなかったものを無視対象と見なす — パターンの解釈 (否定・アンカー・
+    // 祖先の .gitignore) を自前で持たずに、表示・非表示と完全に同じ判定を使うため
+    if opts.show_ignored && !parent_ignored {
+        let shown = shown_paths(
+            dir,
+            ScanOptions {
+                show_ignored: false,
+                ..opts
+            },
+        );
+        for node in &mut nodes {
+            node.ignored = !shown.contains(&node.path);
+        }
+    }
+    nodes
+}
+
+// 無視を効かせた設定で見えるパスだけを集める (read_dir の判定用なので Node は組み立てない)
+fn shown_paths(dir: &Path, opts: ScanOptions) -> HashSet<PathBuf> {
+    opts.walker(dir)
         .max_depth(Some(1))
-        .build();
-    for entry in walker.flatten() {
+        .build()
+        .flatten()
+        .filter(|entry| entry.depth() > 0)
+        .map(|entry| entry.path().to_path_buf())
+        .collect()
+}
+
+fn entries(dir: &Path, opts: ScanOptions, ignored: bool) -> Vec<Node> {
+    let mut nodes = Vec::new();
+    for entry in opts.walker(dir).max_depth(Some(1)).build().flatten() {
         // depth 0 は走査起点のディレクトリ自身
         if entry.depth() == 0 {
             continue;
@@ -268,6 +332,7 @@ pub(super) fn read_dir(dir: &Path, show_hidden: bool) -> Vec<Node> {
         nodes.push(Node {
             name: entry.file_name().to_string_lossy().into_owned(),
             path: entry.path().to_path_buf(),
+            ignored,
             kind,
         });
     }
@@ -277,7 +342,9 @@ pub(super) fn read_dir(dir: &Path, show_hidden: bool) -> Vec<Node> {
 
 /// 未走査のディレクトリなら子を読み込む。展開の直前に必ず通す
 /// (「開こうとした時に読む」= 起動時にツリー全体を歩かないための入口)
-pub(super) fn load(node: &mut Node, show_hidden: bool) {
+pub(super) fn load(node: &mut Node, opts: ScanOptions) {
+    let ignored = node.ignored;
+    let path = node.path.clone();
     let NodeKind::Dir {
         loaded, children, ..
     } = &mut node.kind
@@ -288,16 +355,16 @@ pub(super) fn load(node: &mut Node, show_hidden: bool) {
         return;
     }
     *loaded = true;
-    *children = read_dir(&node.path, show_hidden);
+    *children = read_dir(&path, opts, ignored);
 }
 
 /// 読み込み済みの階層だけを読み直して差分を取り込む。未走査のディレクトリには
 /// 触らないので、再走査のコストは「今開いている範囲」に比例する。
 /// 展開状態・読み込み済みの子は名前で引き継ぐ (index_path は作り直しになる)
-pub(super) fn refresh(nodes: &mut Vec<Node>, dir: &Path, show_hidden: bool) {
+pub(super) fn refresh(nodes: &mut Vec<Node>, dir: &Path, opts: ScanOptions, parent_ignored: bool) {
     let mut previous: HashMap<String, NodeKind> =
         nodes.drain(..).map(|node| (node.name, node.kind)).collect();
-    let mut fresh = read_dir(dir, show_hidden);
+    let mut fresh = read_dir(dir, opts, parent_ignored);
     for node in &mut fresh {
         // 種別が変わった (ファイル ⇄ ディレクトリ) 場合は引き継がず新しい方を使う
         let Some(NodeKind::Dir {
@@ -312,7 +379,7 @@ pub(super) fn refresh(nodes: &mut Vec<Node>, dir: &Path, show_hidden: bool) {
             continue;
         }
         if loaded {
-            refresh(&mut children, &node.path, show_hidden);
+            refresh(&mut children, &node.path, opts, node.ignored);
         }
         node.kind = NodeKind::Dir {
             expanded,
