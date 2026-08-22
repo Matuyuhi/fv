@@ -286,16 +286,18 @@ fn push_segment(spans: &mut Vec<Span<'static>>, chars: &[char], style: Style) {
 // 論理行 1 本を width セルごとの視覚行に切る。span の style は切れ目を跨いで保存する。
 // 切る単位が char 数ではなくセル数なのは、端末 (ratatui の LineTruncator) が全角を
 // 2 セル送るため — char 数で詰めると行が幅を超え、はみ出した文字が次の視覚行にも
-// 現れないまま消える。span の内容は normalize 済み (タブ展開済み) なので、
-// ここでは text::WrapCursor に char をそのまま食わせてよい
+// 現れないまま消える。走査も char ではなく grapheme 単位にするのは、ZWJ 絵文字の
+// ように「char ごとの幅の合計と実際の描画幅が食い違う」列を割らないため。
+// span の内容は normalize 済み (タブ展開済み) なのでタブの手当ては要らない
 fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Line<'static>> {
     let mut rows: Vec<Line> = Vec::new();
     let mut spans: Vec<Span> = vec![line.spans.first().cloned().unwrap_or_default()];
     let mut wrap = text::WrapCursor::new(width);
     for span in line.spans.iter().skip(1) {
         let mut segment = String::new();
-        for c in span.content.chars() {
-            if wrap.push(c) {
+        // ratatui の描画と同じ単位で送るため grapheme で辿る (ZWJ 絵文字を割らない)
+        for grapheme in span.styled_graphemes(Style::default()) {
+            if wrap.push(grapheme.symbol) {
                 if !segment.is_empty() {
                     spans.push(Span::styled(std::mem::take(&mut segment), span.style));
                 }
@@ -304,7 +306,7 @@ fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Lin
                     vec![pad_span(gutter_width)],
                 )));
             }
-            segment.push(c);
+            segment.push_str(grapheme.symbol);
         }
         if !segment.is_empty() {
             spans.push(Span::styled(segment, span.style));
@@ -370,7 +372,6 @@ fn overlay_cursor(line: Line<'static>, col: usize) -> Line<'static> {
 mod tests {
     use super::{LineWindow, TextPane};
     use crate::component::viewer::Viewport;
-    use crate::text;
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
 
@@ -395,14 +396,6 @@ mod tests {
             gutter_width,
         };
         pane.visible(&vp)
-    }
-
-    fn cells(line: &Line<'static>) -> usize {
-        line.spans
-            .iter()
-            .flat_map(|s| s.content.chars())
-            .map(text::char_cells)
-            .sum()
     }
 
     fn content(rows: &[Line<'static>], gutter_width: usize) -> String {
@@ -433,9 +426,24 @@ mod tests {
         );
         assert_eq!(rows.len(), 3);
         for row in &rows {
-            assert!(cells(row) <= 12, "視覚行が幅を超えている: {row:?}");
+            assert!(row.width() <= 12, "視覚行が幅を超えている: {row:?}");
         }
         assert_eq!(content(&rows, 2), text);
+    }
+
+    // ZWJ 絵文字は char ごとの幅の合計 (4) と描画幅 (2) が食い違う。char で数えると
+    // 幅 4 の行に収まらないと誤判定して列の途中で割れ、絵文字が 2 つに分かれて見える
+    #[test]
+    fn wrapping_keeps_a_zwj_sequence_whole() {
+        let text = "👩\u{200d}💻ab";
+        let rows = pane_rows(vec![Span::raw("1 "), Span::raw(text)], 6, 2);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(content(&rows, 2), text);
+        assert!(
+            rows[0].width() <= 6,
+            "視覚行が幅を超えている: {:?}",
+            rows[0]
+        );
     }
 
     // 折返しは span の切れ目と無関係に起きるので、style を跨いでも本文は落ちない
@@ -452,7 +460,7 @@ mod tests {
         );
         assert_eq!(content(&rows, 2), "あabいc");
         for row in &rows {
-            assert!(cells(row) <= 6, "視覚行が幅を超えている: {row:?}");
+            assert!(row.width() <= 6, "視覚行が幅を超えている: {row:?}");
         }
     }
 }

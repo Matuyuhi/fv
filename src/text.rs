@@ -2,6 +2,7 @@
 //! タブ幅・gutter 幅の解釈が場所によってズレると、検索ハイライト・カーソル・
 //! クリック座標の桁対応 (CLAUDE.md の整合インバリアント) が全て壊れるため一箇所に集める。
 
+use ratatui::style::Style;
 use ratatui::text::Span;
 
 /// タブ 1 文字の展開結果。normalize と display_col/char_col_at の換算は必ずこれ経由で揃える
@@ -42,20 +43,22 @@ pub fn char_col_at(line: &str, display: usize) -> usize {
     line.chars().count()
 }
 
-/// 1 文字が端末で占めるセル数 (全角 = 2、結合文字 = 0)。ratatui の描画
-/// (LineTruncator) は grapheme の display width で桁を送り、収まらない分をその行で
-/// 打ち切るので、折返し位置も同じ尺度で決めないと「折返しの継ぎ目で文字が消える」。
-/// unicode-width を直接足さず ratatui の Span::width を通すのは、描画側とまったく
-/// 同じ計算であることを型で保証するため (新規依存も増やさない)
-pub fn char_cells(c: char) -> usize {
-    let mut buf = [0u8; 4];
-    Span::raw(&*c.encode_utf8(&mut buf)).width()
+/// 表示単位 (grapheme) が端末で占めるセル数。ratatui の描画 (LineTruncator) は
+/// grapheme を単位に display width で桁を送り、幅を超えた時点でその行を打ち切るので、
+/// 折返し位置も同じ尺度・同じ単位で決めないと「折返しの継ぎ目で文字が消える」。
+/// unicode-width / unicode-segmentation を直接足さず ratatui の Span を通すのは、
+/// 描画側とまったく同じ計算であることを保証するため (新規依存も増やさない)
+pub fn cells(symbol: &str) -> usize {
+    Span::raw(symbol).width()
 }
 
-/// 折返し位置の唯一の定義。normalize 済みの char (タブは展開済み) を 1 つずつ食わせ、
-/// 「その char を置く前に折り返すか」を返す。描画 (text_pane::wrap_line)・視覚行数
+/// 折返し位置の唯一の定義。normalize 済みの grapheme (タブは展開済み) を 1 つずつ
+/// 食わせ、「それを置く前に折り返すか」を返す。描画 (text_pane::wrap_line)・視覚行数
 /// (wrap_rows)・カーソル追従 (wrap_position)・クリック座標 (wrap_col_at) の 4 者が
-/// この 1 つの規則を共有する
+/// この 1 つの規則を共有する。
+/// **char ではなく grapheme を単位にする**のは、ZWJ 絵文字 (👩\u{200d}💻) のように
+/// 「char ごとの幅の合計 (4) と実際の描画幅 (2) が食い違う」列があるため。char で
+/// 数えると幅を過大に見積もって列が途中で切れ、絵文字が 2 つの視覚行に割れる
 pub(crate) struct WrapCursor {
     width: usize,
     used: usize,
@@ -69,11 +72,11 @@ impl WrapCursor {
         }
     }
 
-    /// c を今の視覚行に置けなければ true (= c は次の視覚行の先頭になる)。
-    /// 折返し幅より広い char は単独でも収まらないので、空の視覚行では必ず受け入れる
+    /// symbol を今の視覚行に置けなければ true (= symbol は次の視覚行の先頭になる)。
+    /// 折返し幅より広い grapheme は単独でも収まらないので、空の視覚行では必ず受け入れる
     /// (受け入れないと視覚行だけが無限に増える)
-    pub(crate) fn push(&mut self, c: char) -> bool {
-        let cells = char_cells(c);
+    pub(crate) fn push(&mut self, symbol: &str) -> bool {
+        let cells = cells(symbol);
         if self.used > 0 && self.used + cells > self.width {
             self.used = cells;
             return true;
@@ -83,17 +86,28 @@ impl WrapCursor {
     }
 }
 
-// タブを展開した char 列。normalize() と違い String を確保しないので、
-// 折返しの計算 (毎フレーム・キー入力ごとに通る) から生の行をそのまま扱える
-fn expanded(line: &str) -> impl Iterator<Item = char> + '_ {
-    line.chars().flat_map(|c| {
-        let (tab, single) = if c == '\t' {
-            (TAB_EXPANDED, None)
-        } else {
-            ("", Some(c))
-        };
-        tab.chars().chain(single)
-    })
+// normalize 後の grapheme 列を辿り、(その grapheme の先頭 char 座標, grapheme) を渡す。
+// タブは空白 TAB_EXPANDED 個へ展開して渡すので、normalize() の String 確保なしに
+// 生の行をそのまま食わせられる (折返しの計算はキー入力ごとに通る経路)。
+// f が false を返したら打ち切る
+fn walk(line: &str, mut f: impl FnMut(usize, &str) -> bool) {
+    let span = Span::raw(line);
+    let mut col = 0usize;
+    for grapheme in span.styled_graphemes(Style::default()) {
+        if grapheme.symbol == "\t" {
+            for _ in 0..TAB_EXPANDED.chars().count() {
+                if !f(col, " ") {
+                    return;
+                }
+                col += 1;
+            }
+            continue;
+        }
+        if !f(col, grapheme.symbol) {
+            return;
+        }
+        col += grapheme.symbol.chars().count();
+    }
 }
 
 /// 論理行が占める視覚行数 (wrap 時)。空行も 1 行を占める。
@@ -101,11 +115,12 @@ fn expanded(line: &str) -> impl Iterator<Item = char> + '_ {
 pub fn wrap_rows(line: &str, width: usize) -> usize {
     let mut wrap = WrapCursor::new(width);
     let mut rows = 1;
-    for c in expanded(line) {
-        if wrap.push(c) {
+    walk(line, |_, symbol| {
+        if wrap.push(symbol) {
             rows += 1;
         }
-    }
+        true
+    });
     rows
 }
 
@@ -115,21 +130,28 @@ pub fn wrap_position(line: &str, char_col: usize, width: usize) -> (usize, usize
     let mut wrap = WrapCursor::new(width);
     let mut row = 0usize;
     let mut row_start = 0usize;
-    let mut i = 0usize;
-    for c in expanded(line) {
-        if wrap.push(c) {
+    let mut scanned = 0usize;
+    let mut found: Option<(usize, usize)> = None;
+    walk(line, |col, symbol| {
+        if wrap.push(symbol) {
             row += 1;
-            row_start = i;
+            row_start = col;
         }
-        if i == char_col {
-            return (row, i - row_start);
+        scanned = col + symbol.chars().count();
+        // 複数 char からなる grapheme の途中を指した場合はその先頭に丸める
+        if char_col < scanned {
+            found = Some((row, col - row_start));
+            return false;
         }
-        i += 1;
+        true
+    });
+    if let Some(hit) = found {
+        return hit;
     }
     // 行末より後ろ: カーソル自体が 1 セルを要求する
-    if wrap.push(' ') {
+    if wrap.push(" ") {
         row += 1;
-        row_start = i;
+        row_start = scanned;
     }
     (row, char_col.saturating_sub(row_start))
 }
@@ -138,45 +160,60 @@ pub fn wrap_position(line: &str, char_col: usize, width: usize) -> (usize, usize
 /// row が視覚行数を超える場合は最終視覚行に丸める
 fn wrap_row_range(line: &str, row: usize, width: usize) -> (usize, usize) {
     let mut wrap = WrapCursor::new(width);
-    let mut r = 0usize;
+    let mut current = 0usize;
     let mut start = 0usize;
-    let mut i = 0usize;
-    for c in expanded(line) {
-        if wrap.push(c) {
-            if r == row {
-                return (start, i);
+    let mut scanned = 0usize;
+    let mut done: Option<(usize, usize)> = None;
+    walk(line, |col, symbol| {
+        if wrap.push(symbol) {
+            if current == row {
+                done = Some((start, col));
+                return false;
             }
-            r += 1;
-            start = i;
+            current += 1;
+            start = col;
         }
-        i += 1;
-    }
-    (start, i)
+        scanned = col + symbol.chars().count();
+        true
+    });
+    done.unwrap_or((start, scanned))
 }
 
 /// クリック座標 (視覚行 row・行内の表示セル cell) → normalize 後の char 座標。
-/// 全角文字の 2 セル目を指した場合はその文字自身に丸める
+/// 全角の 2 セル目を指した場合はその文字自身に丸める。幅 0 の grapheme は
+/// WrapCursor と同じくセルを消費しない (消費させると結合文字の直後の文字を指せなくなる)
 pub fn wrap_col_at(line: &str, row: usize, cell: usize, width: usize) -> usize {
     let (start, end) = wrap_row_range(line, row, width);
     let mut used = 0usize;
-    for (i, c) in expanded(line).enumerate().take(end).skip(start) {
-        let cells = char_cells(c).max(1);
+    let mut hit: Option<usize> = None;
+    walk(line, |col, symbol| {
+        if col < start {
+            return true;
+        }
+        if col >= end {
+            return false;
+        }
+        let cells = cells(symbol);
         if cell < used + cells {
-            return i;
+            hit = Some(col);
+            return false;
         }
         used += cells;
-    }
-    end
+        true
+    });
+    hit.unwrap_or(end)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{char_cells, wrap_col_at, wrap_position, wrap_rows};
+    use super::{cells, wrap_col_at, wrap_position, wrap_rows};
 
     #[test]
-    fn char_cells_counts_east_asian_width() {
-        assert_eq!(char_cells('a'), 1);
-        assert_eq!(char_cells('あ'), 2);
+    fn cells_counts_the_rendered_width_of_a_grapheme() {
+        assert_eq!(cells("a"), 1);
+        assert_eq!(cells("あ"), 2);
+        // ZWJ 絵文字は char ごとの合計 (2 + 0 + 2) ではなく 1 つ 2 セルとして描かれる
+        assert_eq!(cells("👩\u{200d}💻"), 2);
     }
 
     #[test]
@@ -191,6 +228,13 @@ mod tests {
         assert_eq!(wrap_rows("あああ", 3), 3);
         // タブは展開して数える
         assert_eq!(wrap_rows("\tab", 4), 2);
+    }
+
+    #[test]
+    fn wrap_rows_keeps_a_zwj_sequence_on_one_row() {
+        // char で数えると 4 セル扱いになり 3 セル目で割れてしまう
+        assert_eq!(wrap_rows("👩\u{200d}💻ab", 4), 1);
+        assert_eq!(wrap_rows("👩\u{200d}💻abc", 4), 2);
     }
 
     #[test]
@@ -213,5 +257,14 @@ mod tests {
         assert_eq!(wrap_col_at("ああああ", 1, 0, 4), 2);
         // 行末より右は行末へ
         assert_eq!(wrap_col_at("ab", 0, 9, 4), 2);
+    }
+
+    #[test]
+    fn wrap_col_at_does_not_give_a_cell_to_zero_width_marks() {
+        // "a" + 結合アクセント + "b"。アクセントは 0 セルなので、セル 1 は "b"
+        assert_eq!(wrap_col_at("a\u{301}b", 0, 0, 8), 0);
+        assert_eq!(wrap_col_at("a\u{301}b", 0, 1, 8), 2);
+        // ZWJ 絵文字 (2 セル) の次はセル 2
+        assert_eq!(wrap_col_at("👩\u{200d}💻b", 0, 2, 8), 3);
     }
 }

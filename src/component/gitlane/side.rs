@@ -202,8 +202,9 @@ fn wrap_split(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Li
     let mut wrap = text::WrapCursor::new(width);
     for span in line.spans.iter().skip(1) {
         let mut segment = String::new();
-        for c in span.content.chars() {
-            if wrap.push(c) {
+        // ratatui の描画と同じ単位で送るため grapheme で辿る (ZWJ 絵文字を割らない)
+        for grapheme in span.styled_graphemes(Style::default()) {
+            if wrap.push(grapheme.symbol) {
                 if !segment.is_empty() {
                     spans.push(Span::styled(std::mem::take(&mut segment), span.style));
                 }
@@ -212,7 +213,7 @@ fn wrap_split(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Li
                     vec![blank_gutter(gutter_width)],
                 )));
             }
-            segment.push(c);
+            segment.push_str(grapheme.symbol);
         }
         if !segment.is_empty() {
             spans.push(Span::styled(segment, span.style));
