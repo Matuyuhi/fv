@@ -64,7 +64,7 @@ fn help_lines() -> Vec<Line<'static>> {
             ("a", "隠し項目の表示を切替"),
             (
                 "i",
-                ".gitignore で無視されるファイルの表示を切替 (暗色で表示)",
+                "無視ファイル (.gitignore/.ignore/exclude) の表示を切替",
             ),
             ("-a, --hidden", "起動時に隠し項目を表示"),
             ("-i, --ignored", "起動時に無視ファイルも表示"),

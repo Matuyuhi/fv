@@ -160,12 +160,68 @@ impl Active {
     }
 }
 
+// 走査側 (ScanOptions::walker) が見る無視ファイルと同じ 3 種を読む。root の .gitignore だけだと
+// .ignore / .git/info/exclude で無視したパスの変更イベントが素通りし、ツリーに出ないファイルの
+// ために status 再取得・再走査が走ってしまう。
+// 下の階層の .gitignore までは追わない — ここはあくまでイベントの間引きで、取りこぼした側の
+// コストは 500ms デバウンス済みの再取得 1 回でしかないため (逆に消しすぎると表示が古いまま
+// 固定されるので、判断に迷う側は通す方へ倒す)
 fn build_gitignore(root: &Path) -> Option<Gitignore> {
-    let path = root.join(".gitignore");
-    if !path.is_file() {
+    let mut builder = GitignoreBuilder::new(root);
+    let mut found = false;
+    for path in [
+        root.join(".gitignore"),
+        root.join(".ignore"),
+        root.join(".git").join("info").join("exclude"),
+    ] {
+        if path.is_file() && builder.add(&path).is_none() {
+            found = true;
+        }
+    }
+    if !found {
         return None;
     }
-    let mut builder = GitignoreBuilder::new(root);
-    builder.add(&path);
     builder.build().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::component::tree::ScanOptions;
+
+    // 走査側と同じ 3 種の無視ファイルでイベントを間引けているか。root の .gitignore しか
+    // 見ていないと「ツリーに出ないファイルの変更で再走査が走る」に戻る
+    #[test]
+    fn filters_events_from_every_ignore_source() {
+        let root = std::env::temp_dir().join("fv-watch-ignore-test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".git/info")).unwrap();
+        std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
+        std::fs::write(root.join(".ignore"), "notes.md\n").unwrap();
+        std::fs::write(root.join(".git/info/exclude"), "*.bak\n").unwrap();
+
+        let watcher = FsWatcher::new(
+            &root,
+            ScanOptions {
+                show_hidden: false,
+                show_ignored: false,
+            },
+        );
+        assert!(watcher.is_ignored(&root.join("target/debug/fv")));
+        assert!(watcher.is_ignored(&root.join("notes.md")));
+        assert!(watcher.is_ignored(&root.join("src/main.rs.bak")));
+        assert!(!watcher.is_ignored(&root.join("src/main.rs")));
+
+        // 無視ファイルを表示している間は、その変更も追従させたいので通す
+        let showing = FsWatcher::new(
+            &root,
+            ScanOptions {
+                show_hidden: false,
+                show_ignored: true,
+            },
+        );
+        assert!(!showing.is_ignored(&root.join("notes.md")));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

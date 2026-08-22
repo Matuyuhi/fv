@@ -11,7 +11,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 ## Features
 
 - **Modes** (`Shift+Tab` to cycle) — VIEW / EDIT / GIT, so each mode keeps its own key map
-- File tree with `.gitignore`-aware scanning and git status markers (`i` shows ignored files too, dimmed)
+- File tree with `.gitignore`-aware scanning and git status markers (`i` shows ignored files too — `.gitignore` / `.ignore` / `.git/info/exclude` — dimmed)
 - Syntax highlighting (syntect)
 - **Inline editing** (`e`) — insert, delete, undo/redo, paste, save
 - **Git mode** — tree filtered to changed files only (hierarchy preserved), unified diff with hunk jumping
@@ -63,7 +63,7 @@ Press `?` inside fv for the full list.
 | `Ctrl+o`/`Ctrl+i` | History back / forward |
 | `r` | Rescan tree |
 | `a` | Toggle hidden files (`-a`, `--hidden` at startup) |
-| `i` | Toggle files ignored by `.gitignore` (`-i`, `--ignored` at startup) |
+| `i` | Toggle ignored files — `.gitignore` / `.ignore` / `.git/info/exclude` (`-i`, `--ignored` at startup) |
 | `s` | Settings |
 | `?` | Help |
 | `e` | Enter edit mode |

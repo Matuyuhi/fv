@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Help => {
             println!(
-                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -i, --ignored show files ignored by .gitignore\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -i, --ignored show ignored files (.gitignore / .ignore / .git/info/exclude)\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
             );
         }
         #[cfg(feature = "preview")]
