@@ -35,6 +35,15 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "tree-ignored",
+        description: "ツリー: i で .gitignore 対象も表示 (暗色)",
+        size: None,
+        setup: |app| {
+            send(app, "i");
+            expand(app, "target");
+        },
+    },
+    Scene {
         name: "view",
         description: "VIEW レーン: ファイルを開いた既定の画面",
         size: None,

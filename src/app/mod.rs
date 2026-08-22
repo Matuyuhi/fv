@@ -24,7 +24,7 @@ use crate::component::gitlane::GitState;
 use crate::component::issues::IssuesState;
 use crate::component::log::LogState;
 use crate::component::prs::PrsState;
-use crate::component::tree::Tree;
+use crate::component::tree::{ScanOptions, Tree};
 use crate::component::viewer::{self, Viewer};
 use crate::config::Config;
 use crate::git::{self, GitStatus, StatusKind};
@@ -145,10 +145,14 @@ impl App {
     /// github_cli は `--github` の指定。その起動限りの有効化で config には書かない
     /// (config.github との合成は github_enabled の初期値としてのみ行う)
     pub fn new(root: PathBuf, config: Config, github_cli: bool) -> Self {
-        let mut tree = Tree::new(&root, config.show_hidden);
+        let opts = ScanOptions {
+            show_hidden: config.show_hidden,
+            show_ignored: config.show_ignored,
+        };
+        let mut tree = Tree::new(&root, opts);
         // 再帰監視の登録は別スレッドで進む (起動を待たせない)。失敗しても
         // 監視なしで動き続ける
-        let watcher = FsWatcher::new(&root, config.show_hidden);
+        let watcher = FsWatcher::new(&root, opts);
         let git = git::file_statuses(&root);
         let branch_status = git::branch_status(&root);
         // 削除ファイルは WalkBuilder の走査に出てこないため、起動時点でも合成ノードを足しておく
@@ -160,7 +164,7 @@ impl App {
         // Viewer::new() が入れた既定テーマのまま起動を続ける (パニックしない)
         viewer.set_theme(&config.theme);
         let github_enabled = github_cli || config.github;
-        let file_index = FileIndex::new(root.clone(), config.show_hidden);
+        let file_index = FileIndex::new(root.clone(), opts);
         let mut app = Self {
             root,
             focus: Focus::Tree,
@@ -657,13 +661,25 @@ impl App {
     }
 
     pub fn toggle_hidden(&mut self) {
-        let show_hidden = self.tree.toggle_hidden();
-        self.file_index.set_show_hidden(show_hidden);
-        // toggle_hidden 内部の rescan で nodes が作り直されるため、削除ファイルの合成ノードも
+        let opts = self.tree.toggle_hidden();
+        self.after_scan_options_changed(opts);
+    }
+
+    /// .gitignore 等で無視されるファイルの表示を切り替える (i / 設定画面)。
+    /// 切替後の始末は toggle_hidden と全く同じなので after_scan_options_changed に集約する
+    pub fn toggle_ignored(&mut self) {
+        let opts = self.tree.toggle_ignored();
+        self.after_scan_options_changed(opts);
+    }
+
+    // 走査条件を変えた後の始末。Finder の候補と FS 監視をツリーと同じ条件へ揃え直す
+    fn after_scan_options_changed(&mut self, opts: ScanOptions) {
+        self.file_index.set_options(opts);
+        // 切替の内部で rescan が走り nodes が作り直されるため、削除ファイルの合成ノードも
         // 都度足し直さないと隠れてしまう (git status 自体は変わらないので既存 self.git を使う)
         self.tree.sync_deleted(&self.deleted_paths());
         // 既存 watcher のキューには切替前のフィルタ結果が残るため、監視も作り直して揃える。
-        self.watcher = FsWatcher::new(&self.root, show_hidden);
+        self.watcher = FsWatcher::new(&self.root, opts);
         self.reset_rescan_debounce();
         self.persist_config();
     }
@@ -743,6 +759,7 @@ impl App {
     fn current_config(&self) -> Config {
         Config {
             show_hidden: self.tree.show_hidden(),
+            show_ignored: self.tree.show_ignored(),
             icons: self.icons,
             wrap_default: self.viewer.viewport.wrap,
             theme: self.viewer.theme_name().to_string(),

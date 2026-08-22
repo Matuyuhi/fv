@@ -11,7 +11,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 ## Features
 
 - **Modes** (`Shift+Tab` to cycle) — VIEW / EDIT / GIT, so each mode keeps its own key map
-- File tree with `.gitignore`-aware scanning and git status markers
+- File tree with `.gitignore`-aware scanning and git status markers (`i` shows ignored files too — `.gitignore` / `.ignore` / `.git/info/exclude` — dimmed)
 - Syntax highlighting (syntect)
 - **Inline editing** (`e`) — insert, delete, undo/redo, paste, save
 - **Git mode** — tree filtered to changed files only (hierarchy preserved), unified diff with hunk jumping
@@ -21,7 +21,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 - Auto-reload on file system changes
 - Mouse support (click to select/open/move cursor, wheel to scroll)
 - Wrap toggle, horizontal scroll, navigation history (`Ctrl+o`/`Ctrl+i`)
-- Settings popup (`s`) for hidden files / icons / wrap default / syntax theme, persisted to `~/.config/fv/config`
+- Settings popup (`s`) for hidden files / gitignored files / icons / wrap default / syntax theme, persisted to `~/.config/fv/config`
 
 ## Install
 
@@ -62,6 +62,8 @@ Press `?` inside fv for the full list.
 | `w` | Toggle wrap |
 | `Ctrl+o`/`Ctrl+i` | History back / forward |
 | `r` | Rescan tree |
+| `a` | Toggle hidden files (`-a`, `--hidden` at startup) |
+| `i` | Toggle ignored files — `.gitignore` / `.ignore` / `.git/info/exclude` (`-i`, `--ignored` at startup) |
 | `s` | Settings |
 | `?` | Help |
 | `e` | Enter edit mode |
@@ -96,6 +98,8 @@ The tree is filtered down to changed files with the directory hierarchy preserve
 | `r` | Rescan (also refreshes git status) |
 
 Files that are deleted but not yet committed are listed as well, so they can still be selected and reviewed. Changes under hidden directories (for example `.github/`) need `a` or `--hidden`.
+
+Ignored files (`.gitignore`, `.ignore`, `.git/info/exclude`) are left out of the tree and the finder by default. `i` (or `-i` / `--ignored`) brings them in — they are drawn dimmed, since git does not track them — and the setting is persisted like the other settings.
 
 ## Development
 

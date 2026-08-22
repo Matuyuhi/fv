@@ -103,7 +103,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - wrap は閲覧・編集とも **char 単位の自前分割**（`Paragraph::wrap` は単語境界 wrap で折返し位置が外から計算できないため全面的に不使用）。視覚行数は描画（text_pane）・カーソル追従（ensure_visible）・クリック座標（click_at）の 3 者が `text::wrap_rows` を共有し、ズレると即カーソル位置バグになる
 
 ### キールーティングの優先順位（app/keys.rs on_key）
-Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto/Filter) → Mode::Commit → Mode::Branch → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップし on_issues_key/on_pr_key へ**（Issues は `on_issues_key`、PullRequests は `on_pr_key` がそれぞれ focus 別に一覧/詳細へ振り分ける。どちらも「フォーカスに依らない操作 (o/r/t/フィルタ開始) を先に拾い、残りは focus で振り分け」という同じ形） → Lane::Edit → Ctrl+p → q/?/a/s/c/C/b/f/p/P/Tab → **Z(stash pop、レーン不問)** → **X/z(discard・stash push、GIT レーン限定)** → focus 別ディスパッチ。f/p/P (#27 リモート操作) は c/C/b と同じ位置・同じ理由 (レーンを問わず開ける) でここに置く。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。Z (stash pop) だけレーンを問わず呼べる理由は「破棄 (discard) と stash」節を参照。
+Ctrl+c → Mode::Confirm → Mode::Help → Mode::Settings → Mode::Finder → Mode::Input(Search/Goto/Filter) → Mode::Commit → Mode::Branch → **Ctrl+t/Alt+1..3(Workspace 切替)** → **Shift+Tab(レーン循環)** → **Workspace ≠ Viewer なら以降をスキップし on_issues_key/on_pr_key へ**（Issues は `on_issues_key`、PullRequests は `on_pr_key` がそれぞれ focus 別に一覧/詳細へ振り分ける。どちらも「フォーカスに依らない操作 (o/r/t/フィルタ開始) を先に拾い、残りは focus で振り分け」という同じ形） → Lane::Edit → Ctrl+p → q/?/a/i/s/c/C/b/f/p/P/Tab → **Z(stash pop、レーン不問)** → **X/z(discard・stash push、GIT レーン限定)** → focus 別ディスパッチ。f/p/P (#27 リモート操作) は c/C/b と同じ位置・同じ理由 (レーンを問わず開ける) でここに置く。新しいモード・キーを足す時はこの順序に組み込む。Edit はグローバルキー（q/s/Tab/Ctrl+p）より前に置くことで印字キーを全て文字入力にしている（Ctrl+c と Shift+Tab だけが上に残る）。Shift+Tab をオーバーレイ判定より後ろに置いているのは、入力中にレーンが切り替わって文脈が壊れないようにするため。Ctrl+t/Alt+N も印字キーではないので同じ位置（オーバーレイ判定の後・Lane::Edit の前）に置ける。`workspace_available` が false の間はこれらのキーが素通りするだけなので、GitHub モード無効時の挙動は 1 バイトも変わらない。`pending_g`（gg 待ち）は Tree/Viewer で共用され、Tab・マウスでリセットされる。Z (stash pop) だけレーンを問わず呼べる理由は「破棄 (discard) と stash」節を参照。
 GIT レーン右ペインの `Space`（hunk 単位ステージ）は `on_git_key` の中で、`A`/`t` と同じく `Lane::Git` の可変借用より前で拾う（git の実行と `rescan_now` に `&mut self` が要るため）。ツリー側（Focus::Tree）の `Space` はファイル単位のトグルで、粒度だけがフォーカスで変わる。
 ツリーのキー処理（`on_tree_key`）は VIEW/GIT で共通で、**「開く」対象のパスを返すだけ**にしてある。viewer に開くか diff に開くかの振り分けは `App::open_selected` 1 箇所に閉じている（ツリー操作をレーンごとに複製しない）。LOG は左ペインがツリーではないため `on_tree_key` には乗せず、`Focus::Tree` の分岐で `Lane::Log` だけ `on_log_list_key` へ振り分ける（`Focus::Viewer` 側も同様に `on_log_diff_key` を割り込ませる）。
 
@@ -133,7 +133,9 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）は `on_git_key
 - 走査は `scan::read_dir` の **1 階層ずつ**。`NodeKind::Dir` の `loaded` が未走査を表し、`scan::load` が展開の直前（`toggle_or_open` の開く側、`expand_all`）で子を読む。畳んだ子は捨てないので再展開はキャッシュヒットになる
 - 1 階層でも `WalkBuilder` を通すのは、既定の `parents(true)` が**祖先の .gitignore を遡って読む**ため。サブディレクトリ起点でも root 側の `*.log` / `/anchored` / `build/` がそのまま効く（この前提が崩れるなら一括走査に戻すしかない）。`require_git(false)` で非 git ディレクトリでも .gitignore を尊重
 - `rescan` は `scan::refresh` で**読み込み済みの階層だけ**を読み直し、展開状態と子を **name で**引き継ぐ（種別が変わったら引き継がない）。選択は **path で**保存・復元する（index_path は再走査で無効になる）。再走査コストも「今開いている範囲」に比例する
-- `toggle_hidden` は show_hidden を反転して `rescan` するだけ（読み直しの経路を 2 つ持たない）
+- `toggle_hidden` は show_hidden を反転して `rescan` するだけ（読み直しの経路を 2 つ持たない）。`toggle_ignored`（`i` / 設定画面の gitignored）も同じ形で、切替後の後始末（Finder 候補・FS 監視をツリーと同じ条件に揃え直す）は `App::after_scan_options_changed` 1 箇所に集約する
+- **無視設定は `scan::ScanOptions`（show_hidden + show_ignored）が唯一の定義**で、`ScanOptions::walker` が `WalkBuilder` の組み立てを持つ。ツリー・Finder の候補（component/finder/index.rs）・FS 監視（watch.rs）の 3 者がこれを共有するのは、条件がずれると「ツリーには出るのに Finder に出ない」「表示しているのに自動リロードだけ効かない」が起きるため。bool を個別に配って回らない
+- **無視ファイルの表示（`i`）は走査を切り替えるだけでなく「どれが無視対象か」も要る**（暗色で区別するため）。ignore クレートの走査結果にはその情報が無いので、`scan::read_dir` は同じ 1 階層を「無視を効かせた設定」でもう一度歩き、そちらに出てこなかったものを無視対象と見なす。パターンの解釈（否定・アンカー・祖先の .gitignore）を自前で持たず、表示・非表示と完全に同じ判定を使うのが目的。追加コストは **show_ignored が on の間だけ**の 1 階層ぶんの readdir 1 回で、無視されたディレクトリの配下は git 的にも全て無視対象なので `parent_ignored` を伝播させて再走査自体を省く
 - 監視の開始（notify の再帰 watch 登録）も**ツリーの大きさに比例する**ため別スレッドに出し、`FsWatcher::drain` が毎 tick 受け取りに行く。登録完了までのイベントは取りこぼすが、それは監視開始前と同じ状態でしかない
 
 ### GitHub モードのタブバー（app/mouse.rs on_tab_mouse・shell/tab_bar.rs）
@@ -187,7 +189,7 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）は `on_git_key
 - **fv 上での保存 (`Ctrl+s`) も FS 監視のイベント待ちにしない**。`EditState::save` が立てる take フラグ (`EditState::take_saved`) を `App::on_edit_key` が回収して `status_pending` を立てる（監視を張れない環境でも効かせるため）。ファイルの増減は起きないので全走査は要らず、再取得自体は `on_tick` の 500ms デバウンスに任せる（連続保存で git を連打しない）。EditState は App を借りられない（「閲覧と編集の関係」節の依存範囲）ので、`EditBuffer::take_touched` と同じ take フラグで橋渡しする
 
 ### Finder の候補（component/finder/index.rs）
-ツリーが遅延走査になったので、`Ctrl+p` の候補をツリーから集めると未展開の階層が丸ごと欠ける。`FileIndex` が root 全体を**別スレッドで 1 回歩いて**候補を持つ（無視設定は component/tree/scan.rs と揃える）。
+ツリーが遅延走査になったので、`Ctrl+p` の候補をツリーから集めると未展開の階層が丸ごと欠ける。`FileIndex` が root 全体を**別スレッドで 1 回歩いて**候補を持つ（無視設定はツリーと同じ `ScanOptions::walker` を通すので、隠し項目・無視ファイルの表示切替がそのまま候補にも効く）。
 - 走査を起こすのは Finder を開いた時だけ（起動時に走らせると、使わないのに巨大ディレクトリを歩くことになる）
 - 走査完了前に開いた場合は**ツリーの読み込み済み分**で即座に開き、完了時に `on_tick` が `Finder::set_candidates` で差し替える（クエリは保つ）。タイトルの `scanning...` がその状態
 - FS 変更・隠しファイル切替では `invalidate` するだけ。ここで走査し直すと保存のたびに全走査になる（古い一覧は次に Finder を開くまで使い続ける）
