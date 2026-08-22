@@ -9,10 +9,10 @@ use std::env;
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
-/// OSC 52 で送る生テキストの上限。base64 で 4/3 に膨らんだ列を 1 度に受け取れる長さは
-/// 端末ごとに違い (xterm の既定は ~100KB)、超えると黙って捨てられる。無音で失敗するより
-/// 「大きすぎて送れない」と言う方がましなので、切り詰めず拒否する
-const OSC52_MAX_BYTES: usize = 96 * 1024;
+/// OSC 52 で送れる **base64 済みペイロード** の上限。1 度に受け取れる長さは端末ごとに違い
+/// (xterm の既定は ~100KB)、超えると黙って捨てられる。無音で失敗するより「大きすぎて
+/// 送れない」と言う方がましなので、切り詰めず拒否する
+const OSC52_MAX_PAYLOAD: usize = 100 * 1024;
 
 /// 試す順に (コマンド, 引数)
 const COMMANDS: &[(&str, &[&str])] = &[
@@ -71,11 +71,15 @@ fn run(program: &str, args: &[&str], text: &str) -> Result<(), ()> {
 // OSC 52 は端末そのものへの指示なので、alternate screen の中身を汚さずに送れる。
 // ratatui と同じ stdout に書くため、フレームの描画とは別に flush する
 fn osc52(text: &str) -> Result<(), String> {
-    if text.len() > OSC52_MAX_BYTES {
+    // 端末へ実際に流れるのは base64 展開後の長さなので、生テキストではなくそちらで判定する。
+    // base64 は 3 バイト → 4 文字と決まっているのでエンコード前に正確に見積もれる
+    // (巨大なファイルを一度 base64 に起こしてから捨てる、という無駄も避けられる)
+    let payload_len = encoded_len(text.len());
+    if payload_len > OSC52_MAX_PAYLOAD {
         return Err(format!(
-            "too large for the terminal clipboard ({} KB > {} KB)",
-            text.len() / 1024,
-            OSC52_MAX_BYTES / 1024
+            "too large for the terminal clipboard ({} KB of base64 > {} KB)",
+            payload_len / 1024,
+            OSC52_MAX_PAYLOAD / 1024
         ));
     }
     let payload = base64(text.as_bytes());
@@ -83,6 +87,11 @@ fn osc52(text: &str) -> Result<(), String> {
     // c = CLIPBOARD セレクション
     write!(out, "\x1b]52;c;{payload}\x07").map_err(|e| e.to_string())?;
     out.flush().map_err(|e| e.to_string())
+}
+
+// base64 済みの長さ。パディング込みなので 3 バイト単位に切り上げてから 4/3 倍する
+fn encoded_len(len: usize) -> usize {
+    len.div_ceil(3) * 4
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -113,7 +122,7 @@ fn base64(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::base64;
+    use super::{base64, encoded_len};
 
     #[test]
     fn base64_matches_rfc4648_vectors() {
@@ -129,5 +138,15 @@ mod tests {
     #[test]
     fn base64_handles_multibyte_text() {
         assert_eq!(base64("あ".as_bytes()), "44GC");
+    }
+
+    // OSC 52 の上限判定はエンコード前にこの見積りだけで行うので、実際の出力と一致していないと
+    // 「上限を超えたペイロードを黙って送る」に戻る
+    #[test]
+    fn encoded_len_matches_the_encoder() {
+        for len in 0..40 {
+            let input = vec![b'x'; len];
+            assert_eq!(encoded_len(len), base64(&input).len(), "len = {len}");
+        }
     }
 }
