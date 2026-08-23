@@ -82,10 +82,13 @@ impl Viewer {
         self.center_on(line);
     }
 
-    // マッチ行が viewport の中央付近に来るようスクロールする。goto_line (mod.rs) からも呼ばれる
+    // マッチ行が viewport の中央付近に来るようスクロールする。goto_line (mod.rs) からも呼ばれる。
+    // 飛んだ先が行カーソルになる — 検索や :N の着地点が「今どこを見ているか」そのものなので
     pub(super) fn center_on(&mut self, line: usize) {
         let last = self.line_count().saturating_sub(1);
+        self.set_cursor(line);
         self.viewport.center_on(line, last);
+        self.ensure_cursor_visible();
     }
 
     fn compute_matches(&self, query: &str) -> Vec<Match> {

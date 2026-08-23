@@ -81,8 +81,8 @@ pub(crate) fn draw_git(
         search: git.search(),
         selection: None,
         cursor: None,
-        focus_row: Some(git.cursor()),
-        selected_rows: git.line_selection(),
+        focus_row: focused.then(|| git.cursor()),
+        selected_rows: focused.then(|| git.line_selection()).flatten(),
         gutter_width: git.gutter_width(),
     };
     let mut visible = pane.visible(&git.viewport);
@@ -150,8 +150,8 @@ fn draw_side_by_side(
     vp.wrap = false;
 
     // 左右は同じ行 index で対応が取れているので、帯も同じ行に出せば 1 本に見える
-    let focus_row = Some(git.cursor());
-    let selected_rows = git.line_selection();
+    let focus_row = focused.then(|| git.cursor());
+    let selected_rows = focused.then(|| git.line_selection()).flatten();
     let left_pane = TextPane {
         window: LineWindow::slice(left_lines, &vp),
         changed_lines: &None,

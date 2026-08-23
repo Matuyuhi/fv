@@ -183,6 +183,17 @@ pub(crate) fn widen_row_bands(rows: &mut [Line<'static>], width: usize) {
     }
 }
 
+/// gutter (span[0]) を除いた本文。「span[1..] を連結すると本文に戻る」という桁インバリアント
+/// (CLAUDE.md) の読み出し側で、diff ペインの検索・折返し行数・クリック座標が共有する。
+/// 不変条件を持っているのがこのファイルなので、取り出し口もここに 1 つだけ置く
+pub(crate) fn line_body(line: &Line<'static>) -> String {
+    line.spans
+        .iter()
+        .skip(1)
+        .map(|s| s.content.as_ref())
+        .collect()
+}
+
 // 行全体に帯の背景を敷く。既に背景を持つ span (word-level 差分・検索マッチ) は
 // そのまま残す — 帯で塗り潰すと「どの文字が変わったのか」が読めなくなるため
 fn tint_row(line: &Line<'static>, bg: Color) -> Line<'static> {

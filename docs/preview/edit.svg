@@ -92,14 +92,17 @@
 <text x="374 383 392 401" y="229" fill="#8fa1b3">main</text>
 <text x="410 419 437 446 464 473 482 491 500 509 518 527 536 545 563 572 581 590 599 608 617 635 644 653 662 671 680 689 707" y="229" fill="#c0c5ce">()-&gt;Result&lt;(),Box&lt;dynError&gt;&gt;{</text>
 <text x="995" y="229" fill="#96b5b4">│</text>
-<rect x="311" y="234" width="189" height="20" fill="#2b303b"/>
+<rect x="311" y="234" width="9" height="20" fill="#2b303b"/>
+<rect x="320" y="234" width="180" height="20" fill="#3e4a66"/>
 <rect x="500" y="234" width="9" height="20" fill="#9dabb6"/>
-<rect x="509" y="234" width="495" height="20" fill="#2b303b"/>
+<rect x="509" y="234" width="486" height="20" fill="#3e4a66"/>
+<rect x="995" y="234" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="249" fill="#65737e">│</text>
 <text x="302" y="249" fill="#65737e">│</text>
-<text x="311 320 329 338" y="249" fill="#96b5b4">│10▎</text>
+<text x="311" y="249" fill="#96b5b4">│</text>
+<text x="320 329 338" y="249" fill="#96b5b4">10▎</text>
 <text x="383 392 410 428 446 464 482" y="249" fill="#9dabb6">//編集中の行</text>
-<text x="500" y="249" fill="#2b303b">l</text>
+<text x="500" y="249" fill="#3e4a66">l</text>
 <text x="509 518 536 545 554 563 581 599 608 617 626 635 644 653 662 671 680 689 698 707 716 725 734 743 752 761 770 779 788 797 806 815 824 833 842 851 860 869 878 887 896 905 914 923 932 941 950 959 977 986" y="249" fill="#9dabb6">etroot=std::env::args().nth(1).unwrap_or_else(||".</text>
 <text x="995" y="249" fill="#96b5b4">│</text>
 <rect x="311" y="254" width="693" height="20" fill="#2b303b"/>

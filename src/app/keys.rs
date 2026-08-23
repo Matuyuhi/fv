@@ -539,8 +539,9 @@ impl App {
             return;
         }
         match key.code {
-            KeyCode::Char('d') if ctrl => self.viewer.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
+            // 移動はカーソルを動かし、画面はそれに追従させる (GIT の diff ペインと同じ)
+            KeyCode::Char('d') if ctrl => self.viewer.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => self.viewer.move_cursor(-half_page),
             // Ctrl+o: 履歴を戻る。Backspace は同じ操作の代替キー
             KeyCode::Char('o') if ctrl => self.viewer.back(),
             KeyCode::Backspace => self.viewer.back(),
@@ -548,8 +549,8 @@ impl App {
             // KeyCode::Tab として解釈されるため、この分岐が発火しない環境がある。
             // Tab はフォーカス切り替えに使っているため奪えず、この制約は許容する
             KeyCode::Char('i') if ctrl => self.viewer.forward(),
-            KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
+            KeyCode::Char('j') | KeyCode::Down => self.viewer.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => self.viewer.move_cursor(-1),
             KeyCode::Char('w') if self.viewer.is_text() => self.toggle_wrap(),
             // 6 桁単位の水平スクロール。wrap 中は Viewer::hscroll_by 側で no-op になる
             KeyCode::Char('h') | KeyCode::Left if self.viewer.is_text() => {
@@ -742,10 +743,11 @@ impl App {
         };
         let half_page = (log.viewport.height / 2).max(1) as isize;
         match key.code {
-            KeyCode::Char('d') if ctrl => log.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => log.scroll_by(-half_page),
-            KeyCode::Char('j') | KeyCode::Down => log.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => log.scroll_by(-1),
+            // 移動はカーソルを動かし、画面はそれに追従させる (GIT/VIEW と同じ)
+            KeyCode::Char('d') if ctrl => log.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => log.move_cursor(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => log.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => log.move_cursor(-1),
             KeyCode::Char('w') => log.viewport.toggle_wrap(),
             KeyCode::Char('h') | KeyCode::Left => log.hscroll_by(-6),
             KeyCode::Char('l') | KeyCode::Right => log.hscroll_by(6),

@@ -17,7 +17,7 @@ use crate::component::issues::view::{highlight_span, short_date};
 use crate::component::remotelist::view::{draw_remote_list, draw_text_detail};
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::pane_block;
-use crate::widget::text_pane::{LineWindow, TextPane};
+use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
 
 const AUTHOR_THRESHOLD: u16 = 60;
 const BRANCH_THRESHOLD: u16 = 80;
@@ -199,11 +199,13 @@ fn draw_pr_diff(
         search: None,
         selection: None,
         cursor: None,
-        focus_row: None,
+        // 帯を出すのはこのペインにフォーカスがある間だけ (draw_git / draw_log_diff と同じ)
+        focus_row: focused.then(|| prs.cursor()).flatten(),
         selected_rows: None,
         gutter_width: prs.gutter_width(),
     };
     let mut rows = pane.visible(&prs.diff_viewport);
+    widen_row_bands(&mut rows, inner_width);
     widen_boundary_bands(&mut rows, inner_width);
     if let Some(label) = prs.sticky_label() {
         rows.insert(0, sticky_line(label, inner_width));

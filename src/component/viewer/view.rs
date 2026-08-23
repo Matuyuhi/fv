@@ -7,7 +7,7 @@ use crate::component::viewer::{Content, Viewer};
 use crate::text;
 
 use crate::widget::pane_block;
-use crate::widget::text_pane::{LineWindow, TextPane};
+use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
 
 pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool, area: Rect) {
     // マウス・キー処理が次のフレームで読む実測値の書き戻し (ui→app 逆流の統一パターン)
@@ -16,6 +16,10 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
     // 描画行の組み立て中は viewer.render を可変で借りたままになるので、Viewer 全体を
     // 借りるメソッド (background) はその前に済ませておく
     let background = viewer.background();
+    // 行カーソルは viewer.render を可変で借りる前に読み出しておく (background と同じ理由)。
+    // 帯を出すのはこのペインにフォーカスがある間だけ — ツリー操作中の右ペインに
+    // 帯だけが残っていても、そのキーがそこへ効かない以上ただの雑音になる
+    let focus_row = focused.then(|| viewer.cursor());
 
     let Some(open) = &viewer.current else {
         let paragraph = Paragraph::new("no file selected")
@@ -59,11 +63,12 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
         search: viewer.search.as_ref(),
         selection: viewer.selection.as_ref(),
         cursor: None,
-        focus_row: None,
+        focus_row,
         selected_rows: None,
         gutter_width,
     };
-    let visible = pane.visible(&viewer.viewport);
+    let mut visible = pane.visible(&viewer.viewport);
+    widen_row_bands(&mut visible, viewer.viewport.width);
     let paragraph = Paragraph::new(visible)
         .block(block)
         .style(Style::default().bg(background));

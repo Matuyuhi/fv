@@ -58,6 +58,8 @@
 | --- | --- |
 | **issues** — issues タブ | **prs** — pull requests タブ |
 | <img width="500" src="issues.svg" /> | <img width="500" src="prs.svg" /> |
+| **prs-diff** — pull requests タブ: 差分表示 (`d`) と行カーソル | |
+| <img width="500" src="prs-diff.svg" /> | |
 
 ---
 

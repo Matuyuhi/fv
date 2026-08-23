@@ -9,7 +9,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::{App, Lane};
-use crate::component::prs::DetailView;
+use crate::component::prs::{self, DetailView};
 use crate::github::{PrRow, RemoteItem};
 
 use super::keys;
@@ -240,6 +240,28 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "prs-diff",
+        description: "pull requests タブ: 差分表示 (d) と行カーソル",
+        size: None,
+        setup: |app| {
+            send(app, "<A-3>");
+            let rows = sample_prs();
+            let number = rows[0].item.number;
+            let (tx, rx) = mpsc::channel();
+            let _ = tx.send(Ok(rows));
+            app.prs.begin_list_fetch(rx);
+            app.prs.poll();
+            // 差分は一覧に含まれないデータなので、gh を叩かずに同じ画面を作るには
+            // 取得結果の側から注入するしかない (説明・コメントと同じ形)
+            app.prs.set_open(number, DetailView::Diff);
+            let (tx, rx) = mpsc::channel();
+            let _ = tx.send((number, Ok(prs::build_diff_data(sample_pr_diff()))));
+            app.prs.begin_diff_fetch(rx);
+            app.prs.poll();
+            send(app, "<Tab>jjjjjj");
+        },
+    },
+    Scene {
         name: "narrow",
         description: "狭い端末 (列が落ちる閾値の確認)",
         size: Some((64, 18)),
@@ -392,6 +414,30 @@ fn issue(
         state: state.to_string(),
         body: body.to_string(),
     }
+}
+
+// PR 差分ペレビュー用の固定 diff。render_commit にそのまま通す (実物と同じ組み立て)
+fn sample_pr_diff() -> String {
+    [
+        "diff --git a/src/preview/mod.rs b/src/preview/mod.rs",
+        "index 1111111..2222222 100644",
+        "--- a/src/preview/mod.rs",
+        "+++ b/src/preview/mod.rs",
+        "@@ -12,7 +12,10 @@ pub fn run(options: Options) -> Result<(), Box<dyn Error>> {",
+        "     let selected = resolve_scenes(&options.scenes)?;",
+        "     let root = fixture::build()?;",
+        " ",
+        "-    for scene in selected {",
+        "+    // 実測値が App へ書き戻ってからキー列を流す (描画 → setup → 描画)",
+        "+    for scene in &selected {",
+        "         let buffer = draw_scene(scene, &root, size);",
+        "+        let body = render::buffer_lines(&buffer, color);",
+        "+        write!(out, \"{body}\")?;",
+        "     }",
+        "     Ok(())",
+        " }",
+    ]
+    .join("\n")
 }
 
 fn sample_comments() -> Vec<Line<'static>> {

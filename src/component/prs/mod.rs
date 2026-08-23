@@ -21,9 +21,11 @@ use ratatui::text::Line;
 use crate::component::gitlane;
 use crate::component::issues::{build_detail_display, build_detail_lines};
 use crate::component::remotelist::{DetailSlot, ListMatch, ListRow, PollOutcome, filter_rows};
-use crate::component::viewer::Viewport;
+use crate::component::viewer::{Viewport, rowcursor};
 use crate::git;
 use crate::github::{self, PrRow};
+use crate::text;
+use crate::widget::text_pane::line_body;
 
 impl ListRow for PrRow {
     fn title(&self) -> &str {
@@ -148,6 +150,10 @@ pub struct PrsState {
     /// (別ドキュメントなので位置を共有する意味がなく、表示を切り替えても互いの読み位置を壊さない)
     pub text_viewport: Viewport,
     pub diff_viewport: Viewport,
+    /// diff 表示の行カーソル。説明/CI (プロース) には持たせない — 折返しの効いた散文では
+    /// 「1 論理行」が段落まるごとになり、行を単位にした帯もカーソル移動も単位が合わない。
+    /// issues の詳細ペインを行カーソルの対象外にしているのと同じ理由
+    diff_cursor: usize,
 }
 
 impl PrsState {
@@ -176,6 +182,7 @@ impl PrsState {
             notified_truncation: std::collections::HashSet::new(),
             text_viewport: Viewport::new(true),
             diff_viewport: Viewport::new(wrap),
+            diff_cursor: 0,
         }
     }
 
@@ -270,14 +277,35 @@ impl PrsState {
 
     /// Enter/l/クリック (常に説明表示) と d/S (diff/CI へ表示切替) が共通で呼ぶ。
     /// 対象 PR・表示が変わった時だけ、その表示のドキュメントとしての読み位置をリセットする
+    /// タブに入った時点で、まだ描かれたことのない Viewport に右ペインの実測値を入れる。
+    /// 既に描かれている側 (height != 0) は次の描画で正しく上書きされるので触らない
+    pub fn seed_viewport_size(&mut self, height: usize, width: usize) {
+        for vp in [&mut self.text_viewport, &mut self.diff_viewport] {
+            if vp.height == 0 {
+                vp.height = height;
+                vp.width = width;
+            }
+        }
+    }
+
     pub fn set_open(&mut self, number: u64, view: DetailView) {
         let changed = self.open_number != Some(number) || self.view != view;
+        // 3 種の表示は同じ Rect を使うので、切替先の Viewport にも今表示していた側の実測値を
+        // 引き継ぐ。切替直後の 1 打鍵 (次の描画で書き戻されるより前) でカーソル追従が
+        // 暴れないようにするため (GitState::new が右ペインのサイズを受け取るのと同じ理由)
+        let measured = (
+            self.current_viewport().height,
+            self.current_viewport().width,
+        );
         self.open_number = Some(number);
         self.view = view;
         if changed {
             let vp = self.current_viewport_mut();
             vp.scroll = 0;
             vp.hscroll = 0;
+            vp.height = measured.0;
+            vp.width = measured.1;
+            self.diff_cursor = 0;
         }
     }
 
@@ -537,20 +565,89 @@ impl PrsState {
         }
     }
 
+    /// ホイール等の「画面を動かす」操作。diff 表示中はカーソルを画面内へ引き戻して連れて動かす
     pub fn scroll_by(&mut self, delta: isize) {
         let last = self.line_count().saturating_sub(1);
         self.current_viewport_mut().scroll_by(delta, last);
+        if self.view != DetailView::Diff {
+            return;
+        }
+        let (count, wrapped, width) = self.cursor_metrics();
+        self.diff_cursor =
+            rowcursor::clamp_cursor(&self.diff_viewport, self.diff_cursor, count, wrapped, |i| {
+                self.rows_at(i, width)
+            });
+    }
+
+    /// j/k・Ctrl+d/u。diff はカーソルを動かして画面を追従させ、説明/CI は素直にスクロールする
+    /// (プロースに行カーソルを持たせない理由は diff_cursor のコメント参照)
+    pub fn move_cursor(&mut self, delta: isize) {
+        if self.view != DetailView::Diff {
+            self.scroll_by(delta);
+            return;
+        }
+        let last = self.line_count().saturating_sub(1) as isize;
+        self.diff_cursor = (self.diff_cursor as isize + delta).clamp(0, last.max(0)) as usize;
+        self.ensure_cursor_visible();
+    }
+
+    /// diff 表示中の行カーソル。説明/CI 表示中は None (帯を出さない)
+    pub fn cursor(&self) -> Option<usize> {
+        (self.view == DetailView::Diff).then_some(self.diff_cursor)
+    }
+
+    /// クリックしたペイン内 row → カーソル (sticky header の 1 行は呼び出し側が差し引く)
+    pub fn click_row(&mut self, row: usize) {
+        if self.view != DetailView::Diff {
+            return;
+        }
+        let (count, wrapped, width) = self.cursor_metrics();
+        self.diff_cursor = rowcursor::line_at_row(&self.diff_viewport, row, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.ensure_cursor_visible();
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let scroll =
+            rowcursor::scroll_for(&self.diff_viewport, self.diff_cursor, count, wrapped, |i| {
+                self.rows_at(i, width)
+            });
+        self.diff_viewport.scroll = scroll;
+    }
+
+    fn cursor_metrics(&self) -> (usize, bool, usize) {
+        let width = self
+            .diff_viewport
+            .width
+            .saturating_sub(self.gutter_width())
+            .max(1);
+        (self.line_count(), self.diff_viewport.wrap, width)
+    }
+
+    fn rows_at(&self, i: usize, width: usize) -> usize {
+        match self.lines().get(i) {
+            Some(line) => text::wrap_rows(&line_body(line), width),
+            None => 1,
+        }
     }
 
     pub fn jump_to_top(&mut self) {
+        self.diff_cursor = 0;
         self.current_viewport_mut().scroll = 0;
     }
 
     pub fn jump_to_bottom(&mut self) {
-        let total = self.line_count();
-        let last = total.saturating_sub(1);
-        let height = self.current_viewport().height;
-        self.current_viewport_mut().scroll = total.saturating_sub(height).min(last);
+        if self.view != DetailView::Diff {
+            let total = self.line_count();
+            let last = total.saturating_sub(1);
+            let height = self.current_viewport().height;
+            self.current_viewport_mut().scroll = total.saturating_sub(height).min(last);
+            return;
+        }
+        self.diff_cursor = self.line_count().saturating_sub(1);
+        self.ensure_cursor_visible();
     }
 
     /// diff 表示中だけ有効 (説明/CI は issues と同じく wrap 固定で hscroll を割り当てない)
@@ -586,14 +683,15 @@ impl PrsState {
         let Some(number) = self.open_number else {
             return;
         };
-        let scroll = self.diff_viewport.scroll;
+        let cursor = self.diff_cursor;
         let Some(target) = self
             .diff
             .get(number)
-            .and_then(|d| d.hunks.iter().find(|&&i| i > scroll).copied())
+            .and_then(|d| d.hunks.iter().find(|&&i| i > cursor).copied())
         else {
             return;
         };
+        self.diff_cursor = target;
         self.diff_viewport.scroll = target;
     }
 
@@ -604,14 +702,15 @@ impl PrsState {
         let Some(number) = self.open_number else {
             return;
         };
-        let scroll = self.diff_viewport.scroll;
+        let cursor = self.diff_cursor;
         let Some(target) = self
             .diff
             .get(number)
-            .and_then(|d| d.hunks.iter().rev().find(|&&i| i < scroll).copied())
+            .and_then(|d| d.hunks.iter().rev().find(|&&i| i < cursor).copied())
         else {
             return;
         };
+        self.diff_cursor = target;
         self.diff_viewport.scroll = target;
     }
 
@@ -690,20 +789,22 @@ pub fn fetch_comments(root: &Path, number: u64) -> (u64, Result<Vec<Line<'static
 /// diff (`gh pr diff`) をジョブスレッド側で打ち切り + render_commit まで済ませる。
 /// GIT/LOG レーンと同じレンダラをそのまま再利用する (行の組み立てを複製しない)
 pub fn fetch_diff(root: &Path, number: u64) -> (u64, Result<PrDiffData, String>) {
-    let result = github::pr_diff(root, number).map(|raw| {
-        let (raw_lines, truncated) = git::truncate_diff(raw);
-        let (lines, hunks, gutter_width, max_width, boundaries) =
-            gitlane::render_commit(&raw_lines);
-        PrDiffData {
-            lines,
-            hunks,
-            gutter_width,
-            max_width,
-            boundaries,
-            truncated,
-        }
-    });
-    (number, result)
+    (number, github::pr_diff(root, number).map(build_diff_data))
+}
+
+/// 生の unified diff を表示用データへ組み替える。取得 (fetch_diff) と、gh を呼ばずに
+/// 同じ画面を描くプレビュー (preview/scene.rs) が共有する
+pub fn build_diff_data(raw: String) -> PrDiffData {
+    let (raw_lines, truncated) = git::truncate_diff(raw);
+    let (lines, hunks, gutter_width, max_width, boundaries) = gitlane::render_commit(&raw_lines);
+    PrDiffData {
+        lines,
+        hunks,
+        gutter_width,
+        max_width,
+        boundaries,
+        truncated,
+    }
 }
 
 /// CI ステータス (`gh pr checks`) も説明と同じくプレーンテキストなので build_detail_lines を使う

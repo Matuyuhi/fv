@@ -74,22 +74,30 @@ impl App {
         }
     }
 
-    // GIT レーンの diff ペインのクリック = 行カーソルの移動。Space/Enter の対象を
-    // マウスでも動かせるようにするためで、対象外のレーンでは何もしない
+    // diff ペインのクリック = 行カーソルの移動 (GIT なら Space/Enter の対象がここで決まる)。
+    // VIEW のクリックは範囲選択の起点と兼用なので begin_viewer_selection 側で処理する
     fn click_diff_row(&mut self, mouse: &MouseEvent) {
         let area = self.viewer_area;
-        let Lane::Git(git) = &mut self.lane else {
+        // 枠線 (上 1 セル) の内側だけをコンテンツ座標に変換し、sticky header が 1 行
+        // 占めている分をさらに差し引く (draw_git / draw_log_diff と同じ判定)
+        let Some(row) = mouse.row.checked_sub(area.y + 1).map(usize::from) else {
             return;
         };
-        // 枠線 (上 1 セル) の内側だけをコンテンツ座標に変換し、まとめ diff の
-        // sticky header が 1 行占めている分をさらに差し引く (draw_git と同じ判定)
-        let Some(row) = mouse.row.checked_sub(area.y + 1) else {
-            return;
-        };
-        let Some(row) = (row as usize).checked_sub(usize::from(git.has_file_boundary())) else {
-            return;
-        };
-        git.click_row(row);
+        match &mut self.lane {
+            Lane::Git(git) => {
+                let Some(row) = row.checked_sub(usize::from(git.has_file_boundary())) else {
+                    return;
+                };
+                git.click_row(row);
+            }
+            Lane::Log(log) => {
+                let Some(row) = row.checked_sub(usize::from(log.has_file_boundary())) else {
+                    return;
+                };
+                log.click_row(row);
+            }
+            _ => {}
+        }
     }
 
     // ビューア上での押下 = 範囲選択の起点。端末のネイティブ選択はマウスキャプチャ中に
@@ -271,6 +279,15 @@ impl App {
                     self.click_pr_row(mouse.row);
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
+                    // diff 表示中だけ行カーソルが動く (説明/CI は click_row 側で no-op)
+                    if let Some(row) = mouse
+                        .row
+                        .checked_sub(self.viewer_area.y + 1)
+                        .map(usize::from)
+                        .and_then(|r| r.checked_sub(usize::from(self.prs.has_file_boundary())))
+                    {
+                        self.prs.click_row(row);
+                    }
                 }
             }
             MouseEventKind::ScrollUp => {

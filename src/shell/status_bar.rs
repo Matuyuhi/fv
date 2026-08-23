@@ -166,7 +166,7 @@ fn pr_status_line(app: &App) -> Line<'static> {
             "j/k: move  Enter/l: open  d: diff  S: checks  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
         }
         Focus::Viewer => {
-            "j/k: scroll  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: focus  ?: help"
+            "j/k: cursor (diff)  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: focus  ?: help"
         }
     };
     Line::from(format!(
@@ -288,7 +288,7 @@ fn log_status_line(app: &App, log: &LogState) -> Line<'static> {
         Focus::Tree => {
             "j/k: move  Enter/l: diff  gg/G: top/bottom  Tab: focus  Shift+Tab: mode  ?: help"
         }
-        Focus::Viewer => "j/k: scroll  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
+        Focus::Viewer => "j/k: cursor  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
     };
     Line::from(format!("{} commits  {hint}", log.commits().len()))
 }
@@ -321,7 +321,7 @@ fn normal_status_line(app: &App) -> Line<'static> {
             "j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: quit  ?: help"
         }
         Focus::Viewer => {
-            "j/k: scroll  w: wrap  /: search  v: select  y: copy  e: edit  Shift+Tab: mode  ?: help"
+            "j/k: cursor  w: wrap  /: search  v: select  y: copy  e: edit  Shift+Tab: mode  ?: help"
         }
     };
     Line::from(hint)

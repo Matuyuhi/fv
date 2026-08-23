@@ -37,9 +37,10 @@ use std::path::{Path, PathBuf};
 use ratatui::style::Color;
 use ratatui::text::Line;
 
-use crate::component::viewer::{Match, SearchState, Viewport, search_matches};
+use crate::component::viewer::{Match, SearchState, Viewport, rowcursor, search_matches};
 use crate::git::{self, DiffBase};
 use crate::text;
+use crate::widget::text_pane::line_body;
 
 const ADDED: Color = Color::Green;
 const DELETED: Color = Color::Red;
@@ -447,88 +448,49 @@ impl GitState {
     /// クリックしたペイン内 row → カーソル。sticky header の 1 行はここへ来る前に
     /// 呼び出し側 (app/mouse.rs) が差し引く
     pub fn click_row(&mut self, row: usize) {
-        let last = self.line_count().saturating_sub(1);
-        self.cursor = if !self.viewport.wrap || self.side_by_side_active() {
-            (self.viewport.scroll + row).min(last)
-        } else {
-            // wrap 中は視覚行 → 論理行の換算が要る。折返し規則は描画 (text_pane) と同じ
-            // text::wrap_rows を使う (CLAUDE.md の「折返し規則の唯一の定義」)
-            let width = self
-                .viewport
-                .width
-                .saturating_sub(self.gutter_width())
-                .max(1);
-            let lines = self.lines();
-            let mut line = self.viewport.scroll.min(last);
-            let mut remaining = row;
-            while line < last {
-                let rows = text::wrap_rows(&line_plain_text(&lines[line]), width);
-                if remaining < rows {
-                    break;
-                }
-                remaining -= rows;
-                line += 1;
-            }
-            line
-        };
+        let (count, wrapped, width) = self.cursor_metrics();
+        let line = rowcursor::line_at_row(&self.viewport, row, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.cursor = line;
         self.ensure_cursor_visible();
     }
 
-    // カーソルが画面に収まるよう scroll を寄せる。scroll は wrap 中でも常に論理行 index
-    // なので、上端は cursor そのもの・下端は「cursor から上へ height 視覚行ぶん遡った行」
-    fn ensure_cursor_visible(&mut self) {
-        if self.viewport.scroll > self.cursor {
-            self.viewport.scroll = self.cursor;
-            return;
-        }
-        let min = self.min_scroll_for_cursor();
-        if self.viewport.scroll < min {
-            self.viewport.scroll = min;
-        }
-    }
-
-    // scroll を動かした側 (ホイール) から呼ぶ逆向きの追従。下端の判定は視覚行数に
-    // 依存するので、min_scroll_for_cursor が今の scroll に収まるまで 1 行ずつ引き上げる
-    // (ループは高々 viewport.height 回)
-    fn clamp_cursor_into_view(&mut self) {
-        let last = self.line_count().saturating_sub(1);
-        self.cursor = self.cursor.min(last).max(self.viewport.scroll.min(last));
-        while self.cursor > self.viewport.scroll
-            && self.min_scroll_for_cursor() > self.viewport.scroll
-        {
-            self.cursor -= 1;
-        }
-    }
-
-    // カーソルを最下段に置いたときの scroll。非 wrap (と、描画側が事前に行数を揃える
-    // side-by-side) は視覚行 = 論理行なので単純な引き算で出せる
-    fn min_scroll_for_cursor(&self) -> usize {
-        let height = self.viewport.height.max(1);
-        if !self.viewport.wrap || self.side_by_side_active() {
-            return self.cursor.saturating_sub(height - 1);
-        }
-        let lines = self.lines();
-        if lines.is_empty() {
-            return 0;
-        }
+    // 行カーソルの追従に要る 3 つ組。side-by-side は描画側が事前に行数を揃えるので、
+    // wrap 中でも視覚行 = 論理行として扱う
+    fn cursor_metrics(&self) -> (usize, bool, usize) {
+        let wrapped = self.viewport.wrap && !self.side_by_side_active();
         let width = self
             .viewport
             .width
             .saturating_sub(self.gutter_width())
             .max(1);
-        let mut top = self.cursor.min(lines.len() - 1);
-        let mut used = 0usize;
-        loop {
-            let rows = text::wrap_rows(&line_plain_text(&lines[top]), width);
-            if used + rows > height && top < self.cursor {
-                return top + 1;
-            }
-            used += rows;
-            if top == 0 {
-                return 0;
-            }
-            top -= 1;
+        (self.line_count(), wrapped, width)
+    }
+
+    // 論理行 i が占める視覚行数。折返し規則は描画 (text_pane) と同じ text::wrap_rows
+    fn rows_at(&self, i: usize, width: usize) -> usize {
+        match self.lines().get(i) {
+            Some(line) => text::wrap_rows(&line_body(line), width),
+            None => 1,
         }
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let scroll = rowcursor::scroll_for(&self.viewport, self.cursor, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.viewport.scroll = scroll;
+    }
+
+    // scroll を動かした側 (ホイール) から呼ぶ逆向きの追従
+    fn clamp_cursor_into_view(&mut self) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let cursor = rowcursor::clamp_cursor(&self.viewport, self.cursor, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.cursor = cursor;
     }
 
     // 行数が変わる取り直しの後始末。選択の錨も一緒に詰める
@@ -837,7 +799,7 @@ impl GitState {
     // side-by-side は左右が独立ドキュメントで一意な行位置を持たないため対象にしない
     // (呼び出し側 on_git_key が side_by_side_active 中は `/` 自体を出さない)
     fn compute_matches(&self, query: &str) -> Vec<Match> {
-        let plain: Vec<String> = self.lines().iter().map(line_plain_text).collect();
+        let plain: Vec<String> = self.lines().iter().map(line_body).collect();
         search_matches(&plain, query)
     }
 
@@ -935,15 +897,4 @@ fn header_path_matches(raw: &[String], rel: &str) -> bool {
         .or_else(|| raw.iter().find_map(|l| l.strip_prefix("--- a/")));
     // Path::display() は Windows で `\` 区切りになるが diff のヘッダは常に `/` なので揃える
     header.is_some_and(|path| path == rel.replace('\\', "/"))
-}
-
-// TextPane の highlight_matches が前提とする「span[1..] を連結すると本文」を使って、
-// 検索対象の plain テキストを組み立てる。word-level ハイライト (#29) で複数 span に
-// 分割された行でも、連結すれば normalize 済みの content と同じ文字列に戻るため桁がズレない
-fn line_plain_text(line: &Line<'static>) -> String {
-    line.spans
-        .iter()
-        .skip(1)
-        .map(|s| s.content.as_ref())
-        .collect()
 }

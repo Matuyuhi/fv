@@ -10,8 +10,10 @@ use ratatui::text::Line;
 use ratatui::widgets::ListState;
 
 use crate::component::gitlane;
-use crate::component::viewer::Viewport;
+use crate::component::viewer::{Viewport, rowcursor};
 use crate::git::{self, CommitSummary};
+use crate::text;
+use crate::widget::text_pane::line_body;
 
 // 初回・追加取得 1 回あたりの件数。ページングは --skip をこの単位で進める
 const PAGE_SIZE: usize = 200;
@@ -39,10 +41,15 @@ pub struct LogState {
     // 現在 diff 表示中のコミット index。selected (一覧側のカーソル) と分けて持つのは、
     // j/k では diff を追従させない (Enter/l/クリックでのみ開く) ため
     open_index: Option<usize>,
+    /// diff ペインの行カーソル。GIT レーンと同じく「今どの行を見ているか」を明示する
+    /// (追従の計算は viewer::rowcursor と共有)
+    cursor: usize,
 }
 
 impl LogState {
-    pub fn new(root: &Path, wrap: bool) -> Self {
+    /// `wrap` に加えて右ペインの実測サイズを引き継ぐ (GitState::new と同じ理由 —
+    /// LOG に入った直後の 1 打鍵でカーソル追従が暴れないようにするため)
+    pub fn new(root: &Path, wrap: bool, height: usize, width: usize) -> Self {
         let commits = git::log(root, 0, PAGE_SIZE);
         let exhausted = commits.len() < PAGE_SIZE;
         let mut state = Self {
@@ -50,9 +57,15 @@ impl LogState {
             list_state: ListState::default(),
             selected: 0,
             exhausted,
-            viewport: Viewport::new(wrap),
+            viewport: {
+                let mut vp = Viewport::new(wrap);
+                vp.height = height;
+                vp.width = width;
+                vp
+            },
             current: None,
             open_index: None,
+            cursor: 0,
         };
         state
             .list_state
@@ -124,6 +137,7 @@ impl LogState {
         });
         self.open_index = Some(self.selected);
         self.viewport.scroll = 0;
+        self.cursor = 0;
         self.viewport.hscroll = 0;
     }
 
@@ -171,19 +185,69 @@ impl LogState {
         gitlane::sticky_label(self.boundaries(), self.viewport.scroll)
     }
 
+    /// ホイール等の「画面を動かす」操作。カーソルは画面内へ引き戻して連れて動かす
     pub fn scroll_by(&mut self, delta: isize) {
         let last = self.line_count().saturating_sub(1);
         self.viewport.scroll_by(delta, last);
+        let (count, wrapped, width) = self.cursor_metrics();
+        self.cursor = rowcursor::clamp_cursor(&self.viewport, self.cursor, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+    }
+
+    /// j/k・Ctrl+d/u: カーソルを動かし、画面はそれに追従させる
+    pub fn move_cursor(&mut self, delta: isize) {
+        let last = self.line_count().saturating_sub(1);
+        self.cursor = (self.cursor as isize + delta).clamp(0, last as isize) as usize;
+        self.ensure_cursor_visible();
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// クリックしたペイン内 row → カーソル (sticky header の 1 行は呼び出し側が差し引く)
+    pub fn click_row(&mut self, row: usize) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let line = rowcursor::line_at_row(&self.viewport, row, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.cursor = line;
+        self.ensure_cursor_visible();
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let scroll = rowcursor::scroll_for(&self.viewport, self.cursor, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.viewport.scroll = scroll;
+    }
+
+    fn cursor_metrics(&self) -> (usize, bool, usize) {
+        let width = self
+            .viewport
+            .width
+            .saturating_sub(self.gutter_width())
+            .max(1);
+        (self.line_count(), self.viewport.wrap, width)
+    }
+
+    fn rows_at(&self, i: usize, width: usize) -> usize {
+        match self.lines().get(i) {
+            Some(line) => text::wrap_rows(&line_body(line), width),
+            None => 1,
+        }
     }
 
     pub fn jump_to_top(&mut self) {
+        self.cursor = 0;
         self.viewport.scroll = 0;
     }
 
     pub fn jump_to_bottom(&mut self) {
-        let total = self.line_count();
-        let last = total.saturating_sub(1);
-        self.viewport.scroll = total.saturating_sub(self.viewport.height).min(last);
+        self.cursor = self.line_count().saturating_sub(1);
+        self.ensure_cursor_visible();
     }
 
     pub fn hscroll_by(&mut self, delta: isize) {
@@ -203,7 +267,8 @@ impl LogState {
         let Some(diff) = &self.current else {
             return;
         };
-        if let Some(&target) = diff.hunks.iter().find(|&&i| i > self.viewport.scroll) {
+        if let Some(&target) = diff.hunks.iter().find(|&&i| i > self.cursor) {
+            self.cursor = target;
             self.viewport.scroll = target;
         }
     }
@@ -213,7 +278,8 @@ impl LogState {
         let Some(diff) = &self.current else {
             return;
         };
-        if let Some(&target) = diff.hunks.iter().rev().find(|&&i| i < self.viewport.scroll) {
+        if let Some(&target) = diff.hunks.iter().rev().find(|&&i| i < self.cursor) {
+            self.cursor = target;
             self.viewport.scroll = target;
         }
     }
