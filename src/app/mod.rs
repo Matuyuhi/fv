@@ -461,8 +461,8 @@ impl App {
         let Some(open) = &self.viewer.current else {
             return false;
         };
-        let Some(state) =
-            EditState::open(&open.path.clone(), self.viewer.viewport.scroll, &self.root)
+        // 編集の開始位置は画面上端ではなく行カーソル (読んでいた行からそのまま直せる)
+        let Some(state) = EditState::open(&open.path.clone(), self.viewer.cursor(), &self.root)
         else {
             return false;
         };

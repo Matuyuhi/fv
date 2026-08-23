@@ -33,7 +33,9 @@ pub(super) struct BuiltPatch {
 pub(super) enum PatchError {
     /// 反映対象の変更行が 1 つも無い
     Empty,
-    /// rename。`--- a/old` と `+++ b/new` が別のパスを指し、部分適用で片方だけを動かせない
+    /// rename / copy (`diff.renames=copies` 等)。`--- a/old` と `+++ b/new` が別のパスを
+    /// 指し、部分適用で片方だけを動かせない。copy はさらに、メタデータを残したまま部分
+    /// パッチを当てるとコピー元の内容が丸ごと index に作られうる
     Rename,
     /// 新規/削除ファイルで、片側が `/dev/null` なのにその側へ行が残る組み合わせ。
     /// 例: staged の新規ファイルから 1 行だけ unstage する (未選択の `+` を文脈化すると
@@ -54,9 +56,12 @@ pub(super) fn build_line_patch(
         return Err(PatchError::Empty);
     };
     let header = &raw[..header_end];
-    // rename は `--- a/old` と `+++ b/new` が別パスなので、行の部分適用と噛み合わない
+    // rename / copy は `--- a/old` と `+++ b/new` が別パスなので、行の部分適用と噛み合わない
     // (ファイル単位の Space なら丸ごと動かせる)
-    if header.iter().any(|l| l.starts_with("rename from ")) {
+    if header
+        .iter()
+        .any(|l| l.starts_with("rename from ") || l.starts_with("copy from "))
+    {
         return Err(PatchError::Rename);
     }
 
@@ -357,30 +362,33 @@ mod tests {
         );
     }
 
-    // rename は旧側と新側でパスが違うので行だけを切り出せない
+    // rename / copy は旧側と新側でパスが違うので行だけを切り出せない
+    // (copy は diff.renames=copies や -C を付けた時に出る)
     #[test]
-    fn a_rename_is_refused() {
-        let mut raw: Vec<String> = [
-            "diff --git a/old.txt b/new.txt",
-            "similarity index 90%",
-            "rename from old.txt",
-            "rename to new.txt",
-            "--- a/old.txt",
-            "+++ b/new.txt",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        raw.extend(
-            ["@@ -1,1 +1,1 @@", "-a", "+b"]
-                .iter()
-                .map(|s| s.to_string()),
-        );
-        let selected: BTreeSet<usize> = [8].into_iter().collect();
-        assert_eq!(
-            build_line_patch(&raw, &hunks(&raw), &selected, false).unwrap_err(),
-            PatchError::Rename
-        );
+    fn a_rename_or_copy_is_refused() {
+        for verb in ["rename", "copy"] {
+            let mut raw: Vec<String> = [
+                "diff --git a/old.txt b/new.txt".to_string(),
+                "similarity index 90%".to_string(),
+                format!("{verb} from old.txt"),
+                format!("{verb} to new.txt"),
+                "--- a/old.txt".to_string(),
+                "+++ b/new.txt".to_string(),
+            ]
+            .into_iter()
+            .collect();
+            raw.extend(
+                ["@@ -1,1 +1,1 @@", "-a", "+b"]
+                    .iter()
+                    .map(|s| s.to_string()),
+            );
+            let selected: BTreeSet<usize> = [8].into_iter().collect();
+            assert_eq!(
+                build_line_patch(&raw, &hunks(&raw), &selected, false).unwrap_err(),
+                PatchError::Rename,
+                "{verb}"
+            );
+        }
     }
 
     // 実行ビットの変更は「行を 1 本 stage したい」に含まれないので、ヘッダから落とす

@@ -28,7 +28,7 @@ pub use render::render_commit;
 pub use side::side_by_side_wrapped;
 
 use patch::{PatchError, build_line_patch};
-use render::{classify, render_inline};
+use render::{classify_indexed, render_inline};
 use side::render_side_by_side;
 
 use std::collections::BTreeSet;
@@ -57,7 +57,7 @@ const MAX_WORD_DIFF_PAIRS_PER_HUNK: usize = 200;
 const MIN_SIDE_BY_SIDE_COLUMN: usize = 40;
 
 /// diff 行の由来。gutter に新側行番号を出すか、内容をどの色で出すかがこれで決まる
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Kind {
     Hunk,
     Added,
@@ -245,17 +245,14 @@ impl GitState {
             .display()
             .to_string();
         let raw = git::file_diff(root, path, self.base).unwrap_or_default();
-        let body: Vec<(Kind, &str)> = raw.iter().filter_map(|line| classify(line)).collect();
+        // 表示行と raw の index を同じ 1 回の走査から作る (ズレを構造的に防ぐ)
+        let classified = classify_indexed(&raw);
+        let raw_index: Vec<usize> = classified.iter().map(|(i, _)| *i).collect();
+        let body: Vec<(Kind, &str)> = classified.into_iter().map(|(_, e)| e).collect();
         let raw_hunks = raw
             .iter()
             .enumerate()
             .filter(|(_, line)| line.starts_with("@@"))
-            .map(|(i, _)| i)
-            .collect();
-        let raw_index = raw
-            .iter()
-            .enumerate()
-            .filter(|(_, line)| classify(line).is_some())
             .map(|(i, _)| i)
             .collect();
         let stageable = header_path_matches(&raw, &title);
@@ -430,9 +427,13 @@ impl GitState {
     /// V: 行単位選択の開始/解除 (vim の visual line 相当)。錨だけを持ち、範囲は
     /// カーソルとの組で毎回引く — 伸縮は j/k のカーソル移動がそのまま担う。
     /// 行単位ステージが効かない表示 (まとめ diff・side-by-side) では選択を始めさせない —
-    /// 掴めても Enter が必ず断るので、ステータスバーのヒントと実際の可否が食い違う
+    /// 掴めても Enter が必ず断るので、ステータスバーのヒントと実際の可否が食い違う。
+    /// **判定に使うのは `side_by_side_active` ではなく `side_by_side` (要求状態)**。
+    /// active は今の幅に依存するので、幅不足で inline に落ちている間に選択を掴めてしまい、
+    /// ペインを広げた瞬間に side-by-side が有効化されて「選択は残っているのに Enter は
+    /// 必ず断る」状態になる (帯も別の行に出る)
     pub fn line_selection_available(&self) -> bool {
-        !self.showing_all() && !self.side_by_side_active()
+        !self.showing_all() && !self.side_by_side
     }
 
     pub fn toggle_line_selection(&mut self) {
