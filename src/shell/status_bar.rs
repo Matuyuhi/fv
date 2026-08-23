@@ -265,9 +265,12 @@ fn git_status_line(app: &App) -> Line<'static> {
                 None => "j/k: cursor  ]/[: hunk".to_string(),
             };
             if !git.showing_all() && git.selected_row_count().is_none() {
-                hint.push_str(&format!(
-                    "  Space: {verb} hunk  Enter: {verb} line  V: select"
-                ));
+                hint.push_str(&format!("  Space: {verb} hunk"));
+                // Enter/V は行単位ステージが効く表示でだけ案内する (side-by-side・まとめ
+                // 表示では current_line_patch が必ず断るので、出すと可否と食い違う)
+                if git.line_selection_available() {
+                    hint.push_str(&format!("  Enter: {verb} line  V: select"));
+                }
             }
             hint.push_str("  /: search  A: all files");
             if git.showing_all() {

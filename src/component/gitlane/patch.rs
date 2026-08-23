@@ -21,9 +21,24 @@ use super::render::{hunk_old_start, hunk_start};
 /// 選択行だけを含む 1 ファイル分のパッチ。`lines` は実際に反映される変更行数 (notice 用)。
 /// 呼び出し側の `GitState::current_line_patch` が返す `LinePatch` (断りの理由まで持つ enum)
 /// とは別物で、こちらは「組み立てに成功した結果」だけを表す
+#[derive(Debug)]
 pub(super) struct BuiltPatch {
     pub patch: String,
     pub lines: usize,
+}
+
+/// 組み立てを断る理由。`build_line_patch` は生 diff のファイルヘッダをそのまま前置きするので、
+/// ヘッダが「ファイルまるごとの操作」を宣言している diff とは噛み合わないことがある
+#[derive(Debug, PartialEq)]
+pub(super) enum PatchError {
+    /// 反映対象の変更行が 1 つも無い
+    Empty,
+    /// rename。`--- a/old` と `+++ b/new` が別のパスを指し、部分適用で片方だけを動かせない
+    Rename,
+    /// 新規/削除ファイルで、片側が `/dev/null` なのにその側へ行が残る組み合わせ。
+    /// 例: staged の新規ファイルから 1 行だけ unstage する (未選択の `+` を文脈化すると
+    /// 旧側 = /dev/null に内容が出てしまう)
+    DevNullSideNotEmpty,
 }
 
 /// `raw` (1 ファイル分の生 unified diff) から、`selected` (raw の index 集合) に含まれる
@@ -34,15 +49,31 @@ pub(super) fn build_line_patch(
     raw_hunks: &[usize],
     selected: &BTreeSet<usize>,
     reverse: bool,
-) -> Option<BuiltPatch> {
-    let header_end = *raw_hunks.first()?;
+) -> Result<BuiltPatch, PatchError> {
+    let Some(&header_end) = raw_hunks.first() else {
+        return Err(PatchError::Empty);
+    };
+    let header = &raw[..header_end];
+    // rename は `--- a/old` と `+++ b/new` が別パスなので、行の部分適用と噛み合わない
+    // (ファイル単位の Space なら丸ごと動かせる)
+    if header.iter().any(|l| l.starts_with("rename from ")) {
+        return Err(PatchError::Rename);
+    }
+
     let mut patch = String::new();
-    for line in &raw[..header_end] {
+    for line in header {
+        // mode 変更だけのメタ行は落とす。行を 1 本 stage したいだけなのに実行ビットまで
+        // index へ移してしまうのは、選んでいない変更を黙って混ぜることになる
+        if line.starts_with("old mode ") || line.starts_with("new mode ") {
+            continue;
+        }
         patch.push_str(line);
         patch.push('\n');
     }
 
     let mut applied = 0usize;
+    let mut total_old = 0usize;
+    let mut total_new = 0usize;
     for (i, &start) in raw_hunks.iter().enumerate() {
         let end = raw_hunks.get(i + 1).copied().unwrap_or(raw.len());
         let body = &raw[start + 1..end];
@@ -51,6 +82,8 @@ pub(super) fn build_line_patch(
         }
         let hunk = transform_hunk(body, start + 1, selected, reverse);
         applied += hunk.applied;
+        total_old += hunk.old_count;
+        total_new += hunk.new_count;
         patch.push_str(&format!(
             "@@ -{},{} +{},{} @@\n",
             hunk_old_start(&raw[start]).unwrap_or(1),
@@ -64,7 +97,19 @@ pub(super) fn build_line_patch(
         }
     }
 
-    (applied > 0).then_some(BuiltPatch {
+    if applied == 0 {
+        return Err(PatchError::Empty);
+    }
+    // 新規ファイル (`--- /dev/null`) / 削除ファイル (`+++ /dev/null`) は、その側に 1 行も
+    // 出ない時だけ整合する。文脈化 (未選択の変更行を残す処理) が /dev/null 側に行を作る
+    // 組み合わせは git apply が受け付けないので、壊れたパッチを投げる前にここで断る
+    if header.iter().any(|l| l == "--- /dev/null") && total_old > 0 {
+        return Err(PatchError::DevNullSideNotEmpty);
+    }
+    if header.iter().any(|l| l == "+++ /dev/null") && total_new > 0 {
+        return Err(PatchError::DevNullSideNotEmpty);
+    }
+    Ok(BuiltPatch {
         patch,
         lines: applied,
     })
@@ -134,7 +179,7 @@ fn transform_hunk(
 
 #[cfg(test)]
 mod tests {
-    use super::{BTreeSet, build_line_patch};
+    use super::{BTreeSet, PatchError, build_line_patch};
 
     fn raw() -> Vec<String> {
         [
@@ -267,6 +312,98 @@ mod tests {
     #[test]
     fn selecting_nothing_yields_no_patch() {
         let raw = raw();
-        assert!(build_line_patch(&raw, &hunks(&raw), &BTreeSet::new(), false).is_none());
+        assert_eq!(
+            build_line_patch(&raw, &hunks(&raw), &BTreeSet::new(), false).unwrap_err(),
+            PatchError::Empty
+        );
+    }
+
+    fn new_file() -> Vec<String> {
+        [
+            "diff --git a/n.txt b/n.txt",
+            "new file mode 100644",
+            "index 0000000..1111111",
+            "--- /dev/null",
+            "+++ b/n.txt",
+            "@@ -0,0 +1,2 @@",
+            "+one",
+            "+two",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+    }
+
+    // 新規ファイルの一部を stage するのは成立する (未選択の `+` は落とすだけなので
+    // 旧側は /dev/null のまま空)
+    #[test]
+    fn staging_part_of_a_new_file_keeps_the_old_side_empty() {
+        let raw = new_file();
+        let selected: BTreeSet<usize> = [6].into_iter().collect();
+        let patch = build_line_patch(&raw, &hunks(&raw), &selected, false).unwrap();
+        assert!(patch.patch.contains("@@ -0,0 +1,1 @@\n+one\n"));
+        assert!(!patch.patch.contains("two"));
+    }
+
+    // 逆向き (staged の新規ファイルから 1 行だけ unstage) は、未選択の `+` を文脈化する
+    // 都合で旧側 = /dev/null に行が出てしまうので組み立てない
+    #[test]
+    fn unstaging_part_of_a_new_file_is_refused() {
+        let raw = new_file();
+        let selected: BTreeSet<usize> = [6].into_iter().collect();
+        assert_eq!(
+            build_line_patch(&raw, &hunks(&raw), &selected, true).unwrap_err(),
+            PatchError::DevNullSideNotEmpty
+        );
+    }
+
+    // rename は旧側と新側でパスが違うので行だけを切り出せない
+    #[test]
+    fn a_rename_is_refused() {
+        let mut raw: Vec<String> = [
+            "diff --git a/old.txt b/new.txt",
+            "similarity index 90%",
+            "rename from old.txt",
+            "rename to new.txt",
+            "--- a/old.txt",
+            "+++ b/new.txt",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        raw.extend(
+            ["@@ -1,1 +1,1 @@", "-a", "+b"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+        let selected: BTreeSet<usize> = [8].into_iter().collect();
+        assert_eq!(
+            build_line_patch(&raw, &hunks(&raw), &selected, false).unwrap_err(),
+            PatchError::Rename
+        );
+    }
+
+    // 実行ビットの変更は「行を 1 本 stage したい」に含まれないので、ヘッダから落とす
+    #[test]
+    fn a_mode_change_is_not_carried_along_with_a_line() {
+        let mut raw: Vec<String> = [
+            "diff --git a/a.txt b/a.txt",
+            "old mode 100644",
+            "new mode 100755",
+            "--- a/a.txt",
+            "+++ b/a.txt",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        raw.extend(
+            ["@@ -1,1 +1,1 @@", "-a", "+b"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+        let selected: BTreeSet<usize> = [7].into_iter().collect();
+        let patch = build_line_patch(&raw, &hunks(&raw), &selected, false).unwrap();
+        assert!(!patch.patch.contains("mode 100755"));
+        assert!(patch.patch.contains("+b\n"));
     }
 }

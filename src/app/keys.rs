@@ -660,6 +660,8 @@ impl App {
         let Lane::Git(git) = &mut self.lane else {
             return;
         };
+        // notice には &mut self が要るので、Lane の借用を離してから出す
+        let mut unsupported_line_selection = false;
         let half_page = (git.viewport.height / 2).max(1) as isize;
         match key.code {
             // 移動はカーソルを動かし、画面はそれに追従させる (選択中は範囲がそのまま伸縮する)
@@ -668,11 +670,13 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down => git.move_cursor(1),
             KeyCode::Char('k') | KeyCode::Up => git.move_cursor(-1),
             // V: 行単位選択の開始/解除 (vim の visual line 相当)。`v` は side-by-side に
-            // 割り当て済みなので大文字を使う
-            KeyCode::Char('V') => git.toggle_line_selection(),
+            // 割り当て済みなので大文字を使う。効かない表示では notice で理由を出す
+            // (無言の no-op だと「効かないキー」なのか「押し損ねた」のか分からない)
+            KeyCode::Char('V') if git.line_selection_available() => git.toggle_line_selection(),
+            KeyCode::Char('V') => unsupported_line_selection = true,
             KeyCode::Esc => git.clear_line_selection(),
             // diff は VIEW とは別ドキュメントなので折返しも独立させる (config には保存しない)
-            KeyCode::Char('w') => git.viewport.toggle_wrap(),
+            KeyCode::Char('w') => git.toggle_wrap(),
             KeyCode::Char('h') | KeyCode::Left => git.hscroll_by(-6),
             KeyCode::Char('l') | KeyCode::Right => git.hscroll_by(6),
             KeyCode::Char('0') => git.hscroll_reset(),
@@ -697,6 +701,12 @@ impl App {
             // inline ⇔ side-by-side (#30)。w と同じく config には保存しない
             KeyCode::Char('v') => git.toggle_side_by_side(),
             _ => {}
+        }
+        if unsupported_line_selection {
+            self.set_notice(
+                "この表示では行単位選択を使えません (A の解除 / v で inline に戻してください)",
+                true,
+            );
         }
     }
 

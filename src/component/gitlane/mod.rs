@@ -27,7 +27,7 @@ mod word;
 pub use render::render_commit;
 pub use side::side_by_side_wrapped;
 
-use patch::build_line_patch;
+use patch::{PatchError, build_line_patch};
 use render::{classify, render_inline};
 use side::render_side_by_side;
 
@@ -158,6 +158,11 @@ pub enum LinePatch {
     NotApplicable,
     /// カーソル (または選択範囲) に `+`/`-` の行が 1 つも無い
     NoChangedLine,
+    /// rename。旧側と新側でパスが違うので行だけを切り出せない
+    Rename,
+    /// 新規/削除ファイルを部分的に反映しようとした結果、`/dev/null` 側に行が残る組み合わせ
+    /// (例: staged の新規ファイルから 1 行だけ unstage する)
+    WholeFileOnly,
     Empty,
 }
 
@@ -423,8 +428,17 @@ impl GitState {
     }
 
     /// V: 行単位選択の開始/解除 (vim の visual line 相当)。錨だけを持ち、範囲は
-    /// カーソルとの組で毎回引く — 伸縮は j/k のカーソル移動がそのまま担う
+    /// カーソルとの組で毎回引く — 伸縮は j/k のカーソル移動がそのまま担う。
+    /// 行単位ステージが効かない表示 (まとめ diff・side-by-side) では選択を始めさせない —
+    /// 掴めても Enter が必ず断るので、ステータスバーのヒントと実際の可否が食い違う
+    pub fn line_selection_available(&self) -> bool {
+        !self.showing_all() && !self.side_by_side_active()
+    }
+
     pub fn toggle_line_selection(&mut self) {
+        if !self.line_selection_available() {
+            return;
+        }
         self.select_anchor = match self.select_anchor {
             Some(_) => None,
             None => Some(self.cursor),
@@ -662,11 +676,13 @@ impl GitState {
             return LinePatch::NoChangedLine;
         }
         match build_line_patch(&diff.raw, &diff.raw_hunks, &selected, self.unstaging()) {
-            Some(built) => LinePatch::Ready {
+            Ok(built) => LinePatch::Ready {
                 patch: built.patch,
                 lines: built.lines,
             },
-            None => LinePatch::NoChangedLine,
+            Err(PatchError::Empty) => LinePatch::NoChangedLine,
+            Err(PatchError::Rename) => LinePatch::Rename,
+            Err(PatchError::DevNullSideNotEmpty) => LinePatch::WholeFileOnly,
         }
     }
 
@@ -822,8 +838,36 @@ impl GitState {
     /// v: inline ⇔ side-by-side 切替 (ユーザーの意図のトグル。実際に側で描けるかは
     /// side_by_side_active が幅を見て決める)
     pub fn toggle_side_by_side(&mut self) {
+        let ordinal = self.current_hunk_ordinal();
         self.side_by_side = !self.side_by_side;
         self.side_wrap_cache = None;
+        self.realign_cursor(ordinal);
+    }
+
+    /// w: 折返し切替。side-by-side は wrap の有無で行列そのものが変わる
+    /// (side_by_side_wrapped が視覚行を展開して行数を揃え直す) ため、inline のときと違って
+    /// カーソルの行 index の意味が保たれない。realign_cursor を通すのはそのため
+    pub fn toggle_wrap(&mut self) {
+        let realign = self.side_by_side_active();
+        let ordinal = self.current_hunk_ordinal();
+        self.viewport.toggle_wrap();
+        self.side_wrap_cache = None;
+        if realign || self.side_by_side_active() {
+            self.realign_cursor(ordinal);
+        }
+    }
+
+    // 表示形式が変わると行 index の意味が変わる (inline / side-by-side / side+wrap は
+    // それぞれ別の行列で、同じ index が別の内容を指す)。hunk の**並び順**だけはどの表示でも
+    // 生 diff と同じなので、居た hunk の先頭へ寄せ直すことで「切替前後で Space の対象が
+    // 変わらない」を保つ。行単位選択は範囲の両端が同じようには写せないので畳む
+    fn realign_cursor(&mut self, ordinal: Option<usize>) {
+        self.select_anchor = None;
+        self.cursor = ordinal
+            .and_then(|o| self.hunks().get(o).copied())
+            .unwrap_or(0);
+        // hunk header を上端に置く (]/[ のジャンプと同じ着地の仕方)
+        self.viewport.scroll = self.cursor;
     }
 
     /// side-by-side をユーザーが要求しているか (幅不足で実際は inline に落ちていても true)。

@@ -171,6 +171,20 @@ impl App {
                 );
                 return;
             }
+            LinePatch::Rename => {
+                self.set_notice(
+                    "rename されたファイルは行単位で stage できません (Space でファイル単位に)",
+                    true,
+                );
+                return;
+            }
+            LinePatch::WholeFileOnly => {
+                self.set_notice(
+                    "新規/削除ファイルの一部だけはこの向きでは反映できません (Space で hunk/ファイル単位に)",
+                    true,
+                );
+                return;
+            }
             LinePatch::NoChangedLine => {
                 self.set_notice(
                     "カーソル行は変更行 (+/-) ではありません (V で範囲選択)",

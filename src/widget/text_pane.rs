@@ -112,7 +112,10 @@ impl TextPane<'_> {
                 let (row, offset_in_row) = text::wrap_position(&content, col, width);
                 // 折返し境界ちょうど (行末で行が埋まっている) に立った場合は空の続き行に置く
                 while chunks.len() <= row {
-                    chunks.push(Line::from(vec![pad_span(self.gutter_width)]));
+                    chunks.push(Line::from(vec![pad_span(
+                        self.gutter_width,
+                        self.row_band(self.window.first + offset),
+                    )]));
                 }
                 chunks[row] = overlay_cursor(std::mem::take(&mut chunks[row]), offset_in_row);
             }
@@ -371,6 +374,11 @@ fn push_segment(spans: &mut Vec<Span<'static>>, chars: &[char], style: Style) {
 fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Line<'static>> {
     let mut rows: Vec<Line> = Vec::new();
     let mut spans: Vec<Span> = vec![line.spans.first().cloned().unwrap_or_default()];
+    // 続き行の gutter pad にも元の gutter の背景を引き継ぐ。帯 (focus_row/selected_rows) は
+    // tint_row が gutter にも塗っているので、これで折返しても帯が途切れず、widen_row_bands が
+    // 「この視覚行は帯付き」を gutter だけで判定できる (本文の span が全て word-level 差分や
+    // 検索マッチの背景を持つ続き行でも取りこぼさない)
+    let pad = pad_span(gutter_width, line.spans.first().and_then(|g| g.style.bg));
     let mut wrap = text::WrapCursor::new(width);
     for span in line.spans.iter().skip(1) {
         let mut segment = String::new();
@@ -380,10 +388,7 @@ fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Lin
                 if !segment.is_empty() {
                     spans.push(Span::styled(std::mem::take(&mut segment), span.style));
                 }
-                rows.push(Line::from(std::mem::replace(
-                    &mut spans,
-                    vec![pad_span(gutter_width)],
-                )));
+                rows.push(Line::from(std::mem::replace(&mut spans, vec![pad.clone()])));
             }
             segment.push_str(grapheme.symbol);
         }
@@ -395,9 +400,13 @@ fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Lin
     rows
 }
 
-// 続き行の gutter 部分を空白で埋めて桁を揃える
-fn pad_span(gutter_width: usize) -> Span<'static> {
-    Span::raw(" ".repeat(gutter_width))
+// 続き行の gutter 部分を空白で埋めて桁を揃える。bg は元の gutter から引き継ぐ (帯の連続用)
+fn pad_span(gutter_width: usize, bg: Option<Color>) -> Span<'static> {
+    let text = " ".repeat(gutter_width);
+    match bg {
+        Some(bg) => Span::styled(text, Style::default().bg(bg)),
+        None => Span::raw(text),
+    }
 }
 
 // コンテンツ部 (span[0] の gutter を除く) の col 文字目に REVERSED を重ねた
@@ -459,6 +468,15 @@ mod tests {
         width: usize,
         gutter_width: usize,
     ) -> Vec<Line<'static>> {
+        banded_pane_rows(spans, width, gutter_width, None)
+    }
+
+    fn banded_pane_rows(
+        spans: Vec<Span<'static>>,
+        width: usize,
+        gutter_width: usize,
+        focus_row: Option<usize>,
+    ) -> Vec<Line<'static>> {
         let rows = vec![Line::from(spans)];
         let mut vp = Viewport::new(true);
         vp.width = width;
@@ -472,7 +490,7 @@ mod tests {
             search: None,
             selection: None,
             cursor: None,
-            focus_row: None,
+            focus_row,
             selected_rows: None,
             gutter_width,
         };
@@ -525,6 +543,31 @@ mod tests {
             "視覚行が幅を超えている: {:?}",
             rows[0]
         );
+    }
+
+    // 折返しの続き行は gutter が pad に差し替わる。本文の span が全て背景を持っている
+    // (word-level 差分・検索マッチで埋まっている) 行だと、pad が無色のままでは
+    // widen_row_bands が「この視覚行は帯付き」を判定できず、帯が続き行だけ消える
+    #[test]
+    fn a_wrapped_focus_band_survives_on_continuation_rows() {
+        let body = Style::default().bg(Color::Rgb(20, 90, 20));
+        let rows = banded_pane_rows(
+            vec![Span::raw("1 "), Span::styled("abcdefghij", body)],
+            6, // gutter 2 + 折返し幅 4 → 3 視覚行
+            2,
+            Some(0),
+        );
+        assert!(rows.len() > 1, "折返していない: {rows:?}");
+        let mut rows = rows;
+        super::widen_row_bands(&mut rows, 6);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(
+                row.spans[0].style.bg,
+                Some(super::FOCUS_ROW_BG),
+                "視覚行 {i} の gutter に帯が乗っていない: {row:?}"
+            );
+            assert_eq!(row.width(), 6, "帯がペイン幅まで伸びていない: {row:?}");
+        }
     }
 
     // 折返しは span の切れ目と無関係に起きるので、style を跨いでも本文は落ちない
