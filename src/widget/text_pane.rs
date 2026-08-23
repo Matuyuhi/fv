@@ -176,7 +176,11 @@ pub(crate) fn widen_row_bands(rows: &mut [Line<'static>], width: usize) {
                 span.style = span.style.bg(bg);
             }
         }
-        let used: usize = row.spans.iter().map(|s| s.content.chars().count()).sum();
+        // 埋める量は char 数ではなく**セル幅**で測る (CLAUDE.md の桁インバリアント)。
+        // 全角を 1 桁と数えると余計に詰めて行がペイン幅を超え、ZWJ 絵文字のように
+        // char 数が描画幅より多い列では逆に足りず、帯が右端まで届かない。
+        // Line::width は span ごとに text::cells と同じ測り方をするので描画と一致する
+        let used = row.width();
         if used < width {
             row.spans.push(Span::styled(
                 " ".repeat(width - used),
@@ -543,6 +547,18 @@ mod tests {
             "視覚行が幅を超えている: {:?}",
             rows[0]
         );
+    }
+
+    // 帯をペイン幅まで伸ばす量は char 数ではなくセル幅で測る。全角を 1 桁と数えると
+    // 詰めすぎて行が幅を超え、ZWJ 絵文字 (char 4 個で描画幅 2) では足りずに右端が空く
+    #[test]
+    fn widening_a_band_measures_cells_not_chars() {
+        for (body, label) in [("あいう", "全角"), ("👩\u{200d}💻ab", "ZWJ")] {
+            let rows = banded_pane_rows(vec![Span::raw("1 "), Span::raw(body)], 20, 2, Some(0));
+            let mut rows = rows;
+            super::widen_row_bands(&mut rows, 20);
+            assert_eq!(rows[0].width(), 20, "{label}: 帯の幅がペイン幅と一致しない");
+        }
     }
 
     // 折返しの続き行は gutter が pad に差し替わる。本文の span が全て背景を持っている
