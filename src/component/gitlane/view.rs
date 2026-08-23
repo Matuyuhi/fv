@@ -7,7 +7,7 @@ use crate::component::gitlane::{self, GitState};
 
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::pane_block;
-use crate::widget::text_pane::{LineWindow, TextPane};
+use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
 
 // GitState は App の中にあるので、&App と同時には借りられない。
 // 必要な値 (フォーカス・背景色) だけ呼び出し側で取り出して渡す
@@ -40,9 +40,13 @@ pub(crate) fn draw_git(
     // (viewer の hscroll 表示と同じ場所・作法)。side-by-side を要求していても幅不足で
     // inline に落ちている間は、それが分かるようヒントを足す
     let mut title = format!("{title}  [{}]", git.base_label());
-    // Space の対象 (上端に見えている行が属する hunk) を暗黙にしないため、序数を常に出す
+    // Space の対象 (カーソル行が属する hunk) を暗黙にしないため、序数を常に出す
     if let Some((ordinal, total)) = git.hunk_position() {
         title.push_str(&format!("  hunk {ordinal}/{total}"));
+    }
+    // 行単位選択中は何行掴んでいるかを出す。帯の色だけだと画面外へ伸びた分が読めない
+    if let Some(rows) = git.selected_row_count() {
+        title.push_str(&format!("  {rows} lines selected"));
     }
     if git.side_by_side_requested() && !git.side_by_side_active() {
         title.push_str("  (narrow: inline)");
@@ -70,15 +74,19 @@ pub(crate) fn draw_git(
 
     let pane = TextPane {
         window: LineWindow::slice(git.lines(), &git.viewport),
-        // diff 自体が変更の表示なので、閲覧側の変更行マークは使わない。カーソルも同様。
-        // 検索 (#31) は inline 表示 (単一ファイル/まとめ diff とも) でだけ有効にする
+        // diff 自体が変更の表示なので、閲覧側の変更行マーク・char 単位カーソルは使わない
+        // (行カーソルは focus_row の帯で出す)。検索 (#31) は inline 表示
+        // (単一ファイル/まとめ diff とも) でだけ有効にする
         changed_lines: &None,
         search: git.search(),
         selection: None,
         cursor: None,
+        focus_row: focused.then(|| git.cursor()),
+        selected_rows: focused.then(|| git.line_selection()).flatten(),
         gutter_width: git.gutter_width(),
     };
     let mut visible = pane.visible(&git.viewport);
+    widen_row_bands(&mut visible, inner_width);
     widen_boundary_bands(&mut visible, inner_width);
     if let Some(label) = git.sticky_label() {
         visible.insert(0, sticky_line(label, inner_width));
@@ -141,12 +149,17 @@ fn draw_side_by_side(
     let mut vp = git.viewport.clone();
     vp.wrap = false;
 
+    // 左右は同じ行 index で対応が取れているので、帯も同じ行に出せば 1 本に見える
+    let focus_row = focused.then(|| git.cursor());
+    let selected_rows = focused.then(|| git.line_selection()).flatten();
     let left_pane = TextPane {
         window: LineWindow::slice(left_lines, &vp),
         changed_lines: &None,
         search: None,
         selection: None,
         cursor: None,
+        focus_row,
+        selected_rows,
         gutter_width: left_gutter,
     };
     let right_pane = TextPane {
@@ -155,10 +168,14 @@ fn draw_side_by_side(
         search: None,
         selection: None,
         cursor: None,
+        focus_row,
+        selected_rows,
         gutter_width: right_gutter,
     };
-    let left_visible = left_pane.visible(&vp);
-    let right_visible = right_pane.visible(&vp);
+    let mut left_visible = left_pane.visible(&vp);
+    let mut right_visible = right_pane.visible(&vp);
+    widen_row_bands(&mut left_visible, left_area.width as usize);
+    widen_row_bands(&mut right_visible, right_area.width as usize);
 
     frame.render_widget(
         Paragraph::new(left_visible).style(Style::default().bg(background)),

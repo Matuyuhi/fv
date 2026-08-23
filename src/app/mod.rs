@@ -461,8 +461,8 @@ impl App {
         let Some(open) = &self.viewer.current else {
             return false;
         };
-        let Some(state) =
-            EditState::open(&open.path.clone(), self.viewer.viewport.scroll, &self.root)
+        // 編集の開始位置は画面上端ではなく行カーソル (読んでいた行からそのまま直せる)
+        let Some(state) = EditState::open(&open.path.clone(), self.viewer.cursor(), &self.root)
         else {
             return false;
         };
@@ -484,7 +484,11 @@ impl App {
             return false;
         }
         self.tree.set_filter(Some(self.changed_paths()));
-        let mut git = GitState::new(self.viewer.viewport.wrap);
+        let mut git = GitState::new(
+            self.viewer.viewport.wrap,
+            self.viewer.viewport.height,
+            self.viewer.viewport.width,
+        );
         if let Some(path) = self.tree.selected_or_first_file() {
             git.open(&self.root, &path);
         }
@@ -505,7 +509,12 @@ impl App {
         if !self.log_available() {
             return false;
         }
-        self.lane = Lane::Log(LogState::new(&self.root, self.viewer.viewport.wrap));
+        self.lane = Lane::Log(LogState::new(
+            &self.root,
+            self.viewer.viewport.wrap,
+            self.viewer.viewport.height,
+            self.viewer.viewport.width,
+        ));
         // GIT と同じ理由 (入った直後の主操作は一覧側の選択) でツリー相当のフォーカスに寄せる
         self.focus = Focus::Tree;
         true
@@ -588,6 +597,10 @@ impl App {
             }
             Workspace::PullRequests => {
                 self.focus = Focus::Tree;
+                // 右ペインは Viewer タブと同じ Rect なので、まだ 1 度も描かれていない
+                // Viewport にも実測値を渡しておく (GitState::new / LogState::new と同じ理由)
+                self.prs
+                    .seed_viewport_size(self.viewer.viewport.height, self.viewer.viewport.width);
                 if !self.prs.fetched() && !self.prs.list_loading() {
                     self.refresh_prs();
                 }

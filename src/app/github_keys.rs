@@ -247,10 +247,11 @@ impl App {
         }
         let half_page = (self.prs.current_viewport().height / 2).max(1) as isize;
         match key.code {
-            KeyCode::Char('d') if ctrl => self.prs.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => self.prs.scroll_by(-half_page),
-            KeyCode::Char('j') | KeyCode::Down => self.prs.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => self.prs.scroll_by(-1),
+            // 移動はカーソルを動かし、画面はそれに追従させる (VIEW/GIT/LOG と同じ)
+            KeyCode::Char('d') if ctrl => self.prs.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => self.prs.move_cursor(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => self.prs.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => self.prs.move_cursor(-1),
             KeyCode::Char('g') => self.pending_g = true,
             KeyCode::Char('G') => self.prs.jump_to_bottom(),
             KeyCode::Char('w') => self.prs.toggle_diff_wrap(),

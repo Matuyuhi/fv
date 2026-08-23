@@ -5,6 +5,8 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::text;
+
 // sticky header・全幅バンド化した通常のファイル境界行の固定色。端末テーマに依存させないのは
 // word-level ハイライトの ADDED_WORD_BG 等と同じ方針
 const BOUNDARY_BG: Color = Color::Cyan;
@@ -17,9 +19,11 @@ pub(crate) fn sticky_line(label: &str, width: usize) -> Line<'static> {
         .fg(BOUNDARY_FG)
         .bg(BOUNDARY_BG)
         .add_modifier(Modifier::BOLD);
-    let text = truncate_label(label, width.max(1));
-    let pad = width.saturating_sub(text.chars().count());
-    Span::styled(format!("{text}{}", " ".repeat(pad)), style).into()
+    let label = truncate_label(label, width.max(1));
+    // 詰める量は char 数ではなくセル幅で測る (widen_row_bands と同じ理由)。
+    // 全角を 1 桁と数えると帯がペイン幅を超えて罫線を押し出す
+    let pad = width.saturating_sub(text::cells(&label));
+    Span::styled(format!("{label}{}", " ".repeat(pad)), style).into()
 }
 
 // 流れる側 (スクロールで消えていく通常のファイル境界行) も見た目を強化する。
@@ -35,7 +39,9 @@ pub(crate) fn widen_boundary_bands(rows: &mut [Line<'static>], width: usize) {
         else {
             continue;
         };
-        let used: usize = row.spans.iter().map(|s| s.content.chars().count()).sum();
+        // 使用済み幅も char 数ではなくセル幅で測る (text_pane::widen_row_bands と同じ)。
+        // Line::width は span ごとに text::cells と同じ測り方をするので描画と一致する
+        let used = row.width();
         if used < width {
             row.spans
                 .push(Span::styled(" ".repeat(width - used), style));
@@ -45,22 +51,92 @@ pub(crate) fn widen_boundary_bands(rows: &mut [Line<'static>], width: usize) {
 
 // 長いパスは先頭を省略する。末尾のファイル名が最も情報量が多いため、区切り文字境界で
 // 前方のディレクトリ階層から落としていき、それでも収まらなければファイル名自体を
-// 末尾優先で char 単位に切る
+// 末尾優先で切る。幅の判定は全て**セル幅**で、char 数では測らない
+// (日本語のパスで 1 文字を 1 桁と数えると切り足りず、帯がペイン幅を超える)
 fn truncate_label(label: &str, max_width: usize) -> String {
-    if label.chars().count() <= max_width {
+    if text::cells(label) <= max_width {
         return label.to_string();
     }
     let mut parts: Vec<&str> = label.split('/').collect();
     while parts.len() > 1 {
         parts.remove(0);
         let candidate = format!("…/{}", parts.join("/"));
-        if candidate.chars().count() <= max_width {
+        if text::cells(&candidate) <= max_width {
             return candidate;
         }
     }
-    let budget = max_width.saturating_sub(1);
-    let mut tail: Vec<char> = label.chars().rev().take(budget).collect();
-    tail.reverse();
-    let tail: String = tail.into_iter().collect();
-    format!("…{tail}")
+    let ellipsis = text::cells("…");
+    // 省略記号すら入らない幅では記号を諦めて末尾だけ出す (帯が幅を超えない方を優先する)
+    if max_width <= ellipsis {
+        return tail_by_cells(label, max_width);
+    }
+    format!("…{}", tail_by_cells(label, max_width - ellipsis))
+}
+
+// 末尾から budget セルぶんを取る。char ではなく grapheme 単位で数えるのは、全角 (1 char =
+// 2 セル) と ZWJ 絵文字 (char 数の合計と描画幅が食い違う) のどちらでも桁をずらさないため。
+// grapheme 分割は描画とまったく同じ計算になるよう ratatui を通す (text::WrapCursor と同じ)
+fn tail_by_cells(label: &str, budget: usize) -> String {
+    let span = Span::raw(label);
+    let graphemes: Vec<&str> = span
+        .styled_graphemes(Style::default())
+        .map(|g| g.symbol)
+        .collect();
+    let mut used = 0usize;
+    let mut start = graphemes.len();
+    for (i, grapheme) in graphemes.iter().enumerate().rev() {
+        let cells = text::cells(grapheme);
+        if used + cells > budget {
+            break;
+        }
+        used += cells;
+        start = i;
+    }
+    graphemes[start..].concat()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BOUNDARY_BG, sticky_line, truncate_label, widen_boundary_bands};
+    use crate::text;
+    use ratatui::style::Style;
+    use ratatui::text::{Line, Span};
+
+    // 帯は常にペイン幅ちょうどで、超えても足りなくてもいけない (超えると罫線が押し出される)
+    #[test]
+    fn a_sticky_bar_is_exactly_the_pane_width() {
+        for label in ["src/main.rs", "ソース/日本語のパス.rs", "👩\u{200d}💻/a.rs"] {
+            for width in [12usize, 20, 40] {
+                assert_eq!(
+                    sticky_line(label, width).width(),
+                    width,
+                    "label={label} width={width}"
+                );
+            }
+        }
+    }
+
+    // 全角のパスを char 数で数えると切り足りず、帯が幅を超える
+    #[test]
+    fn truncating_measures_cells_not_chars() {
+        let label = "あいうえお/かきくけこ.rs";
+        let cut = truncate_label(label, 12);
+        assert!(
+            text::cells(&cut) <= 12,
+            "{cut:?} は 12 セルに収まっていない ({} セル)",
+            text::cells(&cut)
+        );
+        // 末尾のファイル名側を優先して残す
+        assert!(cut.ends_with(".rs"), "{cut:?}");
+    }
+
+    #[test]
+    fn widening_a_boundary_band_measures_cells() {
+        let mut rows = vec![Line::from(vec![Span::styled(
+            "── 日本語.rs ",
+            Style::default().bg(BOUNDARY_BG),
+        )])];
+        widen_boundary_bands(&mut rows, 40);
+        assert_eq!(rows[0].width(), 40);
+    }
 }

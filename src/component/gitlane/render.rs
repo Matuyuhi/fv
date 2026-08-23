@@ -41,10 +41,7 @@ pub fn render_commit(raw: &[String]) -> CommitRender {
     let header = &raw[..diff_start];
     let segments = split_segments(&raw[diff_start..]);
 
-    let bodies: Vec<Vec<(Kind, &str)>> = segments
-        .iter()
-        .map(|seg| seg.iter().filter_map(|l| classify(l)).collect())
-        .collect();
+    let bodies: Vec<Vec<(Kind, &str)>> = segments.iter().map(|seg| classify_body(seg)).collect();
     let max_lineno = bodies.iter().map(|b| max_new_lineno(b)).max().unwrap_or(0);
     let gutter_width = text::gutter_width(max_lineno);
 
@@ -246,15 +243,45 @@ fn split_with_emphasis(
     spans
 }
 
-// diff --git / index / --- / +++ 等のヘッダは落とす
-pub(super) fn classify(line: &str) -> Option<(Kind, &str)> {
+/// 1 ファイル分の生 diff を表示用に分類する。`in_hunk` の管理をここに閉じ、呼び出し側
+/// (GitState::open / render_commit) が同じ規則を 2 度書かないようにする
+pub(super) fn classify_body(raw: &[String]) -> Vec<(Kind, &str)> {
+    classify_indexed(raw).into_iter().map(|(_, e)| e).collect()
+}
+
+/// classify_body に「元の raw の index」を添えたもの。行単位ステージ (Enter) が表示行から
+/// 生 diff の行へ戻るのに使う (GitState::raw_index)。同じ 1 つの走査から作ることで、
+/// 表示と index のズレを構造的に防ぐ
+pub(super) fn classify_indexed(raw: &[String]) -> Vec<(usize, (Kind, &str))> {
+    let mut in_hunk = false;
+    let mut out = Vec::with_capacity(raw.len());
+    for (i, line) in raw.iter().enumerate() {
+        let Some(entry) = classify(line, in_hunk) else {
+            continue;
+        };
+        if matches!(entry.0, Kind::Hunk) {
+            in_hunk = true;
+        }
+        out.push((i, entry));
+    }
+    out
+}
+
+// diff --git / index / --- / +++ 等のヘッダは落とす。
+// **`--- ` / `+++ ` を落とすのは最初の `@@` より前だけ** — hunk の中では、`-- ` で始まる行の
+// 削除 (SQL/Haskell のコメント、markdown の `---` 等) が diff 上で `--- ` として現れる。
+// 位置を見ずに落とすとその行が diff から丸ごと消え、表示にも出ず Enter の対象にもできない。
+// 他のヘッダ (diff --git / index / mode / rename) は hunk 行が必ず ' '/'+'/'-'/'\' で始まる以上
+// 本文と衝突しようがないので、位置に関わらず落として構わない
+pub(super) fn classify(line: &str, in_hunk: bool) -> Option<(Kind, &str)> {
     if line.starts_with("@@") {
         return Some((Kind::Hunk, line));
     }
+    if !in_hunk && (line.starts_with("--- ") || line.starts_with("+++ ")) {
+        return None;
+    }
     if line.starts_with("diff --git")
         || line.starts_with("index ")
-        || line.starts_with("--- ")
-        || line.starts_with("+++ ")
         || line.starts_with("old mode ")
         || line.starts_with("new mode ")
         || line.starts_with("new file mode ")
@@ -262,6 +289,8 @@ pub(super) fn classify(line: &str) -> Option<(Kind, &str)> {
         || line.starts_with("similarity index ")
         || line.starts_with("rename from ")
         || line.starts_with("rename to ")
+        || line.starts_with("copy from ")
+        || line.starts_with("copy to ")
     {
         return None;
     }
@@ -342,4 +371,47 @@ pub(super) fn number_gutter(number: usize, gutter_width: usize) -> Span<'static>
         format!("{number:>digits$} "),
         Style::default().fg(Color::DarkGray),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Kind, classify_indexed};
+
+    fn raw(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|s| s.to_string()).collect()
+    }
+
+    // `-- ` で始まる行の削除は diff 上で `--- ` になる (SQL/Haskell のコメント、markdown の
+    // `---` 等)。位置を見ずにヘッダとして落とすと、その行が表示からも Enter の対象からも消える
+    #[test]
+    fn a_deleted_line_starting_with_two_dashes_is_not_mistaken_for_a_header() {
+        let raw = raw(&[
+            "diff --git a/q.sql b/q.sql",
+            "index 1111111..2222222 100644",
+            "--- a/q.sql",
+            "+++ b/q.sql",
+            "@@ -1,3 +1,3 @@",
+            " SELECT 1;",
+            "--- 古いコメント",
+            " SELECT 2;",
+            "+++ added",
+        ]);
+        let body = classify_indexed(&raw);
+        // ヘッダ 4 行は落ち、hunk header + 4 行が残る
+        let kinds: Vec<_> = body.iter().map(|(_, (k, _))| *k).collect();
+        assert!(matches!(kinds[0], Kind::Hunk));
+        assert!(matches!(kinds[2], Kind::Deleted), "{kinds:?}");
+        assert!(matches!(kinds[4], Kind::Added), "{kinds:?}");
+        // 表示行 → raw の index が 1:1 で戻せる (行単位ステージが依存する対応)
+        let indices: Vec<usize> = body.iter().map(|(i, _)| *i).collect();
+        assert_eq!(indices, vec![4, 5, 6, 7, 8]);
+    }
+
+    // 最初の @@ より前の `--- a/...` / `+++ b/...` は今までどおりヘッダとして落とす
+    #[test]
+    fn file_headers_before_the_first_hunk_are_still_dropped() {
+        let raw = raw(&["--- a/a.txt", "+++ b/a.txt", "@@ -1,1 +1,1 @@", "-a", "+b"]);
+        let indices: Vec<usize> = classify_indexed(&raw).iter().map(|(i, _)| *i).collect();
+        assert_eq!(indices, vec![2, 3, 4]);
+    }
 }

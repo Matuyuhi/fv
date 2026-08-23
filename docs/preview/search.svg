@@ -70,11 +70,13 @@
 <text x="311" y="169" fill="#96b5b4">│</text>
 <text x="329" y="169" fill="#65737e">6</text>
 <text x="995" y="169" fill="#96b5b4">│</text>
-<rect x="311" y="174" width="72" height="20" fill="#2b303b"/>
+<rect x="311" y="174" width="9" height="20" fill="#2b303b"/>
+<rect x="320" y="174" width="63" height="20" fill="#3e4a66"/>
 <rect x="383" y="174" width="27" height="20" fill="#ffdc00"/>
-<rect x="410" y="174" width="18" height="20" fill="#2b303b"/>
+<rect x="410" y="174" width="18" height="20" fill="#3e4a66"/>
 <rect x="428" y="174" width="27" height="20" fill="#505000"/>
-<rect x="455" y="174" width="549" height="20" fill="#2b303b"/>
+<rect x="455" y="174" width="540" height="20" fill="#3e4a66"/>
+<rect x="995" y="174" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="189" fill="#65737e">│</text>
 <text x="59 86 95 104 113 122" y="189" fill="#a3be8c">Mui.rs</text>
 <text x="302" y="189" fill="#65737e">│</text>

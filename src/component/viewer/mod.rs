@@ -1,6 +1,7 @@
 mod content;
 mod highlight;
 mod render;
+pub(crate) mod rowcursor;
 mod search;
 mod selection;
 pub mod view;
@@ -59,6 +60,10 @@ pub struct Viewer {
     /// 範囲選択 (マウスのドラッグ / v)。検索と同じく viewer に 1 つだけ持ち、
     /// ファイルを開き直した時点で捨てる (別の文書の桁を指したままにしないため)
     pub selection: Option<Selection>,
+    /// 行カーソル。閲覧は読むだけのペインだが、`v` の選択開始点・`e` で編集に移った時の
+    /// 位置・「今どこを読んでいるか」の全てが「上端に見えている行」という暗黙の基準に
+    /// 乗っていたので、明示的な 1 行として持たせる (GIT レーンの diff と同じ考え方)
+    cursor: usize,
     // open() の度に更新される root。reload() は path しか受け取らないので、
     // changed_lines の再取得に使う root をここに保持しておく
     root: PathBuf,
@@ -82,6 +87,7 @@ impl Viewer {
             current: None,
             search: None,
             selection: None,
+            cursor: 0,
             root: PathBuf::new(),
             history: Vec::new(),
             history_index: 0,
@@ -189,6 +195,8 @@ impl Viewer {
         self.render.reset(path, plain_only(&content));
         self.selection = None;
         self.viewport.scroll = scroll;
+        // 履歴で戻った時は記録した scroll の先頭行から読み直す (通常の open は scroll = 0)
+        self.cursor = scroll;
         // ファイルを跨ぐたびに水平位置はリセットする (wrap は跨いで維持する設定なのでここでは触らない)
         self.viewport.hscroll = 0;
         self.current = Some(Open {
@@ -220,13 +228,66 @@ impl Viewer {
         }
         let last = self.line_count().saturating_sub(1);
         self.viewport.scroll = self.viewport.scroll.min(last);
+        self.cursor = self.cursor.min(last);
         self.viewport.hscroll = 0;
         self.recompute_search();
     }
 
+    /// ホイール等の「画面を動かす」操作。カーソルは画面内へ引き戻して連れて動かす
+    /// (置き去りにすると `v` や `e` の起点が画面外に消える)
     pub fn scroll_by(&mut self, delta: isize) {
         let last = self.line_count().saturating_sub(1);
         self.viewport.scroll_by(delta, last);
+        self.clamp_cursor_into_view();
+    }
+
+    /// j/k・Ctrl+d/u: カーソルを動かし、画面はそれに追従させる
+    pub fn move_cursor(&mut self, delta: isize) {
+        let last = self.line_count().saturating_sub(1);
+        self.cursor = (self.cursor as isize + delta).clamp(0, last as isize) as usize;
+        self.ensure_cursor_visible();
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// クリックした行へカーソルを移す (範囲選択の起点と兼用)
+    pub(super) fn set_cursor(&mut self, line: usize) {
+        self.cursor = line.min(self.line_count().saturating_sub(1));
+        self.ensure_cursor_visible();
+    }
+
+    // 行カーソルの追従。折返しを跨ぐ計算は rowcursor に寄せてある (GIT/LOG/PR と共有)
+    pub(super) fn ensure_cursor_visible(&mut self) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let scroll = rowcursor::scroll_for(&self.viewport, self.cursor, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.viewport.scroll = scroll;
+    }
+
+    fn clamp_cursor_into_view(&mut self) {
+        let (count, wrapped, width) = self.cursor_metrics();
+        let cursor = rowcursor::clamp_cursor(&self.viewport, self.cursor, count, wrapped, |i| {
+            self.rows_at(i, width)
+        });
+        self.cursor = cursor;
+    }
+
+    fn cursor_metrics(&self) -> (usize, bool, usize) {
+        let count = self.line_count();
+        let gutter = text::gutter_width(count);
+        let width = self.viewport.width.saturating_sub(gutter).max(1);
+        (count, self.viewport.wrap, width)
+    }
+
+    // 論理行 i が占める視覚行数。plain はタブ展開済みなので描画と同じ文字列で数えられる
+    fn rows_at(&self, i: usize, width: usize) -> usize {
+        match self.text_doc().and_then(|doc| doc.plain.get(i)) {
+            Some(line) => text::wrap_rows(line, width),
+            None => 1,
+        }
     }
 
     /// h/l 等の水平スクロール。クランプ上限だけ Content から算出して Viewport に渡す
@@ -262,15 +323,14 @@ impl Viewer {
 
     /// gg: ファイル先頭へ
     pub fn jump_to_top(&mut self) {
+        self.cursor = 0;
         self.viewport.scroll = 0;
     }
 
-    /// G: 最終行が viewport の下端に来る位置へ。ファイルが viewport より短ければ先頭のまま
+    /// G: 最終行へ。カーソルが下端に来るまでスクロールする
     pub fn jump_to_bottom(&mut self) {
-        let total = self.line_count();
-        let last = total.saturating_sub(1);
-        let bottom = total.saturating_sub(self.viewport.height);
-        self.viewport.scroll = bottom.min(last);
+        self.cursor = self.line_count().saturating_sub(1);
+        self.ensure_cursor_visible();
     }
 
     /// :N の行ジャンプ。1-origin。範囲外は最終行にクランプ。0 は no-op (呼び出し側でも弾いているが念のため)
@@ -325,15 +385,22 @@ impl Viewer {
     /// マウスの押下: その位置を掴み直す (前の選択は捨てる)。押しただけの空選択は
     /// 何もハイライトせず、`y` も「選択が無い」として扱われる
     pub fn begin_drag(&mut self, row: usize, col: usize) {
-        self.selection = self
-            .point_at(row, col)
-            .map(|at| Selection::new(at, false, true));
+        let at = self.point_at(row, col);
+        // 押しただけ (ドラッグしない) でもカーソルは移す — クリックが「ここを見ている」の
+        // 表明になるようにするため
+        if let Some(at) = at {
+            self.set_cursor(at.line);
+        }
+        self.selection = at.map(|at| Selection::new(at, false, true));
     }
 
     /// ドラッグ中の伸縮。押下を見ていない (dragging でない) 間は何もしない
     pub fn drag_to(&mut self, row: usize, col: usize) {
         if !self.dragging() {
             return;
+        }
+        if let Some(at) = self.point_at(row, col) {
+            self.cursor = at.line.min(self.line_count().saturating_sub(1));
         }
         if let Some(at) = self.point_at(row, col)
             && let Some(sel) = &mut self.selection
@@ -361,10 +428,7 @@ impl Viewer {
         if self.text_doc().is_none() {
             return;
         }
-        let line = self
-            .viewport
-            .scroll
-            .min(self.line_count().saturating_sub(1));
+        let line = self.cursor.min(self.line_count().saturating_sub(1));
         self.selection = Some(Selection::new(Point { line, col: 0 }, true, false));
     }
 
@@ -381,7 +445,9 @@ impl Viewer {
         };
         let line = (sel.head_line() as isize + delta).clamp(0, last as isize) as usize;
         sel.set_head(Point { line, col: 0 });
-        self.viewport.ensure_row_visible(line);
+        // 伸ばしている先がカーソル (vim の visual mode と同じく head 側が動く)
+        self.cursor = line;
+        self.ensure_cursor_visible();
     }
 
     /// 行単位選択の伸ばす側を指定行へ飛ばす (gg / G)
@@ -391,7 +457,8 @@ impl Viewer {
         if let Some(sel) = &mut self.selection {
             sel.set_head(Point { line, col: 0 });
         }
-        self.viewport.ensure_row_visible(line);
+        self.cursor = line;
+        self.ensure_cursor_visible();
     }
 
     pub fn clear_selection(&mut self) {

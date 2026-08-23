@@ -52,9 +52,11 @@
 <text x="347 356 365 383 392 401 410 419 428 437 446 455 464 473 482 491 500 509 518 527 536" y="129" fill="#ecf0f8">usestd::error::Error;</text>
 <text x="995" y="129" fill="#96b5b4">│</text>
 <rect x="23" y="134" width="279" height="20" fill="#65737e"/>
-<rect x="311" y="134" width="36" height="20" fill="#2b303b"/>
+<rect x="311" y="134" width="9" height="20" fill="#2b303b"/>
+<rect x="320" y="134" width="27" height="20" fill="#3e4a66"/>
 <rect x="347" y="134" width="207" height="20" fill="#3a5280"/>
-<rect x="554" y="134" width="450" height="20" fill="#2b303b"/>
+<rect x="554" y="134" width="441" height="20" fill="#3e4a66"/>
+<rect x="995" y="134" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="149" fill="#65737e">│</text>
 <text x="68" y="149" fill="#bf616a" font-weight="bold">M</text>
 <text x="86 95 104 113 122 131 140" y="149" fill="#ebcb8b" font-weight="bold">main.rs</text>

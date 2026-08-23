@@ -13,6 +13,11 @@ const CURRENT_MATCH_BG: Color = Color::Rgb(255, 220, 0);
 // (カレントマッチが黄色地に黒文字を固定しているのと同じ理由)
 const SELECTION_BG: Color = Color::Rgb(58, 82, 128);
 const SELECTION_FG: Color = Color::Rgb(236, 240, 248);
+// GIT レーンの diff ペインの行カーソル・行単位選択の帯。char 単位の cursor (REVERSED) と
+// 違って行全体を塗るので、diff の赤/緑の前景色を潰さないよう背景だけを差し替える。
+// word-level ハイライトや検索マッチが既に付けた背景はそのまま残す (情報を消さない)
+const FOCUS_ROW_BG: Color = Color::Rgb(62, 74, 102);
+const SELECTED_ROW_BG: Color = Color::Rgb(44, 54, 78);
 
 /// TextPane に渡す可視ウィンドウ。文書全体ではなく「vp.scroll から height 論理行」だけを
 /// 持つ形にしてあるのは、大きなファイルを丸ごとハイライトせずに済ませる
@@ -50,6 +55,10 @@ pub(crate) struct TextPane<'a> {
     pub selection: Option<&'a Selection>,
     /// ブロックカーソルの (論理行, 表示桁)
     pub cursor: Option<(usize, usize)>,
+    /// 行カーソル (diff ペイン)。char 単位の `cursor` とは別物で、行全体を帯にする
+    pub focus_row: Option<usize>,
+    /// 行単位選択 (両端含む)。focus_row より弱い色で塗り、重なる行は focus_row が勝つ
+    pub selected_rows: Option<(usize, usize)>,
     /// 行番号 gutter (span[0]) の char 幅。wrap の続き行 pad と hscroll の除外幅に使う
     pub gutter_width: usize,
 }
@@ -103,7 +112,10 @@ impl TextPane<'_> {
                 let (row, offset_in_row) = text::wrap_position(&content, col, width);
                 // 折返し境界ちょうど (行末で行が埋まっている) に立った場合は空の続き行に置く
                 while chunks.len() <= row {
-                    chunks.push(Line::from(vec![pad_span(self.gutter_width)]));
+                    chunks.push(Line::from(vec![pad_span(
+                        self.gutter_width,
+                        self.row_band(self.window.first + offset),
+                    )]));
                 }
                 chunks[row] = overlay_cursor(std::mem::take(&mut chunks[row]), offset_in_row);
             }
@@ -122,11 +134,85 @@ impl TextPane<'_> {
             Some(search) => highlight_matches(&line, i, search),
             None => line,
         };
-        match self.selection.and_then(|sel| sel.columns_at(i)) {
+        let line = match self.selection.and_then(|sel| sel.columns_at(i)) {
             Some((start, end)) => highlight_selection(&line, start, end),
+            None => line,
+        };
+        // 帯は最後に重ねる。wrap 中も marked_and_highlighted の後で行を切るので、
+        // 折返した続き行にも同じ背景がそのまま乗る
+        match self.row_band(i) {
+            Some(bg) => tint_row(&line, bg),
             None => line,
         }
     }
+
+    // その論理行に敷く帯の色。カーソル行が選択範囲の中にあるときはカーソル側を優先する
+    fn row_band(&self, line: usize) -> Option<Color> {
+        if self.focus_row == Some(line) {
+            return Some(FOCUS_ROW_BG);
+        }
+        match self.selected_rows {
+            Some((from, to)) if (from..=to).contains(&line) => Some(SELECTED_ROW_BG),
+            _ => None,
+        }
+    }
+}
+
+/// 帯の色が付いた行をペイン幅まで伸ばして、行末まで続く 1 本の帯に見せる
+/// (widget/diff_boundary.rs::widen_boundary_bands と同じ、描画側だけの後加工)。
+/// 折返しの続き行は gutter を素の空白 (pad_span) で埋めるため帯が途切れる —
+/// 帯色を持つ span が 1 つでもあれば、その行の未着色の span もここで塗り直す
+pub(crate) fn widen_row_bands(rows: &mut [Line<'static>], width: usize) {
+    for row in rows.iter_mut() {
+        let Some(bg) = row.spans.iter().find_map(|s| {
+            s.style
+                .bg
+                .filter(|c| matches!(*c, FOCUS_ROW_BG | SELECTED_ROW_BG))
+        }) else {
+            continue;
+        };
+        for span in row.spans.iter_mut() {
+            if span.style.bg.is_none() {
+                span.style = span.style.bg(bg);
+            }
+        }
+        // 埋める量は char 数ではなく**セル幅**で測る (CLAUDE.md の桁インバリアント)。
+        // 全角を 1 桁と数えると余計に詰めて行がペイン幅を超え、ZWJ 絵文字のように
+        // char 数が描画幅より多い列では逆に足りず、帯が右端まで届かない。
+        // Line::width は span ごとに text::cells と同じ測り方をするので描画と一致する
+        let used = row.width();
+        if used < width {
+            row.spans.push(Span::styled(
+                " ".repeat(width - used),
+                Style::default().bg(bg),
+            ));
+        }
+    }
+}
+
+/// gutter (span[0]) を除いた本文。「span[1..] を連結すると本文に戻る」という桁インバリアント
+/// (CLAUDE.md) の読み出し側で、diff ペインの検索・折返し行数・クリック座標が共有する。
+/// 不変条件を持っているのがこのファイルなので、取り出し口もここに 1 つだけ置く
+pub(crate) fn line_body(line: &Line<'static>) -> String {
+    line.spans
+        .iter()
+        .skip(1)
+        .map(|s| s.content.as_ref())
+        .collect()
+}
+
+// 行全体に帯の背景を敷く。既に背景を持つ span (word-level 差分・検索マッチ) は
+// そのまま残す — 帯で塗り潰すと「どの文字が変わったのか」が読めなくなるため
+fn tint_row(line: &Line<'static>, bg: Color) -> Line<'static> {
+    let spans = line
+        .spans
+        .iter()
+        .map(|span| match span.style.bg {
+            Some(_) => span.clone(),
+            None => Span::styled(span.content.clone(), span.style.bg(bg)),
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans)
 }
 
 // gutter span (span[0]) の末尾1文字 (常に半角空白) を変更行マーカーに置き換えた
@@ -292,6 +378,11 @@ fn push_segment(spans: &mut Vec<Span<'static>>, chars: &[char], style: Style) {
 fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Line<'static>> {
     let mut rows: Vec<Line> = Vec::new();
     let mut spans: Vec<Span> = vec![line.spans.first().cloned().unwrap_or_default()];
+    // 続き行の gutter pad にも元の gutter の背景を引き継ぐ。帯 (focus_row/selected_rows) は
+    // tint_row が gutter にも塗っているので、これで折返しても帯が途切れず、widen_row_bands が
+    // 「この視覚行は帯付き」を gutter だけで判定できる (本文の span が全て word-level 差分や
+    // 検索マッチの背景を持つ続き行でも取りこぼさない)
+    let pad = pad_span(gutter_width, line.spans.first().and_then(|g| g.style.bg));
     let mut wrap = text::WrapCursor::new(width);
     for span in line.spans.iter().skip(1) {
         let mut segment = String::new();
@@ -301,10 +392,7 @@ fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Lin
                 if !segment.is_empty() {
                     spans.push(Span::styled(std::mem::take(&mut segment), span.style));
                 }
-                rows.push(Line::from(std::mem::replace(
-                    &mut spans,
-                    vec![pad_span(gutter_width)],
-                )));
+                rows.push(Line::from(std::mem::replace(&mut spans, vec![pad.clone()])));
             }
             segment.push_str(grapheme.symbol);
         }
@@ -316,9 +404,13 @@ fn wrap_line(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Lin
     rows
 }
 
-// 続き行の gutter 部分を空白で埋めて桁を揃える
-fn pad_span(gutter_width: usize) -> Span<'static> {
-    Span::raw(" ".repeat(gutter_width))
+// 続き行の gutter 部分を空白で埋めて桁を揃える。bg は元の gutter から引き継ぐ (帯の連続用)
+fn pad_span(gutter_width: usize, bg: Option<Color>) -> Span<'static> {
+    let text = " ".repeat(gutter_width);
+    match bg {
+        Some(bg) => Span::styled(text, Style::default().bg(bg)),
+        None => Span::raw(text),
+    }
 }
 
 // コンテンツ部 (span[0] の gutter を除く) の col 文字目に REVERSED を重ねた
@@ -380,6 +472,15 @@ mod tests {
         width: usize,
         gutter_width: usize,
     ) -> Vec<Line<'static>> {
+        banded_pane_rows(spans, width, gutter_width, None)
+    }
+
+    fn banded_pane_rows(
+        spans: Vec<Span<'static>>,
+        width: usize,
+        gutter_width: usize,
+        focus_row: Option<usize>,
+    ) -> Vec<Line<'static>> {
         let rows = vec![Line::from(spans)];
         let mut vp = Viewport::new(true);
         vp.width = width;
@@ -393,6 +494,8 @@ mod tests {
             search: None,
             selection: None,
             cursor: None,
+            focus_row,
+            selected_rows: None,
             gutter_width,
         };
         pane.visible(&vp)
@@ -444,6 +547,43 @@ mod tests {
             "視覚行が幅を超えている: {:?}",
             rows[0]
         );
+    }
+
+    // 帯をペイン幅まで伸ばす量は char 数ではなくセル幅で測る。全角を 1 桁と数えると
+    // 詰めすぎて行が幅を超え、ZWJ 絵文字 (char 4 個で描画幅 2) では足りずに右端が空く
+    #[test]
+    fn widening_a_band_measures_cells_not_chars() {
+        for (body, label) in [("あいう", "全角"), ("👩\u{200d}💻ab", "ZWJ")] {
+            let rows = banded_pane_rows(vec![Span::raw("1 "), Span::raw(body)], 20, 2, Some(0));
+            let mut rows = rows;
+            super::widen_row_bands(&mut rows, 20);
+            assert_eq!(rows[0].width(), 20, "{label}: 帯の幅がペイン幅と一致しない");
+        }
+    }
+
+    // 折返しの続き行は gutter が pad に差し替わる。本文の span が全て背景を持っている
+    // (word-level 差分・検索マッチで埋まっている) 行だと、pad が無色のままでは
+    // widen_row_bands が「この視覚行は帯付き」を判定できず、帯が続き行だけ消える
+    #[test]
+    fn a_wrapped_focus_band_survives_on_continuation_rows() {
+        let body = Style::default().bg(Color::Rgb(20, 90, 20));
+        let rows = banded_pane_rows(
+            vec![Span::raw("1 "), Span::styled("abcdefghij", body)],
+            6, // gutter 2 + 折返し幅 4 → 3 視覚行
+            2,
+            Some(0),
+        );
+        assert!(rows.len() > 1, "折返していない: {rows:?}");
+        let mut rows = rows;
+        super::widen_row_bands(&mut rows, 6);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(
+                row.spans[0].style.bg,
+                Some(super::FOCUS_ROW_BG),
+                "視覚行 {i} の gutter に帯が乗っていない: {row:?}"
+            );
+            assert_eq!(row.width(), 6, "帯がペイン幅まで伸びていない: {row:?}");
+        }
     }
 
     // 折返しは span の切れ目と無関係に起きるので、style を跨いでも本文は落ちない

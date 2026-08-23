@@ -8,7 +8,7 @@ use crate::component::viewer::Viewer;
 use crate::text;
 
 use crate::widget::pane_block;
-use crate::widget::text_pane::{LineWindow, TextPane};
+use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
 
 // 編集中の右ペイン。描画パイプラインは閲覧と共通 (text_pane)。
 // 検索ハイライトを持たず、代わりにブロックカーソルを重ねる点だけが違う
@@ -47,9 +47,15 @@ pub(crate) fn draw_editor(
         search: None,
         selection: None,
         cursor: Some((cursor_line, cursor_display)),
+        // カレント行の帯。ブロックカーソルは 1 文字ぶんしか無く、長い行やインデントの
+        // 深いコードでは「今どの行に居るか」が拾いにくいので、行全体にも印を付ける
+        // (REVERSED のカーソルは帯の上でも色が反転するのでそのまま浮いて見える)
+        focus_row: Some(cursor_line),
+        selected_rows: None,
         gutter_width,
     };
-    let visible = pane.visible(&viewer.viewport);
+    let mut visible = pane.visible(&viewer.viewport);
+    widen_row_bands(&mut visible, viewer.viewport.width);
     let paragraph = Paragraph::new(visible)
         .block(block)
         .style(Style::default().bg(background));

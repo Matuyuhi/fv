@@ -166,7 +166,7 @@ fn pr_status_line(app: &App) -> Line<'static> {
             "j/k: move  Enter/l: open  d: diff  S: checks  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
         }
         Focus::Viewer => {
-            "j/k: scroll  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: focus  ?: help"
+            "j/k: cursor (diff)  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: focus  ?: help"
         }
     };
     Line::from(format!(
@@ -254,14 +254,23 @@ fn git_status_line(app: &App) -> Line<'static> {
                 .to_string()
         }
         Focus::Viewer => {
-            let mut hint = "j/k: scroll  ]/[: hunk".to_string();
-            // Space の向きは diff 基準で決まるので、押す前にどちらになるかを出す
-            if !git.showing_all() {
-                hint.push_str(if git.unstaging() {
-                    "  Space: unstage hunk"
-                } else {
-                    "  Space: stage hunk"
-                });
+            // Space/Enter の向きは diff 基準で決まるので、押す前にどちらになるかを出す
+            let verb = if git.unstaging() { "unstage" } else { "stage" };
+            // 選択中は他のヒントより優先して出す (VIEW の範囲選択と同じ扱い)。
+            // 何行掴んでいるかは帯の色だけでは画面外へ伸びた分まで追えない
+            let mut hint = match git.selected_row_count() {
+                Some(rows) => {
+                    format!("{rows} lines selected  Enter: {verb} lines  j/k: 伸縮  Esc: 解除")
+                }
+                None => "j/k: cursor  ]/[: hunk".to_string(),
+            };
+            if !git.showing_all() && git.selected_row_count().is_none() {
+                hint.push_str(&format!("  Space: {verb} hunk"));
+                // Enter/V は行単位ステージが効く表示でだけ案内する (side-by-side・まとめ
+                // 表示では current_line_patch が必ず断るので、出すと可否と食い違う)
+                if git.line_selection_available() {
+                    hint.push_str(&format!("  Enter: {verb} line  V: select"));
+                }
             }
             hint.push_str("  /: search  A: all files");
             if git.showing_all() {
@@ -282,7 +291,7 @@ fn log_status_line(app: &App, log: &LogState) -> Line<'static> {
         Focus::Tree => {
             "j/k: move  Enter/l: diff  gg/G: top/bottom  Tab: focus  Shift+Tab: mode  ?: help"
         }
-        Focus::Viewer => "j/k: scroll  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
+        Focus::Viewer => "j/k: cursor  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
     };
     Line::from(format!("{} commits  {hint}", log.commits().len()))
 }
@@ -315,7 +324,7 @@ fn normal_status_line(app: &App) -> Line<'static> {
             "j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: quit  ?: help"
         }
         Focus::Viewer => {
-            "j/k: scroll  w: wrap  /: search  v: select  y: copy  e: edit  Shift+Tab: mode  ?: help"
+            "j/k: cursor  w: wrap  /: search  v: select  y: copy  e: edit  Shift+Tab: mode  ?: help"
         }
     };
     Line::from(hint)

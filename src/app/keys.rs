@@ -539,8 +539,9 @@ impl App {
             return;
         }
         match key.code {
-            KeyCode::Char('d') if ctrl => self.viewer.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => self.viewer.scroll_by(-half_page),
+            // 移動はカーソルを動かし、画面はそれに追従させる (GIT の diff ペインと同じ)
+            KeyCode::Char('d') if ctrl => self.viewer.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => self.viewer.move_cursor(-half_page),
             // Ctrl+o: 履歴を戻る。Backspace は同じ操作の代替キー
             KeyCode::Char('o') if ctrl => self.viewer.back(),
             KeyCode::Backspace => self.viewer.back(),
@@ -548,8 +549,8 @@ impl App {
             // KeyCode::Tab として解釈されるため、この分岐が発火しない環境がある。
             // Tab はフォーカス切り替えに使っているため奪えず、この制約は許容する
             KeyCode::Char('i') if ctrl => self.viewer.forward(),
-            KeyCode::Char('j') | KeyCode::Down => self.viewer.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => self.viewer.scroll_by(-1),
+            KeyCode::Char('j') | KeyCode::Down => self.viewer.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => self.viewer.move_cursor(-1),
             KeyCode::Char('w') if self.viewer.is_text() => self.toggle_wrap(),
             // 6 桁単位の水平スクロール。wrap 中は Viewer::hscroll_by 側で no-op になる
             KeyCode::Char('h') | KeyCode::Left if self.viewer.is_text() => {
@@ -619,11 +620,17 @@ impl App {
                 return;
             }
         }
-        // Space: 今見ている hunk だけを index へ適用/取り消し (hunk 単位ステージ)。git の実行と
-        // rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う。ツリー側 (Focus::Tree)
-        // の Space がファイル単位のトグルなのと対になっていて、粒度だけがフォーカスで変わる
+        // Space: カーソル行が属する hunk を index へ適用/取り消し (hunk 単位ステージ)。
+        // Enter: カーソル行 (V の選択中はその範囲) だけを適用/取り消し (行単位ステージ)。
+        // どちらも git の実行と rescan を伴うので A/t と同じく Lane::Git の可変借用より前で
+        // 拾う。ツリー側 (Focus::Tree) の Space がファイル単位のトグルなのと対になっていて、
+        // 粒度だけがフォーカス・キーで変わる
         if key.code == KeyCode::Char(' ') {
             self.stage_current_hunk();
+            return;
+        }
+        if key.code == KeyCode::Enter {
+            self.stage_current_lines();
             return;
         }
         // A (まとめ diff トグル) / t (基準循環) は git diff の取り直しを伴いうるため、untracked
@@ -653,14 +660,23 @@ impl App {
         let Lane::Git(git) = &mut self.lane else {
             return;
         };
+        // notice には &mut self が要るので、Lane の借用を離してから出す
+        let mut unsupported_line_selection = false;
         let half_page = (git.viewport.height / 2).max(1) as isize;
         match key.code {
-            KeyCode::Char('d') if ctrl => git.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => git.scroll_by(-half_page),
-            KeyCode::Char('j') | KeyCode::Down => git.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => git.scroll_by(-1),
+            // 移動はカーソルを動かし、画面はそれに追従させる (選択中は範囲がそのまま伸縮する)
+            KeyCode::Char('d') if ctrl => git.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => git.move_cursor(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => git.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => git.move_cursor(-1),
+            // V: 行単位選択の開始/解除 (vim の visual line 相当)。`v` は side-by-side に
+            // 割り当て済みなので大文字を使う。効かない表示では notice で理由を出す
+            // (無言の no-op だと「効かないキー」なのか「押し損ねた」のか分からない)
+            KeyCode::Char('V') if git.line_selection_available() => git.toggle_line_selection(),
+            KeyCode::Char('V') => unsupported_line_selection = true,
+            KeyCode::Esc => git.clear_line_selection(),
             // diff は VIEW とは別ドキュメントなので折返しも独立させる (config には保存しない)
-            KeyCode::Char('w') => git.viewport.toggle_wrap(),
+            KeyCode::Char('w') => git.toggle_wrap(),
             KeyCode::Char('h') | KeyCode::Left => git.hscroll_by(-6),
             KeyCode::Char('l') | KeyCode::Right => git.hscroll_by(6),
             KeyCode::Char('0') => git.hscroll_reset(),
@@ -685,6 +701,12 @@ impl App {
             // inline ⇔ side-by-side (#30)。w と同じく config には保存しない
             KeyCode::Char('v') => git.toggle_side_by_side(),
             _ => {}
+        }
+        if unsupported_line_selection {
+            self.set_notice(
+                "この表示では行単位選択を使えません (A の解除 / v で inline に戻してください)",
+                true,
+            );
         }
     }
 
@@ -731,10 +753,11 @@ impl App {
         };
         let half_page = (log.viewport.height / 2).max(1) as isize;
         match key.code {
-            KeyCode::Char('d') if ctrl => log.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => log.scroll_by(-half_page),
-            KeyCode::Char('j') | KeyCode::Down => log.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => log.scroll_by(-1),
+            // 移動はカーソルを動かし、画面はそれに追従させる (GIT/VIEW と同じ)
+            KeyCode::Char('d') if ctrl => log.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => log.move_cursor(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => log.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => log.move_cursor(-1),
             KeyCode::Char('w') => log.viewport.toggle_wrap(),
             KeyCode::Char('h') | KeyCode::Left => log.hscroll_by(-6),
             KeyCode::Char('l') | KeyCode::Right => log.hscroll_by(6),

@@ -7,7 +7,7 @@ use crate::component::log::LogState;
 
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::pane_block;
-use crate::widget::text_pane::{LineWindow, TextPane};
+use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
 
 // 左ペイン: コミット一覧。ツリーではなく LogState が持つ commits を直接描く
 pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool, area: Rect) {
@@ -89,9 +89,13 @@ pub(crate) fn draw_log_diff(
         search: None,
         selection: None,
         cursor: None,
+        // 帯を出すのはこのペインにフォーカスがある間だけ (draw_viewer/draw_git と同じ)
+        focus_row: focused.then(|| log.cursor()),
+        selected_rows: None,
         gutter_width: log.gutter_width(),
     };
     let mut rows = pane.visible(&log.viewport);
+    widen_row_bands(&mut rows, inner_width);
     widen_boundary_bands(&mut rows, inner_width);
     if let Some(label) = log.sticky_label() {
         rows.insert(0, sticky_line(label, inner_width));

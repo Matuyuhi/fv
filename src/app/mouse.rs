@@ -46,6 +46,7 @@ impl App {
                     }
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
+                    self.click_diff_row(&mouse);
                     self.begin_viewer_selection(&mouse);
                 }
             }
@@ -68,6 +69,35 @@ impl App {
                 } else if self.viewer_area.contains(pos) {
                     self.scroll_right_pane(3);
                 }
+            }
+            _ => {}
+        }
+    }
+
+    // diff ペインのクリック = 行カーソルの移動 (GIT なら Space/Enter の対象がここで決まる)。
+    // VIEW のクリックは範囲選択の起点と兼用なので begin_viewer_selection 側で処理する
+    fn click_diff_row(&mut self, mouse: &MouseEvent) {
+        let area = self.viewer_area;
+        // 枠線 (上 1 セル) の内側だけをコンテンツ座標に変換し、sticky header が実際に
+        // 描かれている行数ぶんをさらに差し引く。**高さの確保 (has_file_boundary) ではなく
+        // 描画の有無 (sticky_label) で判定する** — 高さは「境界を持つか」だけで常に予約する
+        // 一方、sticky 行自体は最初のファイル境界より手前 (LOG のコミット本文) では
+        // 挿入されない。確保の方で引くと、その領域ではクリックが 1 行ずれて先頭行を選べない
+        let Some(row) = mouse.row.checked_sub(area.y + 1).map(usize::from) else {
+            return;
+        };
+        match &mut self.lane {
+            Lane::Git(git) => {
+                let Some(row) = row.checked_sub(usize::from(git.sticky_label().is_some())) else {
+                    return;
+                };
+                git.click_row(row);
+            }
+            Lane::Log(log) => {
+                let Some(row) = row.checked_sub(usize::from(log.sticky_label().is_some())) else {
+                    return;
+                };
+                log.click_row(row);
             }
             _ => {}
         }
@@ -252,6 +282,16 @@ impl App {
                     self.click_pr_row(mouse.row);
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
+                    // diff 表示中だけ行カーソルが動く (説明/CI は click_row 側で no-op)。
+                    // sticky 行は描かれている時だけ差し引く (click_diff_row と同じ理由)
+                    if let Some(row) = mouse
+                        .row
+                        .checked_sub(self.viewer_area.y + 1)
+                        .map(usize::from)
+                        .and_then(|r| r.checked_sub(usize::from(self.prs.sticky_label().is_some())))
+                    {
+                        self.prs.click_row(row);
+                    }
                 }
             }
             MouseEventKind::ScrollUp => {
