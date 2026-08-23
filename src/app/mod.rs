@@ -484,7 +484,11 @@ impl App {
             return false;
         }
         self.tree.set_filter(Some(self.changed_paths()));
-        let mut git = GitState::new(self.viewer.viewport.wrap);
+        let mut git = GitState::new(
+            self.viewer.viewport.wrap,
+            self.viewer.viewport.height,
+            self.viewer.viewport.width,
+        );
         if let Some(path) = self.tree.selected_or_first_file() {
             git.open(&self.root, &path);
         }

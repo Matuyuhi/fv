@@ -46,6 +46,7 @@ impl App {
                     }
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
+                    self.click_diff_row(&mouse);
                     self.begin_viewer_selection(&mouse);
                 }
             }
@@ -71,6 +72,24 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    // GIT レーンの diff ペインのクリック = 行カーソルの移動。Space/Enter の対象を
+    // マウスでも動かせるようにするためで、対象外のレーンでは何もしない
+    fn click_diff_row(&mut self, mouse: &MouseEvent) {
+        let area = self.viewer_area;
+        let Lane::Git(git) = &mut self.lane else {
+            return;
+        };
+        // 枠線 (上 1 セル) の内側だけをコンテンツ座標に変換し、まとめ diff の
+        // sticky header が 1 行占めている分をさらに差し引く (draw_git と同じ判定)
+        let Some(row) = mouse.row.checked_sub(area.y + 1) else {
+            return;
+        };
+        let Some(row) = (row as usize).checked_sub(usize::from(git.has_file_boundary())) else {
+            return;
+        };
+        git.click_row(row);
     }
 
     // ビューア上での押下 = 範囲選択の起点。端末のネイティブ選択はマウスキャプチャ中に

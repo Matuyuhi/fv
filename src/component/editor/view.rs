@@ -47,6 +47,8 @@ pub(crate) fn draw_editor(
         search: None,
         selection: None,
         cursor: Some((cursor_line, cursor_display)),
+        focus_row: None,
+        selected_rows: None,
         gutter_width,
     };
     let visible = pane.visible(&viewer.viewport);

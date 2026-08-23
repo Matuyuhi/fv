@@ -203,9 +203,22 @@ fn help_lines() -> Vec<Line<'static>> {
                 "選択中のファイル/ディレクトリを stage/unstage トグル",
             ),
             (
-                "Space (diff ペイン)",
-                "今見ている hunk だけを stage (基準が staged のときは unstage)",
+                "j/k ↑/↓ (diff ペイン)",
+                "行カーソルを移動 (Space/Enter の対象は常にこのカーソル行)",
             ),
+            (
+                "Space (diff ペイン)",
+                "カーソル行が属する hunk を stage (基準が staged のときは unstage)",
+            ),
+            (
+                "Enter (diff ペイン)",
+                "カーソル行 (V の選択中はその範囲) の変更行だけを stage/unstage",
+            ),
+            (
+                "V (diff ペイン)",
+                "行単位選択の開始/解除 (j/k で伸縮・Esc で解除)",
+            ),
+            ("クリック (diff ペイン)", "その行へカーソルを移動"),
             (
                 "X",
                 "選択中のファイル/ディレクトリの変更を破棄 (確認あり・untracked は削除)",

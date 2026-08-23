@@ -113,6 +113,17 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "git-lines",
+        description: "GIT レーン: 行カーソルと V の行単位選択 (Enter で行だけ stage)",
+        size: None,
+        setup: |app| {
+            to_lane(app, 2);
+            open(app, "src/main.rs");
+            // diff ペインへ移り、変更行までカーソルを下ろしてから V で範囲を掴む
+            send(app, "<Tab>jjjjVj");
+        },
+    },
+    Scene {
         name: "git-side",
         description: "GIT レーン: side-by-side diff",
         size: Some((140, 32)),

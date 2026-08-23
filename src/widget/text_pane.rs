@@ -13,6 +13,11 @@ const CURRENT_MATCH_BG: Color = Color::Rgb(255, 220, 0);
 // (カレントマッチが黄色地に黒文字を固定しているのと同じ理由)
 const SELECTION_BG: Color = Color::Rgb(58, 82, 128);
 const SELECTION_FG: Color = Color::Rgb(236, 240, 248);
+// GIT レーンの diff ペインの行カーソル・行単位選択の帯。char 単位の cursor (REVERSED) と
+// 違って行全体を塗るので、diff の赤/緑の前景色を潰さないよう背景だけを差し替える。
+// word-level ハイライトや検索マッチが既に付けた背景はそのまま残す (情報を消さない)
+const FOCUS_ROW_BG: Color = Color::Rgb(62, 74, 102);
+const SELECTED_ROW_BG: Color = Color::Rgb(44, 54, 78);
 
 /// TextPane に渡す可視ウィンドウ。文書全体ではなく「vp.scroll から height 論理行」だけを
 /// 持つ形にしてあるのは、大きなファイルを丸ごとハイライトせずに済ませる
@@ -50,6 +55,10 @@ pub(crate) struct TextPane<'a> {
     pub selection: Option<&'a Selection>,
     /// ブロックカーソルの (論理行, 表示桁)
     pub cursor: Option<(usize, usize)>,
+    /// 行カーソル (diff ペイン)。char 単位の `cursor` とは別物で、行全体を帯にする
+    pub focus_row: Option<usize>,
+    /// 行単位選択 (両端含む)。focus_row より弱い色で塗り、重なる行は focus_row が勝つ
+    pub selected_rows: Option<(usize, usize)>,
     /// 行番号 gutter (span[0]) の char 幅。wrap の続き行 pad と hscroll の除外幅に使う
     pub gutter_width: usize,
 }
@@ -122,11 +131,70 @@ impl TextPane<'_> {
             Some(search) => highlight_matches(&line, i, search),
             None => line,
         };
-        match self.selection.and_then(|sel| sel.columns_at(i)) {
+        let line = match self.selection.and_then(|sel| sel.columns_at(i)) {
             Some((start, end)) => highlight_selection(&line, start, end),
+            None => line,
+        };
+        // 帯は最後に重ねる。wrap 中も marked_and_highlighted の後で行を切るので、
+        // 折返した続き行にも同じ背景がそのまま乗る
+        match self.row_band(i) {
+            Some(bg) => tint_row(&line, bg),
             None => line,
         }
     }
+
+    // その論理行に敷く帯の色。カーソル行が選択範囲の中にあるときはカーソル側を優先する
+    fn row_band(&self, line: usize) -> Option<Color> {
+        if self.focus_row == Some(line) {
+            return Some(FOCUS_ROW_BG);
+        }
+        match self.selected_rows {
+            Some((from, to)) if (from..=to).contains(&line) => Some(SELECTED_ROW_BG),
+            _ => None,
+        }
+    }
+}
+
+/// 帯の色が付いた行をペイン幅まで伸ばして、行末まで続く 1 本の帯に見せる
+/// (widget/diff_boundary.rs::widen_boundary_bands と同じ、描画側だけの後加工)。
+/// 折返しの続き行は gutter を素の空白 (pad_span) で埋めるため帯が途切れる —
+/// 帯色を持つ span が 1 つでもあれば、その行の未着色の span もここで塗り直す
+pub(crate) fn widen_row_bands(rows: &mut [Line<'static>], width: usize) {
+    for row in rows.iter_mut() {
+        let Some(bg) = row.spans.iter().find_map(|s| {
+            s.style
+                .bg
+                .filter(|c| matches!(*c, FOCUS_ROW_BG | SELECTED_ROW_BG))
+        }) else {
+            continue;
+        };
+        for span in row.spans.iter_mut() {
+            if span.style.bg.is_none() {
+                span.style = span.style.bg(bg);
+            }
+        }
+        let used: usize = row.spans.iter().map(|s| s.content.chars().count()).sum();
+        if used < width {
+            row.spans.push(Span::styled(
+                " ".repeat(width - used),
+                Style::default().bg(bg),
+            ));
+        }
+    }
+}
+
+// 行全体に帯の背景を敷く。既に背景を持つ span (word-level 差分・検索マッチ) は
+// そのまま残す — 帯で塗り潰すと「どの文字が変わったのか」が読めなくなるため
+fn tint_row(line: &Line<'static>, bg: Color) -> Line<'static> {
+    let spans = line
+        .spans
+        .iter()
+        .map(|span| match span.style.bg {
+            Some(_) => span.clone(),
+            None => Span::styled(span.content.clone(), span.style.bg(bg)),
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans)
 }
 
 // gutter span (span[0]) の末尾1文字 (常に半角空白) を変更行マーカーに置き換えた
@@ -393,6 +461,8 @@ mod tests {
             search: None,
             selection: None,
             cursor: None,
+            focus_row: None,
+            selected_rows: None,
             gutter_width,
         };
         pane.visible(&vp)

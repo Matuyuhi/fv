@@ -619,11 +619,17 @@ impl App {
                 return;
             }
         }
-        // Space: 今見ている hunk だけを index へ適用/取り消し (hunk 単位ステージ)。git の実行と
-        // rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う。ツリー側 (Focus::Tree)
-        // の Space がファイル単位のトグルなのと対になっていて、粒度だけがフォーカスで変わる
+        // Space: カーソル行が属する hunk を index へ適用/取り消し (hunk 単位ステージ)。
+        // Enter: カーソル行 (V の選択中はその範囲) だけを適用/取り消し (行単位ステージ)。
+        // どちらも git の実行と rescan を伴うので A/t と同じく Lane::Git の可変借用より前で
+        // 拾う。ツリー側 (Focus::Tree) の Space がファイル単位のトグルなのと対になっていて、
+        // 粒度だけがフォーカス・キーで変わる
         if key.code == KeyCode::Char(' ') {
             self.stage_current_hunk();
+            return;
+        }
+        if key.code == KeyCode::Enter {
+            self.stage_current_lines();
             return;
         }
         // A (まとめ diff トグル) / t (基準循環) は git diff の取り直しを伴いうるため、untracked
@@ -655,10 +661,15 @@ impl App {
         };
         let half_page = (git.viewport.height / 2).max(1) as isize;
         match key.code {
-            KeyCode::Char('d') if ctrl => git.scroll_by(half_page),
-            KeyCode::Char('u') if ctrl => git.scroll_by(-half_page),
-            KeyCode::Char('j') | KeyCode::Down => git.scroll_by(1),
-            KeyCode::Char('k') | KeyCode::Up => git.scroll_by(-1),
+            // 移動はカーソルを動かし、画面はそれに追従させる (選択中は範囲がそのまま伸縮する)
+            KeyCode::Char('d') if ctrl => git.move_cursor(half_page),
+            KeyCode::Char('u') if ctrl => git.move_cursor(-half_page),
+            KeyCode::Char('j') | KeyCode::Down => git.move_cursor(1),
+            KeyCode::Char('k') | KeyCode::Up => git.move_cursor(-1),
+            // V: 行単位選択の開始/解除 (vim の visual line 相当)。`v` は side-by-side に
+            // 割り当て済みなので大文字を使う
+            KeyCode::Char('V') => git.toggle_line_selection(),
+            KeyCode::Esc => git.clear_line_selection(),
             // diff は VIEW とは別ドキュメントなので折返しも独立させる (config には保存しない)
             KeyCode::Char('w') => git.viewport.toggle_wrap(),
             KeyCode::Char('h') | KeyCode::Left => git.hscroll_by(-6),
