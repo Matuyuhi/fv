@@ -1,6 +1,6 @@
-//! LOG レーン (Shift+Tab で入るコミット履歴閲覧) の表示状態。
-//! 左ペインはツリーではなくコミット一覧に差し替わる (component/log/view.rs)。右ペインは選択
-//! コミットの `git show` を gitlane::render_commit で組み替えた複数ファイル diff。
+//! コミット履歴パネル (`L` で VIEW レーンの左ペイン下半分に出す) の表示状態。
+//! 一覧はツリーの下に並ぶ独立ペインで (component/log/view.rs)、コミットを開くと右ペインが
+//! ファイルから `git show` の複数ファイル diff (gitlane::render_commit で組み替え) に変わる。
 //! GitState と同じく Viewer 本体には触れず、依存範囲を一覧+diff の組み立てだけに絞る。
 pub mod view;
 
@@ -34,8 +34,8 @@ pub struct LogState {
     pub selected: usize,
     // 末尾まで取得しきったかどうか。true になったら load_more を呼ばない
     exhausted: bool,
-    /// diff は一覧とは別ドキュメントであり、GIT レーンの diff Viewport とも別 (LOG に入っても
-    /// GIT 側の読み位置を壊さない・LOG 内で別コミットに移っても意味を共有しない)
+    /// diff は一覧とは別ドキュメントであり、GIT レーンの diff Viewport とも別 (パネルを出しても
+    /// GIT 側の読み位置を壊さない・別コミットに移っても意味を共有しない)
     pub viewport: Viewport,
     current: Option<CommitDiff>,
     // 現在 diff 表示中のコミット index。selected (一覧側のカーソル) と分けて持つのは、
@@ -48,7 +48,7 @@ pub struct LogState {
 
 impl LogState {
     /// `wrap` に加えて右ペインの実測サイズを引き継ぐ (GitState::new と同じ理由 —
-    /// LOG に入った直後の 1 打鍵でカーソル追従が暴れないようにするため)
+    /// パネルを出した直後の 1 打鍵でカーソル追従が暴れないようにするため)
     pub fn new(root: &Path, wrap: bool, height: usize, width: usize) -> Self {
         let commits = git::log(root, 0, PAGE_SIZE);
         let exhausted = commits.len() < PAGE_SIZE;
@@ -143,6 +143,16 @@ impl LogState {
 
     pub fn open_index(&self) -> Option<usize> {
         self.open_index
+    }
+
+    /// 一覧は残したまま diff だけ畳む (右ペインをファイル表示へ戻す)。ファイルを開いた時と
+    /// Esc に共通の入口で、選択位置は保つので同じコミットをすぐ開き直せる
+    pub fn close_diff(&mut self) {
+        self.current = None;
+        self.open_index = None;
+        self.cursor = 0;
+        self.viewport.scroll = 0;
+        self.viewport.hscroll = 0;
     }
 
     pub fn title(&self) -> Option<String> {

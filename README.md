@@ -15,6 +15,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 - Syntax highlighting (syntect)
 - **Inline editing** (`e`) — insert, delete, undo/redo, paste, save
 - **Git mode** — tree filtered to changed files only (hierarchy preserved), unified diff with hunk jumping
+- **Commit log panel** (`L`) — the commit history sits under the tree in the same pane, so you can read a file and walk its history side by side; `Enter` shows the commit's diff on the right
 - Live changed-line markers (`▎`) in the gutter while editing (LCS diff against git HEAD, no per-keystroke git calls)
 - Fuzzy file finder (`Ctrl+p`)
 - In-file search (`/`, `n`/`N`) and line jump (`:N`)
@@ -52,7 +53,8 @@ Press `?` inside fv for the full list.
 | --- | --- |
 | `q` / `Ctrl+c` | Quit |
 | `Shift+Tab` | Switch mode (VIEW → EDIT → GIT) |
-| `Tab` | Switch focus (tree / viewer) |
+| `Tab` | Switch focus (tree / commit log / viewer) |
+| `L` | Toggle the commit log panel (VIEW only) |
 | `Ctrl+p` | Fuzzy finder |
 | `j`/`k`, `↑`/`↓` | Move / scroll |
 | `h`/`l`, `←`/`→` | Collapse/expand (tree), horizontal scroll (viewer) |
@@ -101,6 +103,24 @@ The tree is filtered down to changed files with the directory hierarchy preserve
 | `r` | Rescan (also refreshes git status) |
 
 Files that are deleted but not yet committed are listed as well, so they can still be selected and reviewed. Changes under hidden directories (for example `.github/`) need `a` or `--hidden`.
+
+### Commit log panel (`L`)
+
+<img width="700" alt="fv: commit log panel under the file tree, with the selected commit's diff on the right" src="docs/preview/log.svg" />
+
+`L` splits the left pane in two: the file tree on top, the commit history underneath. It is a panel rather than a mode, so the tree stays where it is and `Tab` simply cycles through one more pane. `Enter` on a commit puts its diff in the right pane (moving the focus with it); opening a file again from the tree brings the file back.
+
+| Key | Action |
+| --- | --- |
+| `L` | Show / hide the panel |
+| `j`/`k`, `↑`/`↓` | Move between commits (the diff does not follow) |
+| `Enter` / `l` / `→` | Show the diff of the selected commit |
+| `gg` / `G` | Top / end of what is loaded (loads one more page at the end) |
+| `]`/`[`, `n`/`N` | Next / previous hunk (diff) |
+| `w` | Toggle wrap (diff only, not persisted) |
+| `Esc` | Close the diff (from the diff) / close the panel (from the list) |
+
+Merge commits are shown as the diff against their first parent, with a note saying so — `git show` shows nothing at all for them by default.
 
 Ignored files (`.gitignore`, `.ignore`, `.git/info/exclude`) are left out of the tree and the finder by default. `i` (or `-i` / `--ignored`) brings them in — they are drawn dimmed, since git does not track them — and the setting is persisted like the other settings.
 

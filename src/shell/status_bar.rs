@@ -47,12 +47,7 @@ fn branch_segment(app: &App) -> Vec<Span<'static>> {
 fn lane_segments(app: &App) -> Vec<Span<'static>> {
     let in_viewer_workspace = matches!(app.workspace, Workspace::Viewer);
     let current = app.lane.index();
-    let available = [
-        true,
-        app.viewer.is_text(),
-        app.git_available(),
-        app.log_available(),
-    ];
+    let available = [true, app.viewer.is_text(), app.git_available()];
     let mut spans = Vec::with_capacity(Lane::LABELS.len() + 1);
     for (i, label) in Lane::LABELS.iter().enumerate() {
         let style = if i == current && in_viewer_workspace {
@@ -105,7 +100,8 @@ fn hint_line(app: &App) -> Line<'static> {
             match &app.lane {
                 Lane::Edit(state) => edit_status_line(state),
                 Lane::Git(_) => git_status_line(app),
-                Lane::Log(state) => log_status_line(app, state),
+                // コミット一覧は VIEW の中に同居するので、ヒントもフォーカス側で振り分ける
+                // (normal_status_line が Focus::Log と「右ペインが diff の時」を見る)
                 Lane::View => normal_status_line(app),
             }
         }
@@ -135,7 +131,7 @@ fn issues_status_line(app: &App) -> Line<'static> {
         ));
     }
     let hint = match app.focus {
-        Focus::Tree => {
+        Focus::Tree | Focus::Log => {
             "j/k: move  Enter/l: open  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
         }
         Focus::Viewer => "j/k: scroll  o: web  Tab: focus  ?: help",
@@ -162,7 +158,7 @@ fn pr_status_line(app: &App) -> Line<'static> {
         ));
     }
     let hint = match app.focus {
-        Focus::Tree => {
+        Focus::Tree | Focus::Log => {
             "j/k: move  Enter/l: open  d: diff  S: checks  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
         }
         Focus::Viewer => {
@@ -249,7 +245,8 @@ fn git_status_line(app: &App) -> Line<'static> {
         ));
     }
     let hint = match app.focus {
-        Focus::Tree => {
+        // GIT レーンにコミット一覧は出ない (L は VIEW 限定) ので Log はツリー扱いで足りる
+        Focus::Tree | Focus::Log => {
             "j/k: move  h/l: collapse/expand  Enter: diff  Tab: focus  Shift+Tab: mode  ?: help"
                 .to_string()
         }
@@ -283,17 +280,17 @@ fn git_status_line(app: &App) -> Line<'static> {
     Line::from(format!("{} changes  {hint}", app.tree.visible_files()))
 }
 
-fn log_status_line(app: &App, log: &LogState) -> Line<'static> {
-    if app.pending_g {
-        return Line::from("g");
-    }
-    let hint = match app.focus {
-        Focus::Tree => {
-            "j/k: move  Enter/l: diff  gg/G: top/bottom  Tab: focus  Shift+Tab: mode  ?: help"
-        }
-        Focus::Viewer => "j/k: cursor  n/N: hunk  w: wrap  Tab: focus  Shift+Tab: mode  ?: help",
-    };
-    Line::from(format!("{} commits  {hint}", log.commits().len()))
+// コミット一覧ペインにフォーカスがある間のヒント
+fn log_list_status_line(log: &LogState) -> Line<'static> {
+    Line::from(format!(
+        "{} commits  j/k: move  Enter/l: diff  gg/G: top/bottom  L/Esc: close  Tab: focus  ?: help",
+        log.commits().len()
+    ))
+}
+
+// 右ペインにコミット diff を出している間のヒント
+fn log_diff_status_line() -> Line<'static> {
+    Line::from("j/k: cursor  ]/[: hunk  w: wrap  Esc: close diff  Tab: focus  ?: help")
 }
 
 fn normal_status_line(app: &App) -> Line<'static> {
@@ -318,13 +315,23 @@ fn normal_status_line(app: &App) -> Line<'static> {
             search.matches.len()
         ));
     }
+    // コミット一覧ペイン (`L`) が絡む文脈は専用のヒントに振り分ける。ツリー・ファイル側の
+    // ヒントは以前と 1 文字も変えない (パネルを出していない間の見え方を変えないため)
+    if app.focus == Focus::Log
+        && let Some(log) = &app.log
+    {
+        return log_list_status_line(log);
+    }
+    if app.focus == Focus::Viewer && app.showing_commit_diff() {
+        return log_diff_status_line();
+    }
     // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {
-        Focus::Tree => {
-            "j/k: move  h/l: collapse/expand  a: hidden  s: settings  Shift+Tab: mode  q: quit  ?: help"
+        Focus::Tree | Focus::Log => {
+            "j/k: move  h/l: collapse/expand  a: hidden  L: log  s: settings  Shift+Tab: mode  ?: help"
         }
         Focus::Viewer => {
-            "j/k: cursor  w: wrap  /: search  v: select  y: copy  e: edit  Shift+Tab: mode  ?: help"
+            "j/k: cursor  w: wrap  /: search  v: select  y: copy  e: edit  L: log  Shift+Tab: mode  ?: help"
         }
     };
     Line::from(hint)

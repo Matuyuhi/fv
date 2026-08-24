@@ -262,7 +262,7 @@
 <rect x="68" y="634" width="54" height="20" fill="#a3be8c"/>
 <text x="23 32 41 50" y="649" fill="#eff1f5">VIEW</text>
 <text x="77 86 95 104" y="649" fill="#eff1f5">EDIT</text>
-<text x="131 140 149 176 185 194" y="649" fill="#eff1f5">GITLOG</text>
-<text x="230 239 248 257" y="649" fill="#b48ead">main</text>
-<text x="284 293 302 311 320 347 356 365 374 383 392 401 419 428 437 446 473 482 491 500 509 518 527 536 545 563 572 581 590 599 608 617 626 635 662 671 680 689 698 707 716 734 743 752 761 770 779 797 806 815 824 851 860 869 878 896 905 914 923" y="649" fill="#eff1f5">10:13Ctrl+s:saveCtrl+z/y:undo/redoCtrl+k:deletelineEsc:exit</text>
+<text x="131 140 149" y="649" fill="#eff1f5">GIT</text>
+<text x="185 194 203 212" y="649" fill="#b48ead">main</text>
+<text x="239 248 257 266 275 302 311 320 329 338 347 356 374 383 392 401 428 437 446 455 464 473 482 491 500 518 527 536 545 554 563 572 581 590 617 626 635 644 653 662 671 689 698 707 716 725 734 752 761 770 779 806 815 824 833 851 860 869 878" y="649" fill="#eff1f5">10:13Ctrl+s:saveCtrl+z/y:undo/redoCtrl+k:deletelineEsc:exit</text>
 </svg>

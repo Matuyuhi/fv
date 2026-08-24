@@ -9,7 +9,12 @@ use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::pane_block;
 use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
 
-// 左ペイン: コミット一覧。ツリーではなく LogState が持つ commits を直接描く
+// 件名を最優先で残し、狭い幅では右側の列から落とす閾値 (issues/PR の一覧と同じ考え方)。
+// ツリーと同じ左ペインに同居するようになり、単独レーンだった頃の幅は前提にできない
+const AUTHOR_MIN_WIDTH: usize = 60;
+const TIME_MIN_WIDTH: usize = 40;
+
+// コミット一覧。ツリーの下に並ぶ独立ペインで、LogState が持つ commits を直接描く
 pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool, area: Rect) {
     let title = format!("log ({})", log.commits().len());
     if log.commits().is_empty() {
@@ -19,6 +24,7 @@ pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool
         frame.render_widget(paragraph, area);
         return;
     }
+    let inner_width = area.width.saturating_sub(2) as usize;
     let open_index = log.open_index();
     let items: Vec<ListItem> = log
         .commits()
@@ -27,10 +33,14 @@ pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool
         .map(|(i, commit)| {
             // diff を開いている行だけ印を付ける (selected と別概念: j/k では動かない)
             let marker = if Some(i) == open_index { "▶ " } else { "  " };
-            let label = format!(
-                "{marker}{}  {:<15}  {:<12}  {}",
-                commit.short, commit.relative_time, commit.author, commit.subject
-            );
+            let mut label = format!("{marker}{}  ", commit.short);
+            if inner_width >= TIME_MIN_WIDTH {
+                label.push_str(&format!("{:<15}  ", commit.relative_time));
+            }
+            if inner_width >= AUTHOR_MIN_WIDTH {
+                label.push_str(&format!("{:<12}  ", commit.author));
+            }
+            label.push_str(&commit.subject);
             ListItem::new(label)
         })
         .collect();

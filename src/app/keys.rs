@@ -147,7 +147,7 @@ impl App {
             }
             // b もレーンを問わない (issue #26: どのレーンからでも開ける独立オーバーレイ)。
             // c/C と同じく Lane::Edit は印字キーを全て文字入力にするためここまで届かないが、
-            // それ以外の View/Git/Log からは常に開ける
+            // それ以外の View/Git からは常に開ける
             KeyCode::Char('b') => {
                 self.pending_g = false;
                 self.open_branch();
@@ -170,21 +170,26 @@ impl App {
                 self.confirm_push();
                 return;
             }
+            // L: コミット一覧パネルの on/off。c/C/b と同じくフォーカスを問わないが、
+            // レーンは VIEW 限定 (右ペインでコミット diff を出す場所が VIEW にしか無い)。
+            // GIT/EDIT で押しても意味を持てないので、そこでは素通りさせて既存の挙動を変えない
+            KeyCode::Char('L') if matches!(self.lane, Lane::View) => {
+                self.pending_g = false;
+                self.toggle_log_panel();
+                return;
+            }
             KeyCode::Tab => {
                 // フォーカスを跨ぐと g 待ちの文脈は失われるので破棄する
                 self.pending_g = false;
-                self.focus = match self.focus {
-                    Focus::Tree => Focus::Viewer,
-                    Focus::Viewer => Focus::Tree,
-                };
+                self.cycle_focus();
                 return;
             }
             _ => {}
         }
         // stash pop (#25) だけは GIT レーンに縛らない。z (push) は変更を全部退避すると
         // git_available が false になり GIT レーンへ再入場できなくなるため、「push した直後に
-        // pop で戻れない」事故を避ける必要がある。git repo でありさえすれば (LOG と同じ
-        // log_available 基準) どのレーンからでも呼べるようにする
+        // pop で戻れない」事故を避ける必要がある。git repo でありさえすれば (コミット一覧
+        // パネルと同じ log_available 基準) どのレーンからでも呼べるようにする
         if self.log_available() && key.code == KeyCode::Char('Z') {
             self.confirm_stash_pop();
             return;
@@ -206,10 +211,8 @@ impl App {
             }
         }
         match self.focus {
-            // ツリーのキー操作は VIEW / GIT で共通。開く先だけレーンで振り分ける。
-            // LOG は左ペインがツリーではなくコミット一覧なので専用ハンドラに分ける
+            // ツリーのキー操作は VIEW / GIT で共通。開く先だけレーンで振り分ける
             Focus::Tree => match &self.lane {
-                Lane::Log(_) => self.on_log_list_key(key),
                 Lane::Git(_) => {
                     // Space (stage/unstage トグル) は GIT レーン限定。on_tree_key は VIEW とも
                     // 共用するハンドラなので、ここで先に拾って VIEW 側の意味 (no-op) を変えない
@@ -227,12 +230,28 @@ impl App {
                     }
                 }
             },
+            // コミット一覧ペイン (`L` で出している間だけフォーカスが来る)
+            Focus::Log => self.on_log_list_key(key),
             Focus::Viewer => match &self.lane {
                 Lane::Git(_) => self.on_git_key(key, ctrl),
-                Lane::Log(_) => self.on_log_diff_key(key, ctrl),
+                // 右ペインが「最後に開いたもの」で決まるので、キーの宛先も同じ判定
+                // (showing_commit_diff) 1 箇所で決める
+                _ if self.showing_commit_diff() => self.on_log_diff_key(key, ctrl),
                 _ => self.on_viewer_key(key, ctrl),
             },
         }
+    }
+
+    /// Tab のフォーカス循環。コミット一覧を出している間だけ 3 ペインを回る
+    /// (パネルが無い間の挙動は Tree ⇄ Viewer のままで 1 バイトも変わらない)
+    fn cycle_focus(&mut self) {
+        let has_log = self.log_panel_visible();
+        self.focus = match self.focus {
+            Focus::Tree if has_log => Focus::Log,
+            Focus::Tree => Focus::Viewer,
+            Focus::Log => Focus::Viewer,
+            Focus::Viewer => Focus::Tree,
+        };
     }
 
     // Input モード中は q も含め全ての印字キーを buffer に積む。Esc でキャンセル、Enter で確定
@@ -710,45 +729,64 @@ impl App {
         }
     }
 
-    // LOG レーンの左ペイン (コミット一覧)。j/k は移動のみで diff は開かない
+    // コミット一覧ペイン。j/k は移動のみで diff は開かない
     // (GIT のツリーと同じ理由でキーリピート時に git show を連打しないため)
     fn on_log_list_key(&mut self, key: KeyEvent) {
         if self.pending_g {
             self.pending_g = false;
             if key.code == KeyCode::Char('g') {
-                if let Lane::Log(log) = &mut self.lane {
+                if let Some(log) = &mut self.log {
                     log.select_top();
                 }
                 return;
             }
         }
+        // Esc はパネルごと閉じる (notice も borrow も要らないので Lane 側より先に処理する)
+        if key.code == KeyCode::Esc {
+            self.close_log_panel();
+            return;
+        }
         let root = self.root.clone();
-        let Lane::Log(log) = &mut self.lane else {
+        let Some(log) = &mut self.log else {
             return;
         };
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => log.move_selection(&root, 1),
             KeyCode::Char('k') | KeyCode::Up => log.move_selection(&root, -1),
-            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => log.open_selected(&root),
+            // 開いたら読む先は右ペインなので、そのままフォーカスも移す (Enter のたびに
+            // Tab を押させない)。パネルを出す時の focus 移動と同じ考え方
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => {
+                log.open_selected(&root);
+                self.focus = Focus::Viewer;
+            }
             KeyCode::Char('g') => self.pending_g = true,
             KeyCode::Char('G') => log.select_bottom(&root),
             _ => {}
         }
     }
 
-    // LOG レーンの右ペイン (選択コミットの diff)。GIT の diff ペインと同じ操作感だが
+    // 右ペインにコミット diff を出している間のキー。GIT の diff ペインと同じ操作感だが
     // 基準の切替 (t) は無い (コミットの diff は HEAD/staged のような基準を持たない)
     fn on_log_diff_key(&mut self, key: KeyEvent, ctrl: bool) {
         if self.pending_g {
             self.pending_g = false;
             if key.code == KeyCode::Char('g') {
-                if let Lane::Log(log) = &mut self.lane {
+                if let Some(log) = &mut self.log {
                     log.jump_to_top();
                 }
                 return;
             }
         }
-        let Lane::Log(log) = &mut self.lane else {
+        // Esc は diff だけ畳んでファイル表示へ戻す (パネルは開いたまま)。
+        // 一覧側の Esc がパネルごと閉じるのと対になっていて、深い方から 1 段ずつ戻る
+        if key.code == KeyCode::Esc {
+            if let Some(log) = &mut self.log {
+                log.close_diff();
+            }
+            self.focus = Focus::Log;
+            return;
+        }
+        let Some(log) = &mut self.log else {
             return;
         };
         let half_page = (log.viewport.height / 2).max(1) as isize;

@@ -48,6 +48,11 @@ const NOTICE_DURATION: Duration = Duration::from_secs(4);
 const MIN_TREE_WIDTH: u16 = 12;
 const MIN_VIEWER_WIDTH: u16 = 24;
 
+// 左ペインをツリー / コミット一覧に上下分割するときの下限高 (枠線 2 行を含む)。
+// ツリーは 1 行、コミット一覧は 3 行が最低限読める高さ
+const MIN_TREE_HEIGHT: u16 = 3;
+const MIN_LOG_HEIGHT: u16 = 5;
+
 pub struct App {
     pub root: PathBuf,
     pub focus: Focus,
@@ -65,6 +70,11 @@ pub struct App {
     pub prs: PrsState,
     pub tree: Tree,
     pub viewer: Viewer,
+    /// VIEW レーンの左ペイン下半分に出すコミット一覧 (`L` でトグル)。None = 出していない。
+    /// かつての Lane::Log を畳んだもので、レーンではなく「ツリーと並べて常設できるパネル」に
+    /// したのは「ファイルを読みながら履歴も追う」が本来の使い方だったため。開いた瞬間に
+    /// git log を叩くので、使わない限りコストを払わないよう Option で遅延生成する
+    pub log: Option<LogState>,
     /// Finder の候補。ツリーが遅延走査になったぶん、全ファイル一覧は別に持つ
     pub file_index: FileIndex,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
@@ -86,6 +96,9 @@ pub struct App {
     pub help_view: (usize, usize),
     // マウスのヒットテスト用。shell::draw が毎フレーム書き戻す (viewport の実測値と同じパターン)
     pub tree_area: Rect,
+    /// コミット一覧ペインの矩形 (パネルを出していない間は空)。tree_area と同じく
+    /// shell::draw が毎フレーム書き戻し、mouse.rs のヒットテストが読む
+    pub log_area: Rect,
     pub viewer_area: Rect,
     // 左右ペインの境界 (両ペインの枠線 2 桁)。ドラッグの掴み判定用に shell::draw が書き戻す
     pub splitter_area: Rect,
@@ -176,6 +189,7 @@ impl App {
             prs: PrsState::new(config.wrap_default),
             tree,
             viewer,
+            log: None,
             file_index,
             git,
             branch_status,
@@ -185,6 +199,7 @@ impl App {
             pending_g: false,
             help_view: (0, 0),
             tree_area: Rect::default(),
+            log_area: Rect::default(),
             viewer_area: Rect::default(),
             splitter_area: Rect::default(),
             tab_areas: Default::default(),
@@ -360,14 +375,13 @@ impl App {
         self.branch_status = git::branch_status(&self.root);
     }
 
-    // rescan/rescan_status_only 共通の後処理。新しい git status を LOG からの離脱判定・GIT の
+    // rescan/rescan_status_only 共通の後処理。新しい git status をコミット一覧の可否・GIT の
     // 絞り込み・diff 更新に反映する (走査したかどうかに関わらず同じ内容)
     fn after_status_refresh(&mut self) {
-        // LOG は FS 監視の対象外 (.git は watch.rs のフィルタで除外される) なので取り直しは
-        // しない。リポジトリ自体が消えた場合だけは滞在させず VIEW へ戻す
-        if matches!(self.lane, Lane::Log(_)) && self.git.is_none() {
-            self.lane = Lane::View;
-            return;
+        // コミット一覧は FS 監視の対象外 (.git は watch.rs のフィルタで除外される) なので
+        // 取り直しはしない。リポジトリ自体が消えた場合だけはパネルを閉じる
+        if self.git.is_none() && self.log.is_some() {
+            self.close_log_panel();
         }
         if !matches!(self.lane, Lane::Git(_)) {
             return;
@@ -408,8 +422,8 @@ impl App {
         paths
     }
 
-    /// Shift+Tab: VIEW → EDIT → GIT → LOG → VIEW と循環する。入れないレーン
-    /// (非テキストの EDIT、非 git repo の GIT/LOG) は飛ばし、一周して戻れなければ現状維持。
+    /// Shift+Tab: VIEW → EDIT → GIT → VIEW と循環する。入れないレーン
+    /// (非テキストの EDIT、変更が無い GIT) は飛ばし、一周して戻れなければ現状維持。
     pub(super) fn cycle_lane(&mut self) {
         // Issues/PR タブに Lane の概念は無いので、居る間は循環を無効にする
         // (ステータスバー側もこれに合わせてセグメントを暗くする)
@@ -438,7 +452,6 @@ impl App {
         let entered = match index {
             1 => self.enter_edit(),
             2 => self.enter_git(),
-            3 => self.enter_log(),
             _ => {
                 self.lane = Lane::View;
                 true
@@ -448,6 +461,10 @@ impl App {
         // 元の展開状態がそのまま戻る
         if entered && !matches!(self.lane, Lane::Git(_)) {
             self.tree.set_filter(None);
+        }
+        // VIEW を離れるとコミット一覧は描かれなくなるので、フォーカスも取り残さない
+        if entered && !self.log_panel_visible() && self.focus == Focus::Log {
+            self.focus = Focus::Tree;
         }
         entered
     }
@@ -498,29 +515,76 @@ impl App {
         true
     }
 
-    /// LOG レーンに入れるか。GIT の git_available (変更が 1 件以上) と違い、コミット履歴の
-    /// 閲覧は変更の有無を問わない。git repo でありさえすれば良く、コミットが 0 件でも
+    /// コミット一覧パネルを出せるか。GIT の git_available (変更が 1 件以上) と違い、コミット
+    /// 履歴の閲覧は変更の有無を問わない。git repo でありさえすれば良く、コミットが 0 件でも
     /// 一覧側で「no commits」を出すだけで panic しない (LogState::new / git::log が空 Vec で吸収)
     pub fn log_available(&self) -> bool {
         self.git.is_some()
     }
 
-    fn enter_log(&mut self) -> bool {
-        if !self.log_available() {
-            return false;
+    /// `L`: 左ペイン下半分のコミット一覧を出し入れする。VIEW レーン限定なのは、右ペインで
+    /// コミット diff を見せる先が VIEW にしか無いため — GIT/EDIT は右ペインを自分の状態
+    /// (diff・編集バッファ) で埋めていて、コミットを開く場所が無い
+    pub(super) fn toggle_log_panel(&mut self) {
+        if self.log.is_some() {
+            self.close_log_panel();
+            return;
         }
-        self.lane = Lane::Log(LogState::new(
+        if !self.log_available() {
+            self.set_notice("git リポジトリではありません", true);
+            return;
+        }
+        // Viewport の実測値は右ペイン (diff を出す場所) のもの。GitState::new と同じ理由で、
+        // 開いた直後の 1 打鍵でカーソル追従が暴れないよう最初から渡しておく
+        self.log = Some(LogState::new(
             &self.root,
             self.viewer.viewport.wrap,
             self.viewer.viewport.height,
             self.viewer.viewport.width,
         ));
-        // GIT と同じ理由 (入った直後の主操作は一覧側の選択) でツリー相当のフォーカスに寄せる
-        self.focus = Focus::Tree;
-        true
+        // 出した直後の主操作は一覧側の選択なので、そのままフォーカスを移す
+        // (もう一度 L を押すか Esc で元のペインへ戻る)
+        self.focus = Focus::Log;
     }
 
-    /// ブランチ一覧オーバーレイ (`b`) を開けるか。LOG と同じく変更の有無を問わず、
+    /// パネルを閉じる。開いていたコミット diff も一緒に畳む (状態ごと捨てるので
+    /// showing_commit_diff が自然に false になり、右ペインはファイル表示へ戻る)
+    pub(super) fn close_log_panel(&mut self) {
+        self.log = None;
+        if self.focus == Focus::Log {
+            self.focus = Focus::Tree;
+        }
+    }
+
+    /// パネルを実際に画面へ出すか。状態 (log) を持っていても VIEW 以外のレーンでは出さない —
+    /// GIT/EDIT は右ペインを自分の状態 (diff・編集バッファ) で埋めていて、そこでコミットを
+    /// 開いても見せる場所が無いため。状態は捨てずに残すので VIEW へ戻れば読み位置ごと復帰する
+    pub fn log_panel_visible(&self) -> bool {
+        self.log.is_some() && matches!(self.lane, Lane::View)
+    }
+
+    /// 右ペインが「ファイル」ではなく「選択コミットの diff」を出している状態か。
+    /// 描画 (shell::draw)・キールーティング・マウス・ステータスバーが全てこの 1 箇所を見るので、
+    /// 「見た目は diff なのにキーはファイル側へ効く」というズレが起きない
+    pub fn showing_commit_diff(&self) -> bool {
+        matches!(self.lane, Lane::View)
+            && self
+                .log
+                .as_ref()
+                .is_some_and(|log| log.open_index().is_some())
+    }
+
+    /// 左ペインをツリーとコミット一覧に割る高さ。tree_width と同じく換算をここ 1 箇所に
+    /// 閉じ、描画とマウスのヒットテストが同じ値を通る。狭い端末では下限 (枠 2 + 数行) を
+    /// 満たせないので、その時は半分ずつに倒す
+    pub fn log_pane_height(&self, total: u16) -> u16 {
+        if total < MIN_TREE_HEIGHT + MIN_LOG_HEIGHT {
+            return total / 2;
+        }
+        (total / 2).clamp(MIN_LOG_HEIGHT, total - MIN_TREE_HEIGHT)
+    }
+
+    /// ブランチ一覧オーバーレイ (`b`) を開けるか。コミット一覧と同じく変更の有無を問わず、
     /// git repo でありさえすればよい (一覧が空でも BranchState 側が空を前提に組んである)
     pub fn branch_available(&self) -> bool {
         self.git.is_some()
@@ -586,7 +650,7 @@ impl App {
     // cycle_workspace/set_workspace 共通の遷移後処理。同じガード (issues/PR が初回取得済みか) を
     // 呼び出し側に重複させないための唯一の入口 (keys.rs の関数コピーを避ける方針と同じ理由)
     fn after_workspace_change(&mut self) {
-        // 入った直後の主操作は一覧側の選択なので、GIT/LOG と同じくツリー相当にフォーカスを寄せる
+        // 入った直後の主操作は一覧側の選択なので、GIT と同じくツリー相当にフォーカスを寄せる
         match self.workspace {
             Workspace::Issues => {
                 self.focus = Focus::Tree;
@@ -617,7 +681,14 @@ impl App {
                 git.exit_all();
                 git.open(&self.root, path);
             }
-            _ => self.viewer.open(path, &self.root),
+            _ => {
+                // 右ペインは「最後に開いたもの」を出す。ファイルを開いた以上コミット diff は
+                // 引っ込める (パネル自体は開いたままなので、また Enter で戻せる)
+                if let Some(log) = &mut self.log {
+                    log.close_diff();
+                }
+                self.viewer.open(path, &self.root)
+            }
         }
     }
 
