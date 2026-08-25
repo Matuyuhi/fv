@@ -4,13 +4,18 @@ use crate::component::branch::BranchState;
 use crate::component::editor::EditState;
 use crate::component::finder::Finder;
 use crate::component::gitlane::GitState;
-use crate::component::log::LogState;
 
 use super::commit::CommitDraft;
 
+/// 入力を受け取るペイン。左ペイン (Tree) と右ペイン (Viewer) の 2 値だったところに、
+/// VIEW レーンの左ペイン下半分に出るコミット一覧 (Log) が 3 つ目として加わる。
+/// GIT の「ツリーを変更ファイルに絞り込む」や issues/PR の「一覧 + 詳細」は今まで通り
+/// Tree/Viewer の意味を再利用するので、増えるのはこの 1 つだけで足りる
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Tree,
+    /// コミット一覧ペイン (`L` で出している間だけ入れる)
+    Log,
     Viewer,
 }
 
@@ -40,27 +45,30 @@ pub struct SettingsState {
     pub selected: usize,
 }
 
-/// 持続する作業レーン。Shift+Tab で View → Edit → Git → Log → View と循環する。
-/// Edit / Git / Log はそれぞれの状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
+/// 持続する作業レーン。Shift+Tab で View → Edit → Git → View と循環する。
+/// Edit / Git はそれぞれの状態を所有し「そのレーンにいるのに状態が無い」を型で排除する
 /// (Finder と同じパターン)。オーバーレイ (Mode) を挟んでもレーンは保持されるので、
-/// GIT でヘルプを開いて閉じても GIT に戻る
+/// GIT でヘルプを開いて閉じても GIT に戻る。
+///
+/// コミット履歴はかつて Lane::Log として 4 つ目のレーンだったが、「ファイルを読みながら
+/// 履歴も見る」が本来の使い方で、レーンを 1 つ消費して画面を丸ごと差し替えるのは強すぎた。
+/// 今は VIEW の左ペイン下半分に出る一覧 (App::log) になっていて、レーンではなく `L` の
+/// トグルで on/off する
 pub enum Lane {
     View,
     Edit(EditState),
     Git(GitState),
-    Log(LogState),
 }
 
 impl Lane {
     /// ステータスバーのセグメント表示。並び順は Shift+Tab の循環順と同じ
-    pub const LABELS: [&'static str; 4] = ["VIEW", "EDIT", "GIT", "LOG"];
+    pub const LABELS: [&'static str; 3] = ["VIEW", "EDIT", "GIT"];
 
     pub fn index(&self) -> usize {
         match self {
             Lane::View => 0,
             Lane::Edit(_) => 1,
             Lane::Git(_) => 2,
-            Lane::Log(_) => 3,
         }
     }
 }

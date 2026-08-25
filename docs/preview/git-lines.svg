@@ -213,7 +213,6 @@
 <text x="23 32 41 50" y="649" fill="#eff1f5">VIEW</text>
 <text x="77 86 95 104" y="649" fill="#c0c5ce" fill-opacity="0.55">EDIT</text>
 <text x="131 140 149" y="649" fill="#eff1f5">GIT</text>
-<text x="176 185 194" y="649" fill="#eff1f5">LOG</text>
-<text x="230 239 248 257" y="649" fill="#b48ead">main</text>
-<text x="284 302 311 320 329 338 347 356 383 401 410 419 428 437 455 464 473 482 491 500 509 518 545 554 563 572 581 590 608 617 626 635 644 662 671 680 689 698 725 734 743 752 770 788 824 833 842 851 869 887 923 932 950 959 968 977 986 995" y="649" fill="#eff1f5">4changes2linesselectedEnter:stagelinesj/k:伸縮Esc:解除/:search</text>
+<text x="185 194 203 212" y="649" fill="#b48ead">main</text>
+<text x="239 257 266 275 284 293 302 311 338 356 365 374 383 392 410 419 428 437 446 455 464 473 500 509 518 527 536 545 563 572 581 590 599 617 626 635 644 653 680 689 698 707 725 743 779 788 797 806 824 842 878 887 905 914 923 932 941 950 977 986" y="649" fill="#eff1f5">4changes2linesselectedEnter:stagelinesj/k:伸縮Esc:解除/:searchA:</text>
 </svg>

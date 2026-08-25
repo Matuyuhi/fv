@@ -129,7 +129,7 @@
 <rect x="14" y="634" width="54" height="20" fill="#a3be8c"/>
 <text x="23 32 41 50" y="649" fill="#eff1f5">VIEW</text>
 <text x="77 86 95 104" y="649" fill="#c0c5ce" fill-opacity="0.55">EDIT</text>
-<text x="131 140 149 176 185 194" y="649" fill="#eff1f5">GITLOG</text>
-<text x="230 239 248 257" y="649" fill="#b48ead">main</text>
-<text x="284 293 302 311 320 329 356 365 374 383 392 401 419 437 473 482 491 500 509 518 527 545 563 599 608 617 626 644 662 680" y="649" fill="#eff1f5">commitEnter:改行Ctrl+s:確定Esc:閉じる</text>
+<text x="131 140 149" y="649" fill="#eff1f5">GIT</text>
+<text x="185 194 203 212" y="649" fill="#b48ead">main</text>
+<text x="239 248 257 266 275 284 311 320 329 338 347 356 374 392 428 437 446 455 464 473 482 500 518 554 563 572 581 599 617 635" y="649" fill="#eff1f5">commitEnter:改行Ctrl+s:確定Esc:閉じる</text>
 </svg>

@@ -39,11 +39,10 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 if self.tree_area.contains(pos) {
                     self.focus = Focus::Tree;
-                    if matches!(self.lane, Lane::Log(_)) {
-                        self.click_log_row(mouse.row);
-                    } else {
-                        self.click_tree_row(mouse.row);
-                    }
+                    self.click_tree_row(mouse.row);
+                } else if self.log_area.contains(pos) {
+                    self.focus = Focus::Log;
+                    self.click_log_row(mouse.row);
                 } else if self.viewer_area.contains(pos) {
                     self.focus = Focus::Viewer;
                     self.click_diff_row(&mouse);
@@ -56,20 +55,8 @@ impl App {
                 self.drag_viewer_selection(&mouse)
             }
             MouseEventKind::Up(MouseButton::Left) => self.viewer.end_drag(),
-            MouseEventKind::ScrollUp => {
-                if self.tree_area.contains(pos) {
-                    self.scroll_left_pane(-3);
-                } else if self.viewer_area.contains(pos) {
-                    self.scroll_right_pane(-3);
-                }
-            }
-            MouseEventKind::ScrollDown => {
-                if self.tree_area.contains(pos) {
-                    self.scroll_left_pane(3);
-                } else if self.viewer_area.contains(pos) {
-                    self.scroll_right_pane(3);
-                }
-            }
+            MouseEventKind::ScrollUp => self.scroll_at(pos, -3),
+            MouseEventKind::ScrollDown => self.scroll_at(pos, 3),
             _ => {}
         }
     }
@@ -81,33 +68,35 @@ impl App {
         // 枠線 (上 1 セル) の内側だけをコンテンツ座標に変換し、sticky header が実際に
         // 描かれている行数ぶんをさらに差し引く。**高さの確保 (has_file_boundary) ではなく
         // 描画の有無 (sticky_label) で判定する** — 高さは「境界を持つか」だけで常に予約する
-        // 一方、sticky 行自体は最初のファイル境界より手前 (LOG のコミット本文) では
+        // 一方、sticky 行自体は最初のファイル境界より手前 (コミットメッセージ本文) では
         // 挿入されない。確保の方で引くと、その領域ではクリックが 1 行ずれて先頭行を選べない
         let Some(row) = mouse.row.checked_sub(area.y + 1).map(usize::from) else {
             return;
         };
-        match &mut self.lane {
-            Lane::Git(git) => {
-                let Some(row) = row.checked_sub(usize::from(git.sticky_label().is_some())) else {
-                    return;
-                };
-                git.click_row(row);
-            }
-            Lane::Log(log) => {
-                let Some(row) = row.checked_sub(usize::from(log.sticky_label().is_some())) else {
-                    return;
-                };
-                log.click_row(row);
-            }
-            _ => {}
+        if self.showing_commit_diff() {
+            let Some(log) = &mut self.log else {
+                return;
+            };
+            let Some(row) = row.checked_sub(usize::from(log.sticky_label().is_some())) else {
+                return;
+            };
+            log.click_row(row);
+            return;
+        }
+        if let Lane::Git(git) = &mut self.lane {
+            let Some(row) = row.checked_sub(usize::from(git.sticky_label().is_some())) else {
+                return;
+            };
+            git.click_row(row);
         }
     }
 
     // ビューア上での押下 = 範囲選択の起点。端末のネイティブ選択はマウスキャプチャ中に
-    // 使えないので、閲覧中のコピーはこちらで賄う。GIT/LOG の右ペインは diff (別ドキュメント)
+    // 使えないので、閲覧中のコピーはこちらで賄う。GIT の diff もコミット diff も別ドキュメント
     // なので対象外にし、VIEW レーンだけに閉じる
     fn begin_viewer_selection(&mut self, mouse: &MouseEvent) {
-        if !matches!(self.lane, Lane::View) {
+        // コミット diff を出している間の右ペインも別ドキュメントなので対象外
+        if !matches!(self.lane, Lane::View) || self.showing_commit_diff() {
             return;
         }
         // 枠線 (上・左 1 セル) の内側だけをコンテンツ座標に変換する
@@ -192,24 +181,32 @@ impl App {
         true
     }
 
-    // 左ペインの中身はレーンで変わる (VIEW/GIT はツリー、LOG はコミット一覧)。ホイールは
-    // j/k のスクロールと同じ扱いで、LOG でも diff の自動追従はしない (move_selection 参照)
-    fn scroll_left_pane(&mut self, delta: isize) {
-        if matches!(self.lane, Lane::Log(_)) {
+    // ホイールは位置で宛先が決まる。ペインが 3 つ (ツリー / コミット一覧 / 右ペイン) に
+    // なったので、判定を 1 箇所にまとめて Up/Down で同じ順序を二度書かない
+    fn scroll_at(&mut self, pos: Position, delta: isize) {
+        if self.tree_area.contains(pos) {
+            self.tree.move_selection(delta);
+        } else if self.log_area.contains(pos) {
+            // j/k と同じ扱いで diff の自動追従はしない (LogState::move_selection 参照)
             let root = self.root.clone();
-            if let Lane::Log(log) = &mut self.lane {
+            if let Some(log) = &mut self.log {
                 log.move_selection(&root, delta);
+            }
+        } else if self.viewer_area.contains(pos) {
+            self.scroll_right_pane(delta);
+        }
+    }
+
+    // 右ペインの中身は「最後に開いたもの」で変わる (ファイル / コミット diff / GIT の diff)
+    fn scroll_right_pane(&mut self, delta: isize) {
+        if self.showing_commit_diff() {
+            if let Some(log) = &mut self.log {
+                log.scroll_by(delta);
             }
             return;
         }
-        self.tree.move_selection(delta);
-    }
-
-    // 右ペインの中身はレーンで変わる (VIEW はファイル、GIT/LOG は diff)
-    fn scroll_right_pane(&mut self, delta: isize) {
         match &mut self.lane {
             Lane::Git(git) => git.scroll_by(delta),
-            Lane::Log(log) => log.scroll_by(delta),
             _ => self.viewer.scroll_by(delta),
         }
     }
@@ -354,8 +351,8 @@ impl App {
     // (クリックは Enter/l と同じ明示操作なので、j/k と違い自動追従を避ける理由がない)
     fn click_log_row(&mut self, row: u16) {
         let root = self.root.clone();
-        let area_y = self.tree_area.y;
-        let Lane::Log(log) = &mut self.lane else {
+        let area_y = self.log_area.y;
+        let Some(log) = &mut self.log else {
             return;
         };
         let row = row as isize - area_y as isize - 1 + log.list_state.offset() as isize;

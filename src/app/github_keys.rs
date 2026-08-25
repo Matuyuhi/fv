@@ -26,8 +26,10 @@ impl App {
             }
             KeyCode::Tab => {
                 self.pending_g = false;
+                // Focus::Log は Viewer タブ専用 (after_workspace_change がタブ移動時に
+                // Tree へ寄せる) なのでここへは来ないが、来ても左ペイン扱いで矛盾しない
                 self.focus = match self.focus {
-                    Focus::Tree => Focus::Viewer,
+                    Focus::Tree | Focus::Log => Focus::Viewer,
                     Focus::Viewer => Focus::Tree,
                 };
                 return;
@@ -57,7 +59,7 @@ impl App {
             _ => {}
         }
         match self.focus {
-            Focus::Tree => self.on_issues_list_key(key, ctrl),
+            Focus::Tree | Focus::Log => self.on_issues_list_key(key, ctrl),
             Focus::Viewer => self.on_issues_detail_key(key, ctrl),
         }
     }
@@ -170,8 +172,10 @@ impl App {
             }
             KeyCode::Tab => {
                 self.pending_g = false;
+                // Focus::Log は Viewer タブ専用 (after_workspace_change がタブ移動時に
+                // Tree へ寄せる) なのでここへは来ないが、来ても左ペイン扱いで矛盾しない
                 self.focus = match self.focus {
-                    Focus::Tree => Focus::Viewer,
+                    Focus::Tree | Focus::Log => Focus::Viewer,
                     Focus::Viewer => Focus::Tree,
                 };
                 return;
@@ -209,7 +213,7 @@ impl App {
             _ => {}
         }
         match self.focus {
-            Focus::Tree => self.on_pr_list_key(key, ctrl),
+            Focus::Tree | Focus::Log => self.on_pr_list_key(key, ctrl),
             Focus::Viewer => self.on_pr_detail_key(key, ctrl),
         }
     }

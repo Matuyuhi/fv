@@ -145,11 +145,12 @@ pub const SCENES: &[Scene] = &[
     },
     Scene {
         name: "log",
-        description: "LOG レーン: コミット一覧 + 選択コミットの diff",
+        description: "L コミット一覧パネル: ツリーの下の履歴 + 選択コミットの diff",
         size: None,
         setup: |app| {
-            to_lane(app, 3);
-            send(app, "<CR>");
+            open(app, "src/main.rs");
+            // L で一覧を出すとフォーカスもそこへ移るので、そのまま Enter で diff を開ける
+            send(app, "L<CR>");
         },
     },
     Scene {
@@ -281,7 +282,7 @@ fn send(app: &mut App, script: &str) {
     }
 }
 
-// Shift+Tab の循環でレーンを合わせる。直接 lane を差し替えると enter_git/enter_log の
+// Shift+Tab の循環でレーンを合わせる。直接 lane を差し替えると enter_git の
 // 初期化 (絞り込み・フォーカス寄せ) を飛ばしてしまい、実際の画面と食い違う
 fn to_lane(app: &mut App, index: usize) {
     for _ in 0..Lane::LABELS.len() {

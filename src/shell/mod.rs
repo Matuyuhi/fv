@@ -83,8 +83,19 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
         Constraint::Min(1),
     ])
     .areas(main);
+    // 左ペインはコミット一覧パネル (`L`) を出している間だけ上下に割る。ツリーが上・履歴が下で、
+    // 高さの換算は App::log_pane_height 1 箇所に閉じる (tree_width と同じパターン)
+    let (tree_rect, log_rect) = if app.log_panel_visible() {
+        let log_height = app.log_pane_height(left.height);
+        let [tree_rect, log_rect] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(log_height)]).areas(left);
+        (tree_rect, Some(log_rect))
+    } else {
+        (left, None)
+    };
     // マウスのヒットテスト用に、次の on_mouse で使えるよう書き戻す (viewport の実測値と同じパターン)
-    app.tree_area = left;
+    app.tree_area = tree_rect;
+    app.log_area = log_rect.unwrap_or_default();
     app.viewer_area = right;
     // 掴み代を確保するため、隣接する枠線 2 桁 (左ペインの右枠 + 右ペインの左枠) を境界とする
     app.splitter_area = Rect {
@@ -93,18 +104,6 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
         width: 2.min(main.width),
         height: main.height,
     };
-    // LOG は左ペインもツリーではなくコミット一覧に差し替わるため、他レーンより先に分岐して
-    // 左右まとめて専用の描画へ渡す (tree_pane は呼ばない)
-    if matches!(app.lane, Lane::Log(_)) {
-        let list_focused = app.focus == Focus::Tree;
-        let diff_focused = app.focus == Focus::Viewer;
-        let background = app.viewer.background();
-        if let Lane::Log(log) = &mut app.lane {
-            log::view::draw_log_list(frame, log, list_focused, left);
-            log::view::draw_log_diff(frame, log, diff_focused, background, right);
-        }
-        return;
-    }
     tree::view::draw_tree(
         frame,
         &mut app.tree,
@@ -112,12 +111,28 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
         &app.root,
         app.icons,
         app.focus == Focus::Tree,
-        left,
+        tree_rect,
     );
-    // 右ペインの中身はレーンで決まる (VIEW: ファイル / EDIT: 編集バッファ / GIT: diff)。
+    if let Some(log_rect) = log_rect {
+        let focused = app.focus == Focus::Log;
+        if let Some(log) = &mut app.log {
+            log::view::draw_log_list(frame, log, focused, log_rect);
+        }
+    }
+    // 右ペインの中身はレーンで決まる (VIEW: ファイル or コミット diff / EDIT: 編集バッファ /
+    // GIT: diff)。
     // どのレーンの描画も「そのレーンの状態 + 必要なスカラ」しか受け取らない — App 全体を
     // 渡さないことで、View が触れる状態の範囲を型で縛る
     let focused = app.focus == Focus::Viewer;
+    // 右ペインは「最後に開いたもの」で決まる。コミットを開いていればファイルより優先して
+    // その diff を出す (判定は App::showing_commit_diff 1 箇所)
+    if app.showing_commit_diff() {
+        let background = app.viewer.background();
+        if let Some(log) = &mut app.log {
+            log::view::draw_log_diff(frame, log, focused, background, right);
+        }
+        return;
+    }
     if let Lane::Edit(edit) = &mut app.lane {
         // EDIT は Viewport (スクロール共有) と Highlighter を Viewer から借りる関係なので
         // Viewer も渡す (app.lane と app.viewer は互いに素なフィールドなので同時に借りられる)
