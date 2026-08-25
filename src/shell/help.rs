@@ -56,7 +56,10 @@ fn help_lines() -> Vec<Line<'static>> {
             ("Ctrl+c", "終了"),
             ("q", "終了"),
             ("Shift+Tab", "モード切替 (VIEW → EDIT → GIT)"),
-            ("Tab", "フォーカス切替 (Tree → Log → Viewer)"),
+            (
+                "Tab",
+                "フォーカス切替 (Tree → Viewer。コミット一覧を出している間だけ Log を挟む)",
+            ),
             (
                 "L",
                 "コミット一覧パネルの表示切替 (VIEW のみ・左ペイン下半分)",

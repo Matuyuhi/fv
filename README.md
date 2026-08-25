@@ -53,7 +53,7 @@ Press `?` inside fv for the full list.
 | --- | --- |
 | `q` / `Ctrl+c` | Quit |
 | `Shift+Tab` | Switch mode (VIEW → EDIT → GIT) |
-| `Tab` | Switch focus (tree / commit log / viewer) |
+| `Tab` | Switch focus (tree / viewer; the commit log joins the cycle while its panel is open) |
 | `L` | Toggle the commit log panel (VIEW only) |
 | `Ctrl+p` | Fuzzy finder |
 | `j`/`k`, `↑`/`↓` | Move / scroll |
@@ -108,7 +108,7 @@ Files that are deleted but not yet committed are listed as well, so they can sti
 
 <img width="700" alt="fv: commit log panel under the file tree, with the selected commit's diff on the right" src="docs/preview/log.svg" />
 
-`L` splits the left pane in two: the file tree on top, the commit history underneath. It is a panel rather than a mode, so the tree stays where it is and `Tab` simply cycles through one more pane. `Enter` on a commit puts its diff in the right pane (moving the focus with it); opening a file again from the tree brings the file back.
+`L` splits the left pane in two: the file tree on top, the commit history underneath. It is a panel rather than a mode, so the tree stays where it is and `Tab` cycles through one more pane while it is open (with the panel closed, `Tab` still goes straight from the tree to the viewer). `Enter` on a commit puts its diff in the right pane (moving the focus with it); opening a file again from the tree brings the file back.
 
 | Key | Action |
 | --- | --- |

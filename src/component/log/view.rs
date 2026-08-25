@@ -1,13 +1,13 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{List, ListItem, Paragraph};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
 use crate::component::log::LogState;
 
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
-use crate::widget::pane_block;
 use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
+use crate::widget::{pane_block, visible_window};
 
 // 件名を最優先で残し、狭い幅では右側の列から落とす閾値 (issues/PR の一覧と同じ考え方)。
 // ツリーと同じ左ペインに同居するようになり、単独レーンだった頃の幅は前提にできない
@@ -24,15 +24,37 @@ pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool
         frame.render_widget(paragraph, area);
         return;
     }
-    let inner_width = area.width.saturating_sub(2) as usize;
+    let block = pane_block(title, focused);
+    let inner = block.inner(area);
+    let inner_width = inner.width as usize;
+
+    // ListItem の組み立ては画面に映る行数に比例させる (ツリーと同じ理由・同じ計算)。
+    // commits は load_more で上限なく伸びるので、一覧全体を組むと j/k 1 打鍵あたりの
+    // 再描画コストが履歴の長さに比例してしまう
+    let total = log.commits().len();
+    let selected = (total > 0).then_some(log.selected);
+    log.list_state.select(selected);
+    let max_height = inner.height as usize;
+    let (first, last) = if total == 0 || max_height == 0 {
+        (0, 0)
+    } else {
+        visible_window(total, max_height, *log.list_state.offset_mut(), selected)
+    };
+    // 絶対 offset は app/mouse.rs::click_log_row がクリック行の index 換算に読む
+    // (描画→app の書き戻し。ツリーと同じパターン)
+    *log.list_state.offset_mut() = first;
+
     let open_index = log.open_index();
-    let items: Vec<ListItem> = log
-        .commits()
+    let items: Vec<ListItem> = log.commits()[first..last]
         .iter()
         .enumerate()
-        .map(|(i, commit)| {
+        .map(|(offset, commit)| {
             // diff を開いている行だけ印を付ける (selected と別概念: j/k では動かない)
-            let marker = if Some(i) == open_index { "▶ " } else { "  " };
+            let marker = if Some(first + offset) == open_index {
+                "▶ "
+            } else {
+                "  "
+            };
             let mut label = format!("{marker}{}  ", commit.short);
             if inner_width >= TIME_MIN_WIDTH {
                 label.push_str(&format!("{:<15}  ", commit.relative_time));
@@ -44,14 +66,18 @@ pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool
             ListItem::new(label)
         })
         .collect();
-    let list = List::new(items)
-        .block(pane_block(title, focused))
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
-    frame.render_stateful_widget(list, area, &mut log.list_state);
+    let list = List::new(items).block(block).highlight_style(
+        Style::default()
+            .bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    );
+    // items は [first, last) の部分列なので、List へ渡す選択位置はその中の相対位置に直す
+    // (絶対値は log.list_state 側に書き戻し済みなので、ここは使い捨ての state で構わない)
+    let mut render_state = ListState::default();
+    if let Some(sel) = selected {
+        render_state.select(Some(sel - first));
+    }
+    frame.render_stateful_widget(list, area, &mut render_state);
 }
 
 // 右ペイン: 選択コミットの diff。GIT レーンの diff ペインと基本構造は同じだが、

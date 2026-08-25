@@ -298,6 +298,18 @@ fn normal_status_line(app: &App) -> Line<'static> {
     if app.pending_g {
         return Line::from("g");
     }
+    // コミット一覧ペイン (`L`) が絡む文脈は専用のヒントに振り分ける。**選択・検索より前に
+    // 見る**のが要点で、どちらも viewer (ファイル表示) に紐づく状態なのに残り続けるため、
+    // 後ろに置くと「検索したまま L を押す」だけでキーの宛先 (コミット一覧) とヒント (検索) が
+    // 食い違う。パネルを出していない間はここを素通りするので従来の見え方は変わらない
+    if app.focus == Focus::Log
+        && let Some(log) = &app.log
+    {
+        return log_list_status_line(log);
+    }
+    if app.focus == Focus::Viewer && app.showing_commit_diff() {
+        return log_diff_status_line();
+    }
     // 選択中は他のヒントより優先して出す。y を押すまで何行取れるのかが見えないと、
     // マウスのドラッグで「どこまで掴めているか」を確かめる手段が色だけになる
     if let Some(lines) = app.viewer.selected_line_count() {
@@ -314,16 +326,6 @@ fn normal_status_line(app: &App) -> Line<'static> {
             current + 1,
             search.matches.len()
         ));
-    }
-    // コミット一覧ペイン (`L`) が絡む文脈は専用のヒントに振り分ける。ツリー・ファイル側の
-    // ヒントは以前と 1 文字も変えない (パネルを出していない間の見え方を変えないため)
-    if app.focus == Focus::Log
-        && let Some(log) = &app.log
-    {
-        return log_list_status_line(log);
-    }
-    if app.focus == Focus::Viewer && app.showing_commit_diff() {
-        return log_diff_status_line();
     }
     // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {

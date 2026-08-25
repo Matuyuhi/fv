@@ -9,7 +9,7 @@ use ratatui::widgets::{List, ListItem, ListState};
 use crate::component::tree::Tree;
 use crate::git::{FileStatus, GitStatus, StatusKind};
 
-use crate::widget::pane_block;
+use crate::widget::{pane_block, visible_window};
 
 pub(crate) fn draw_tree(
     frame: &mut Frame,
@@ -111,31 +111,6 @@ pub(crate) fn draw_tree(
         render_state.select(Some(sel - first));
     }
     frame.render_stateful_widget(list, area, &mut render_state);
-}
-
-/// ratatui `List` が内部で行う「選択行を含む最小限のウィンドウ」計算 (get_items_bounds) と
-/// 等価な結果を返す。ツリーの行は全て高さ1 (name に改行は入らない) なので、あちらのような
-/// 可変高さ対応のループは要らず、offset を起点に selected が入るまでスライドするだけの
-/// O(1) 計算に落とせる。selected が既にウィンドウ内なら offset をそのまま保つのがポイントで、
-/// ここを毎回 selected 中心に作り直すと「選択が動くたびに画面が揺れる」挙動になってしまう
-fn visible_window(
-    total: usize,
-    max_height: usize,
-    offset: usize,
-    selected: Option<usize>,
-) -> (usize, usize) {
-    let offset = offset.min(total - 1);
-    let index_to_display = selected.map(|s| s.min(total - 1)).unwrap_or(offset);
-    let mut first = offset;
-    let mut last = (offset + max_height).min(total);
-    if index_to_display >= last {
-        first = index_to_display + 1 - max_height.min(index_to_display + 1);
-        last = (first + max_height).min(total);
-    } else if index_to_display < first {
-        first = index_to_display;
-        last = (first + max_height).min(total);
-    }
-    (first, last)
 }
 
 /// 名前自体に付ける変更マーク。行頭の XY マーカーはファイルにしか付かず、しかも
