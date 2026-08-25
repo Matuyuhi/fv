@@ -58,7 +58,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Mode::Help { scroll } = app.mode {
         // 実測 (表示行数・総行数) を書き戻し、次フレームの on_help_key がクランプと
         // ページ送りに使う (viewport.height と同じ 描画→app のパターン)
-        app.help_view = help::draw_help(frame, scroll, full);
+        let view = help::draw_help(frame, app, scroll, full);
+        app.help_view = view;
     }
     if matches!(app.mode, Mode::Settings(_)) {
         settings::draw_settings(frame, app, full);
