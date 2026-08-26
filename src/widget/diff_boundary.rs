@@ -29,7 +29,7 @@ pub(crate) fn sticky_line(label: &str, width: usize) -> Line<'static> {
 // 流れる側 (スクロールで消えていく通常のファイル境界行) も見た目を強化する。
 // render_commit がヘッダ行に付けた固定背景色を目印に、右側をペイン幅まで同じ背景で
 // 埋めて全幅の帯にする。gitlane 側の行組み立てには触れず、描画側だけの加工に留める
-pub(crate) fn widen_boundary_bands(rows: &mut [Line<'static>], width: usize) {
+pub(crate) fn widen_boundary_bands(rows: &mut [Line<'_>], width: usize) {
     for row in rows.iter_mut() {
         let Some(style) = row
             .spans
