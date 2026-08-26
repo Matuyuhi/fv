@@ -3,7 +3,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::component::gitlane::{self, GitState};
+use crate::component::gitlane::GitState;
 
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::pane_block;
@@ -98,10 +98,10 @@ pub(crate) fn draw_git(
 }
 
 // side-by-side (左 = 旧, 右 = 新) 描画。外枠は 1 つで内側を左右 2 分割し、間に 1 桁の
-// 区切り罫線を挟む。折返し中は gitlane::side_by_side_wrapped で char 単位に事前分割・
-// 行数を揃えた列を都度作り直す (wrap 幅は実測でしか出せないため、ここは他の描画パイプ
-// ラインと同じく毎フレーム計算する)。事前に行数を揃えてあるぶん TextPane 自体は非 wrap
-// のまま普通にスライスするだけで済み、text_pane.rs に side-by-side 専用の分岐は増えない
+// 区切り罫線を挟む。折返し中は GitState::side_wrapped が char 単位に事前分割・行数を
+// 揃えた列を返す (wrap 幅は実測でしか出せないので作るのは描画時だが、幅も diff も
+// 変わらなければ作り直さない)。事前に行数を揃えてあるぶん TextPane 自体は非 wrap の
+// まま普通にスライスするだけで済み、text_pane.rs に side-by-side 専用の分岐は増えない
 fn draw_side_by_side(
     frame: &mut Frame,
     git: &mut GitState,
@@ -123,35 +123,27 @@ fn draw_side_by_side(
     .areas(inner);
 
     let (left_gutter, right_gutter) = git.side_gutter_widths();
-    let (left_src, right_src) = git.side_lines();
-
-    // 折返し ON: 事前分割 + 行数揃えの結果をそのまま使う (非 wrap 前提で TextPane に渡す)。
-    // 折返し OFF: side_lines の時点で既に行数が揃っている (render_side_by_side が保証)
-    let owned;
-    let (left_lines, right_lines): (&[_], &[_]) = if git.viewport.wrap {
-        let (l, r, hunks) = gitlane::side_by_side_wrapped(
-            left_src,
-            right_src,
-            git.side_hunks(),
-            left_gutter,
-            right_gutter,
-            git.column_width(),
-        );
-        git.set_side_wrap_cache(l.len(), hunks);
-        owned = (l, r);
-        (&owned.0, &owned.1)
-    } else {
-        (left_src, right_src)
-    };
 
     // TextPane の非 wrap パスは vp.scroll を「両カラムで揃えた行 index」としてそのまま
     // スライスに使う。wrap 中でも side-by-side は自前で分割済みなので wrap=false で渡す
     let mut vp = git.viewport.clone();
+    let wrapped = vp.wrap;
     vp.wrap = false;
 
-    // 左右は同じ行 index で対応が取れているので、帯も同じ行に出せば 1 本に見える
+    // 左右は同じ行 index で対応が取れているので、帯も同じ行に出せば 1 本に見える。
+    // git を読む値はここで全て取り出しておく — 下の side_wrapped が &mut を要求するため
     let focus_row = focused.then(|| git.cursor());
     let selected_rows = focused.then(|| git.line_selection()).flatten();
+
+    // 折返し ON: 事前分割 + 行数揃えの結果をそのまま使う (非 wrap 前提で TextPane に渡す)。
+    // 幅も diff も変わっていなければ GitState 側のキャッシュがそのまま返る。
+    // 折返し OFF: side_lines の時点で既に行数が揃っている (render_side_by_side が保証)
+    let (left_lines, right_lines): (&[_], &[_]) = if wrapped {
+        let cache = git.side_wrapped();
+        (&cache.left, &cache.right)
+    } else {
+        git.side_lines()
+    };
     let left_pane = TextPane {
         window: LineWindow::slice(left_lines, &vp),
         changed_lines: &None,
