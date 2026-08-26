@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::component::viewer::{HighlightCache, Viewer, Viewport};
+use crate::component::viewer::{HighlightCache, Touched, Viewer, Viewport};
 use crate::git;
 use crate::text;
 
@@ -76,7 +76,7 @@ impl EditState {
             trim: diff::CommonTrim::default(),
             changed_lines: None,
         };
-        state.refresh_changed_lines();
+        state.refresh_changed_lines(None);
         Some(state)
     }
 
@@ -366,28 +366,32 @@ impl EditState {
     // ここでハイライトは走らせない (次の描画で可視範囲だけ組み直される)
     fn after_edit(&mut self, vp: &mut Viewport) {
         self.desired_col = self.cursor.1;
-        if let Some(touched) = self.buffer.take_touched() {
+        let touched = self.buffer.take_touched();
+        if let Some(touched) = touched {
             self.render.invalidate_from(touched);
-            // 触った行より前と (行がずれていなければ) 後ろは一致・不一致が変わらないので、
-            // ライブ diff の共通範囲はそこまで絞り込むだけでよい
-            self.trim = self.trim.after_edit(
-                touched.from,
-                touched.to,
-                self.buffer.line_count(),
-                touched.shifted,
-            );
         }
-        self.refresh_changed_lines();
+        self.refresh_changed_lines(touched);
         self.ensure_visible(vp);
     }
 
     // 保存を待たず、未保存バッファの状態で変更行マークを更新する
-    fn refresh_changed_lines(&mut self) {
+    // touched は直前の編集で変わった行 (None = 編集開始時の初回計算)。
+    // 触った行の一致だけを見直せば共通範囲が更新できるので、1 打鍵ごとに文書全体を
+    // 舐め直さずに済む (component/editor/diff.rs::CommonTrim)
+    fn refresh_changed_lines(&mut self, touched: Option<Touched>) {
         let Some(baseline) = &self.baseline else {
             self.changed_lines = None;
             return;
         };
-        let (changed, trim) = diff::changed_lines(baseline, self.buffer.lines(), self.trim);
+        let current = self.buffer.lines();
+        self.trim = match touched {
+            Some(touched) => {
+                self.trim
+                    .after_edit(baseline, current, touched.from, touched.to, touched.shifted)
+            }
+            None => diff::CommonTrim::default(),
+        };
+        let (changed, trim) = diff::changed_lines(baseline, current, self.trim);
         self.trim = trim;
         self.changed_lines = Some(changed);
     }

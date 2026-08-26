@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
-// LCS の DP がこのセル数を超える編集は諦めて中間領域全体を変更扱いにする
-// (共通の前置き・後置きを剥がした後なので、通常の編集でここに達することはまずない)
+// LCS の DP がこのセル数を超えたら位置合わせ (positional_matched) に落とす。
+// 共通の前置き・後置きを剥がした後でも、**離れた 2 箇所に差分があると間に挟まれた
+// 行が全て中間領域に入る**ので、ここには普通に届く (例: 真ん中を書き直したファイルの
+// 先頭で 1 文字打つ)
 const MAX_LCS_CELLS: usize = 1_000_000;
 
 // word-level diff (#29) で 1 行に許す char 数上限。行の対応付け自体は gitlane 側で
@@ -27,23 +29,47 @@ pub struct CommonTrim {
 }
 
 impl CommonTrim {
-    /// 行 [touched_from, touched_to] だけが変わった後も共通と分かっている範囲。
-    /// `shifted` (行の増減) があると末尾側は行番号がずれて数え直せないので捨てる
+    /// 行 [touched_from, touched_to] だけが変わった後の共通範囲。
+    ///
+    /// 見直すのは**触った行の一致だけ**でよい: それ以外の行は中身が変わっていない以上
+    /// 一致・不一致も変わらず、共通範囲を終わらせていた不一致もそのまま残っている。
+    /// だから「触った行が共通範囲の内側にあり、かつ今は一致しない」時だけそこまで縮め、
+    /// それ以外は前回の値をそのまま持ち越す。共通範囲の**外側**を触った場合は一致に
+    /// 転じて範囲が伸びうるが、その伸びは changed_lines 側の走査が続きから拾う。
+    /// `shifted` (行の増減) があると末尾側は行番号がずれて対応が取れないので捨てる
     pub fn after_edit(
         self,
+        baseline: &[String],
+        current: &[String],
         touched_from: usize,
         touched_to: usize,
-        line_count: usize,
         shifted: bool,
     ) -> Self {
-        Self {
-            prefix: self.prefix.min(touched_from),
-            suffix: if shifted {
-                0
+        let same = |i: usize| baseline.get(i) == current.get(i);
+        let prefix = if touched_from < self.prefix && !same(touched_from) {
+            touched_from
+        } else {
+            self.prefix.min(current.len())
+        };
+        let suffix = if shifted {
+            0
+        } else {
+            // 末尾からの位置に直して同じ判定をする (行番号がずれていないので対応が取れる)
+            let touched = current.len().saturating_sub(touched_to + 1);
+            let same_from_end = |k: usize| match (
+                baseline.len().checked_sub(k + 1),
+                current.len().checked_sub(k + 1),
+            ) {
+                (Some(b), Some(c)) => baseline.get(b) == current.get(c),
+                _ => false,
+            };
+            if touched < self.suffix && !same_from_end(touched) {
+                touched
             } else {
-                self.suffix.min(line_count.saturating_sub(touched_to + 1))
-            },
-        }
+                self.suffix
+            }
+        };
+        Self { prefix, suffix }
     }
 }
 
@@ -79,8 +105,8 @@ pub fn changed_lines(
     if mid_cur.is_empty() {
         return (changed, trim);
     }
-    let matched = if mid_base.is_empty() || mid_base.len() * mid_cur.len() > MAX_LCS_CELLS {
-        vec![false; mid_cur.len()]
+    let matched = if mid_base.len() * mid_cur.len() > MAX_LCS_CELLS {
+        positional_matched(mid_base, mid_cur)
     } else {
         lcs_matched(mid_base, mid_cur)
     };
@@ -96,6 +122,16 @@ pub fn changed_lines(
 // 行単位専用の薄いラッパー (要素比較は String の PartialEq)
 fn lcs_matched(base: &[String], cur: &[String]) -> Vec<bool> {
     lcs_align(base, cur).1
+}
+
+// DP を諦める大きさのときの代わり。同じ位置の行同士を突き合わせるだけで、行の増減が
+// 無ければ LCS と同じ答えになる。**中間領域を丸ごと変更扱いにはしない** — それをやると、
+// 離れた 2 箇所を編集しただけで触っていない何百行もの gutter が光る
+fn positional_matched(base: &[String], cur: &[String]) -> Vec<bool> {
+    cur.iter()
+        .enumerate()
+        .map(|(i, line)| base.get(i).is_some_and(|b| b == line))
+        .collect()
 }
 
 /// base/cur の要素列から LCS を求め、双方の要素が LCS (＝変更されていない共通部分) に
@@ -217,10 +253,62 @@ mod tests {
         for step in 0..8 {
             let line = [120usize, 120, 40, 40, 199, 0, 77, 120][step];
             current[line].push('x');
-            trim = trim.after_edit(line, line, current.len(), false);
+            trim = trim.after_edit(&baseline, &current, line, line, false);
             assert_matches_from_scratch(&baseline, &current, trim);
             trim = changed_lines(&baseline, &current, trim).1;
         }
+    }
+
+    // 差分より手前・より後ろを触っても持ち越しは崩れない。「触った行が一致し続けている
+    // 限り共通範囲は変わらない」が効かないと、ここで走査が毎回先頭からやり直しになる
+    #[test]
+    fn typing_far_from_an_existing_difference_keeps_the_trim() {
+        let baseline = document(400);
+        let mut current = baseline.clone();
+        // 真ん中に既存の差分を作っておく (AI がまとめて書き直した後の状態に相当)
+        for (i, text) in current[200..240].iter_mut().enumerate() {
+            *text = format!("rewritten {}", 200 + i);
+        }
+        let (_, mut trim) = changed_lines(&baseline, &current, CommonTrim::default());
+
+        // 差分より手前で打ち続ける
+        for _ in 0..5 {
+            current[10].push('a');
+            trim = trim.after_edit(&baseline, &current, 10, 10, false);
+            assert_matches_from_scratch(&baseline, &current, trim);
+            trim = changed_lines(&baseline, &current, trim).1;
+        }
+        // 差分より後ろでも同じ
+        for _ in 0..5 {
+            current[380].push('b');
+            trim = trim.after_edit(&baseline, &current, 380, 380, false);
+            assert_matches_from_scratch(&baseline, &current, trim);
+            trim = changed_lines(&baseline, &current, trim).1;
+        }
+        // 手前の編集を打ち消すと共通範囲は伸び直す (縮めたまま固定されない)
+        current[10] = baseline[10].clone();
+        trim = trim.after_edit(&baseline, &current, 10, 10, false);
+        assert_matches_from_scratch(&baseline, &current, trim);
+    }
+
+    // 離れた 2 箇所に差分があると、間に挟まれた行が全て中間領域に入って DP が上限を
+    // 超える。そこで中間領域を丸ごと変更扱いにすると、真ん中を書き直したファイルの
+    // 先頭で 1 文字打っただけで触っていない何百行もの gutter が光る
+    #[test]
+    fn an_edit_far_from_an_existing_difference_does_not_mark_untouched_lines() {
+        let baseline = document(4000);
+        let mut current = baseline.clone();
+        for (i, text) in current[1600..2400].iter_mut().enumerate() {
+            *text = format!("rewritten {}", 1600 + i);
+        }
+        let (before, _) = changed_lines(&baseline, &current, CommonTrim::default());
+        assert_eq!(before.len(), 800);
+
+        // 差分から遠く離れた先頭で 1 文字打つ。増えてよいのはその 1 行だけ
+        current[0].push('x');
+        let (after, _) = changed_lines(&baseline, &current, CommonTrim::default());
+        assert_eq!(after.len(), 801, "触っていない行まで変更扱いになっている");
+        assert!(after.contains(&1), "編集した行にマークが付いていない");
     }
 
     // 行の増減があると末尾側の行番号がずれるので、持ち越しは捨てて数え直す
@@ -231,18 +319,18 @@ mod tests {
         let mut trim = CommonTrim::default();
 
         current.insert(90, "inserted line".to_string());
-        trim = trim.after_edit(90, 90, current.len(), true);
+        trim = trim.after_edit(&baseline, &current, 90, 90, true);
         assert_matches_from_scratch(&baseline, &current, trim);
         trim = changed_lines(&baseline, &current, trim).1;
 
         current.remove(150);
-        trim = trim.after_edit(150, 150, current.len(), true);
+        trim = trim.after_edit(&baseline, &current, 150, 150, true);
         assert_matches_from_scratch(&baseline, &current, trim);
         trim = changed_lines(&baseline, &current, trim).1;
 
         // 増減の後にまた 1 行だけ触る (持ち越しが再び効き始める経路)
         current[95].push('y');
-        trim = trim.after_edit(95, 95, current.len(), false);
+        trim = trim.after_edit(&baseline, &current, 95, 95, false);
         assert_matches_from_scratch(&baseline, &current, trim);
     }
 
@@ -252,11 +340,11 @@ mod tests {
         let baseline = document(200);
         let mut current = baseline.clone();
         current[100].push('z');
-        let trim = CommonTrim::default().after_edit(100, 100, current.len(), false);
+        let trim = CommonTrim::default().after_edit(&baseline, &current, 100, 100, false);
         let (_, trim) = changed_lines(&baseline, &current, trim);
 
         current[100] = baseline[100].clone();
-        let trim = trim.after_edit(100, 100, current.len(), false);
+        let trim = trim.after_edit(&baseline, &current, 100, 100, false);
         let (changed, _) = changed_lines(&baseline, &current, trim);
         assert!(
             changed.is_empty(),
@@ -271,11 +359,11 @@ mod tests {
         for line in [0usize, 49] {
             let mut current = baseline.clone();
             current[line] = "changed".to_string();
-            let trim = CommonTrim::default().after_edit(line, line, current.len(), false);
+            let trim = CommonTrim::default().after_edit(&baseline, &current, line, line, false);
             assert_matches_from_scratch(&baseline, &current, trim);
         }
         let current: Vec<String> = (0..50).map(|i| format!("entirely new {i}")).collect();
-        let trim = CommonTrim::default().after_edit(0, 49, current.len(), false);
+        let trim = CommonTrim::default().after_edit(&baseline, &current, 0, 49, false);
         assert_matches_from_scratch(&baseline, &current, trim);
     }
 }
