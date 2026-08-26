@@ -362,8 +362,8 @@ impl EditState {
     // ここでハイライトは走らせない (次の描画で可視範囲だけ組み直される)
     fn after_edit(&mut self, vp: &mut Viewport) {
         self.desired_col = self.cursor.1;
-        if let Some(line) = self.buffer.take_touched() {
-            self.render.invalidate_from(line);
+        if let Some(touched) = self.buffer.take_touched() {
+            self.render.invalidate_from(touched);
         }
         self.refresh_changed_lines();
         self.ensure_visible(vp);

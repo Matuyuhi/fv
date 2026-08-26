@@ -9,7 +9,7 @@ mod viewport;
 
 pub use content::{Content, Open};
 pub use highlight::Highlighter;
-pub use render::{HighlightCache, LineSource};
+pub use render::{HighlightCache, LineSource, Touched};
 pub use search::SearchState;
 pub(crate) use search::{Match, search_matches};
 use selection::Point;
