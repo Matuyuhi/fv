@@ -45,6 +45,9 @@ pub struct EditState {
     saved: bool,
     // ライブ diff の比較元 (編集開始時の HEAD / index 版)。repo 外・untracked は None
     baseline: Option<Vec<String>>,
+    /// baseline と現在のバッファが「どこまで共通か」。1 打鍵ごとに文書全体を舐め直さない
+    /// ための持ち越しで、触った行から次の下限を O(1) で絞る (component/editor/diff.rs)
+    trim: diff::CommonTrim,
     /// 未保存バッファ vs baseline の変更行 (1-origin)。viewer の changed_lines と同じ描画に使う
     pub changed_lines: Option<HashSet<usize>>,
 }
@@ -70,6 +73,7 @@ impl EditState {
             confirm_discard: false,
             saved: false,
             baseline: git::baseline_lines(root, path),
+            trim: diff::CommonTrim::default(),
             changed_lines: None,
         };
         state.refresh_changed_lines();
@@ -364,6 +368,14 @@ impl EditState {
         self.desired_col = self.cursor.1;
         if let Some(touched) = self.buffer.take_touched() {
             self.render.invalidate_from(touched);
+            // 触った行より前と (行がずれていなければ) 後ろは一致・不一致が変わらないので、
+            // ライブ diff の共通範囲はそこまで絞り込むだけでよい
+            self.trim = self.trim.after_edit(
+                touched.from,
+                touched.to,
+                self.buffer.line_count(),
+                touched.shifted,
+            );
         }
         self.refresh_changed_lines();
         self.ensure_visible(vp);
@@ -371,10 +383,13 @@ impl EditState {
 
     // 保存を待たず、未保存バッファの状態で変更行マークを更新する
     fn refresh_changed_lines(&mut self) {
-        self.changed_lines = self
-            .baseline
-            .as_ref()
-            .map(|baseline| diff::changed_lines(baseline, self.buffer.lines()));
+        let Some(baseline) = &self.baseline else {
+            self.changed_lines = None;
+            return;
+        };
+        let (changed, trim) = diff::changed_lines(baseline, self.buffer.lines(), self.trim);
+        self.trim = trim;
+        self.changed_lines = Some(changed);
     }
 
     // カーソルが viewport に収まるよう scroll/hscroll を動かす
