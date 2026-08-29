@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::component::viewer::LineSource;
+use crate::component::viewer::{LineSource, Touched};
 
 // 編集の最小単位。char 挿入・改行・行削除・ペーストを全部この 2 種で表現すると、
 // undo/redo は「逆 op の適用」(Insert の逆 = 同範囲の Delete) だけになる
@@ -24,9 +24,11 @@ pub struct EditBuffer {
     // undo 末尾 op へタイピングを追記してよいか。カーソル移動・保存・ペースト・
     // 改行で false に戻し、undo の粒度を「入力のまとまり」にする
     coalesce: bool,
-    // 前回の take_touched 以降の変更が最初に触れた行。ハイライトの再開点になる。
-    // カーソル位置から推測しないのは、undo/redo が任意の位置に飛ぶため
-    touched: Option<usize>,
+    // 前回の take_touched 以降に変わった行の範囲。ハイライトの作り直し範囲になる。
+    // カーソル位置から推測しないのは、undo/redo が任意の位置に飛ぶため。
+    // 起点だけでなく終点と「行がずれたか」まで持つのは、描画側が作り直しを
+    // 途中で打ち切れる条件がその 2 つで決まるから (component/viewer/render.rs)
+    touched: Option<Touched>,
 }
 
 impl EditBuffer {
@@ -87,8 +89,8 @@ impl EditBuffer {
         }
     }
 
-    /// 前回以降の変更が最初に触れた行を取り出す (以降のハイライトを作り直す起点)
-    pub fn take_touched(&mut self) -> Option<usize> {
+    /// 前回以降に変わった行の範囲を取り出す (ハイライトを作り直す範囲)
+    pub fn take_touched(&mut self) -> Option<Touched> {
         self.touched.take()
     }
 
@@ -234,6 +236,8 @@ impl EditBuffer {
             self.lines.insert(idx, segment.to_string());
         }
         self.lines[idx].push_str(&tail);
+        self.touch(idx);
+        self.mark_shifted();
         (idx, last_len)
     }
 
@@ -256,11 +260,24 @@ impl EditBuffer {
             removed.push_str(&line);
         }
         self.lines[l1].push_str(&tail);
+        self.mark_shifted();
         removed
     }
 
     fn touch(&mut self, line: usize) {
-        self.touched = Some(self.touched.map_or(line, |prev| prev.min(line)));
+        let one = Touched::line(line);
+        match &mut self.touched {
+            Some(pending) => pending.merge(one),
+            None => self.touched = Some(one),
+        }
+    }
+
+    // 行が増減したことを記録する。以降の行番号がずれるので、描画側は「中身が
+    // 変わっていない行はそのまま使う」という判断ができなくなる
+    fn mark_shifted(&mut self) {
+        if let Some(pending) = &mut self.touched {
+            pending.mark_shifted();
+        }
     }
 }
 

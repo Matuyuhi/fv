@@ -25,11 +25,10 @@ mod side;
 mod word;
 
 pub use render::render_commit;
-pub use side::side_by_side_wrapped;
 
 use patch::{PatchError, build_line_patch};
 use render::{classify_indexed, render_inline};
-use side::render_side_by_side;
+use side::{render_side_by_side, side_by_side_wrapped};
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -190,10 +189,11 @@ pub struct GitState {
     current: Option<GitDiff>,
     /// v: inline / side-by-side 切替。`w` と同じく config には保存しない
     side_by_side: bool,
-    /// side-by-side + wrap 時だけ使う、直前フレームで実際に描いた行数・hunk 位置。
-    /// wrap 幅は実測でしか出せないため、viewport.height/width と同じく ui 側が毎フレーム
-    /// 書き戻す (side_by_side_wrapped の結果をそのまま持たせる)
-    side_wrap_cache: Option<(usize, Vec<usize>)>,
+    /// side-by-side + wrap 時の事前分割結果。wrap 幅は実測でしか出せないので描画時に作るが、
+    /// **diff もカラム幅も変わらない限り作り直さない** — 毎フレーム作り直すと 1 打鍵の
+    /// コストが画面ではなく diff 全体の大きさに比例してしまう (CLAUDE.md「再描画のコストを
+    /// 画面の大きさより上に持ち上げない」)。行数・hunk 位置は scroll のクランプと ]/[ が読む
+    side_wrap: Option<SideWrap>,
     /// diff 内検索 (#31)。単一ファイル/まとめ diff のどちらでも同じ 1 つの状態を使い回す
     /// (対象は常に「今表示している inline 行」で、切替のたびに recompute_search で追従する)
     search: Option<SearchState>,
@@ -225,7 +225,7 @@ impl GitState {
             base: DiffBase::Head,
             current: None,
             side_by_side: false,
-            side_wrap_cache: None,
+            side_wrap: None,
             search: None,
             all: None,
             showing_all: false,
@@ -270,7 +270,7 @@ impl GitState {
         self.viewport.hscroll = 0;
         self.cursor = 0;
         self.select_anchor = None;
-        self.side_wrap_cache = None;
+        self.side_wrap = None;
         self.recompute_search();
     }
 
@@ -293,7 +293,7 @@ impl GitState {
         self.viewport.hscroll = 0;
         self.cursor = 0;
         self.select_anchor = None;
-        self.side_wrap_cache = None;
+        self.side_wrap = None;
         self.recompute_search();
         truncated
     }
@@ -386,9 +386,9 @@ impl GitState {
         }
         if self.side_by_side_active() {
             if self.viewport.wrap
-                && let Some((len, _)) = &self.side_wrap_cache
+                && let Some(wrapped) = &self.side_wrap
             {
-                return *len;
+                return wrapped.left.len();
             }
             return self.current.as_ref().map_or(0, |d| d.side.left.len());
         }
@@ -567,9 +567,9 @@ impl GitState {
         }
         if self.side_by_side_active() {
             if self.viewport.wrap
-                && let Some((_, hunks)) = &self.side_wrap_cache
+                && let Some(wrapped) = &self.side_wrap
             {
-                return hunks.as_slice();
+                return wrapped.hunks.as_slice();
             }
             return self
                 .current
@@ -841,7 +841,7 @@ impl GitState {
     pub fn toggle_side_by_side(&mut self) {
         let ordinal = self.current_hunk_ordinal();
         self.side_by_side = !self.side_by_side;
-        self.side_wrap_cache = None;
+        self.side_wrap = None;
         self.realign_cursor(ordinal);
     }
 
@@ -852,7 +852,7 @@ impl GitState {
         let realign = self.side_by_side_active();
         let ordinal = self.current_hunk_ordinal();
         self.viewport.toggle_wrap();
-        self.side_wrap_cache = None;
+        self.side_wrap = None;
         if realign || self.side_by_side_active() {
             self.realign_cursor(ordinal);
         }
@@ -912,12 +912,41 @@ impl GitState {
             .map_or(&[], |d| d.side.hunks.as_slice())
     }
 
-    /// side-by-side + wrap の実測 (行数・hunk 位置) を ui 側が毎フレーム書き戻す。
-    /// scroll のクランプ・n/N の hunk ジャンプが常に「直前フレームで実際に描いた行」を
-    /// 基準にできるようにする (viewport.height/width と同じ ui→app のパターン)
-    pub fn set_side_wrap_cache(&mut self, len: usize, hunks: Vec<usize>) {
-        self.side_wrap_cache = Some((len, hunks));
+    /// side-by-side + wrap の事前分割済みカラム。wrap 幅 (= カラム幅) は描画時にしか
+    /// 分からないのでここで作るが、幅も diff も変わっていなければ前に作ったものを返す。
+    /// 描画のたびに diff 全体を分割し直すと、大きい diff で 1 打鍵が目に見えて遅くなる
+    pub fn side_wrapped(&mut self) -> &SideWrap {
+        let column_width = self.column_width();
+        if !matches!(&self.side_wrap, Some(cached) if cached.column_width == column_width) {
+            let (left_gutter, right_gutter) = self.side_gutter_widths();
+            let (left, right) = self.side_lines();
+            let (left, right, hunks) = side_by_side_wrapped(
+                left,
+                right,
+                self.side_hunks(),
+                left_gutter,
+                right_gutter,
+                column_width,
+            );
+            self.side_wrap = Some(SideWrap {
+                column_width,
+                left,
+                right,
+                hunks,
+            });
+        }
+        self.side_wrap.as_ref().expect("直前に作った")
     }
+}
+
+/// side-by-side + wrap の事前分割結果 (GitState::side_wrapped が作って持ち回す)
+pub(crate) struct SideWrap {
+    /// これを作った時のカラム幅。ペイン幅のドラッグリサイズで変わったら作り直す
+    column_width: usize,
+    pub(crate) left: Vec<Line<'static>>,
+    pub(crate) right: Vec<Line<'static>>,
+    /// 揃えた後の行 index に付け替えた hunk 位置 (]/[ のジャンプが読む)
+    hunks: Vec<usize>,
 }
 
 /// render_commit が返す境界一覧から、viewport.scroll 以下で最大の index を二分探索で引き、

@@ -153,7 +153,7 @@ pub(super) fn render_side_by_side(body: &[(Kind, &str)]) -> SideDiff {
 /// 総行数を揃える (揃えないと折返しで左右の対応行がズレる)。ここで作った行は非 wrap の
 /// TextPane にそのまま渡す想定で、side-by-side 専用の分岐を text_pane.rs には増やさない。
 /// hunks は揃えた後の行 index に付け替えて返す (n/N が正しい行へジャンプできるように)
-pub fn side_by_side_wrapped(
+pub(super) fn side_by_side_wrapped(
     left: &[Line<'static>],
     right: &[Line<'static>],
     hunks: &[usize],

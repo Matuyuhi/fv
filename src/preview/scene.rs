@@ -134,6 +134,20 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        // side-by-side + 折返しは行列そのものが変わる (左右の視覚行数を揃え直す) 唯一の
+        // 表示なので、他のシーンでは通らない。GitState::side_wrapped の結果をそのまま見る
+        name: "git-side-wrap",
+        description: "GIT レーン: side-by-side diff の折返し (w)",
+        // カラム幅が 40 桁を切ると inline に自動フォールバックするので、side-by-side が
+        // 成立しつつ長い行が折り返る幅で撮る
+        size: Some((132, 24)),
+        setup: |app| {
+            to_lane(app, 2);
+            open(app, "src/main.rs");
+            send(app, "<Tab>vw");
+        },
+    },
+    Scene {
         name: "git-all",
         description: "GIT レーン: 全ファイルまとめ diff (sticky header 付き)",
         size: None,
