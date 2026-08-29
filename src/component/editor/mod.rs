@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::component::viewer::{HighlightCache, Viewer, Viewport};
+use crate::component::viewer::{HighlightCache, Touched, Viewer, Viewport};
 use crate::git;
 use crate::text;
 
@@ -46,6 +46,9 @@ pub struct EditState {
     saved: bool,
     // ライブ diff の比較元 (編集開始時の HEAD / index 版)。repo 外・untracked は None
     baseline: Option<Vec<String>>,
+    /// baseline と現在のバッファが「どこまで共通か」。1 打鍵ごとに文書全体を舐め直さない
+    /// ための持ち越しで、触った行から次の下限を O(1) で絞る (component/editor/diff.rs)
+    trim: diff::CommonTrim,
     /// 未保存バッファ vs baseline の変更行 (1-origin)。viewer の changed_lines と同じ描画に使う
     pub changed_lines: Option<HashSet<usize>>,
 }
@@ -71,9 +74,10 @@ impl EditState {
             confirm_discard: false,
             saved: false,
             baseline: git::baseline_lines(root, path),
+            trim: diff::CommonTrim::default(),
             changed_lines: None,
         };
-        state.refresh_changed_lines();
+        state.refresh_changed_lines(None);
         Some(state)
     }
 
@@ -457,19 +461,34 @@ impl EditState {
     // ここでハイライトは走らせない (次の描画で可視範囲だけ組み直される)
     fn after_edit(&mut self, vp: &mut Viewport) {
         self.desired_col = self.cursor.1;
-        if let Some(line) = self.buffer.take_touched() {
-            self.render.invalidate_from(line);
+        let touched = self.buffer.take_touched();
+        if let Some(touched) = touched {
+            self.render.invalidate_from(touched);
         }
-        self.refresh_changed_lines();
+        self.refresh_changed_lines(touched);
         self.ensure_visible(vp);
     }
 
     // 保存を待たず、未保存バッファの状態で変更行マークを更新する
-    fn refresh_changed_lines(&mut self) {
-        self.changed_lines = self
-            .baseline
-            .as_ref()
-            .map(|baseline| diff::changed_lines(baseline, self.buffer.lines()));
+    // touched は直前の編集で変わった行 (None = 編集開始時の初回計算)。
+    // 触った行の一致だけを見直せば共通範囲が更新できるので、1 打鍵ごとに文書全体を
+    // 舐め直さずに済む (component/editor/diff.rs::CommonTrim)
+    fn refresh_changed_lines(&mut self, touched: Option<Touched>) {
+        let Some(baseline) = &self.baseline else {
+            self.changed_lines = None;
+            return;
+        };
+        let current = self.buffer.lines();
+        self.trim = match touched {
+            Some(touched) => {
+                self.trim
+                    .after_edit(baseline, current, touched.from, touched.to, touched.shifted)
+            }
+            None => diff::CommonTrim::default(),
+        };
+        let (changed, trim) = diff::changed_lines(baseline, current, self.trim);
+        self.trim = trim;
+        self.changed_lines = Some(changed);
     }
 
     // カーソルが viewport に収まるよう scroll/hscroll を動かす

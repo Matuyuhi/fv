@@ -102,8 +102,10 @@ pub(super) struct Session<'a> {
 
 /// ある行を解析する直前のパーサ状態。Clone して途中経過を保存できるので、
 /// 文書の先頭からやり直さずに任意の行からハイライトを再開できる
-/// (これが「ファイル全体を毎回ハイライトしない」ことの土台)
-#[derive(Clone)]
+/// (これが「ファイル全体を毎回ハイライトしない」ことの土台)。
+/// PartialEq は「編集で作り直した状態が元へ戻ったか」の判定に使う — 戻っていれば
+/// それより下の行は色が変わらないので、そこで作り直しを打ち切れる (render.rs)
+#[derive(Clone, PartialEq)]
 pub(super) struct LineState {
     parse: ParseState,
     highlight: HighlightState,
