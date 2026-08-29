@@ -220,7 +220,7 @@ fn edit_status_line(state: &EditState) -> Line<'static> {
         return Line::from(notice.clone());
     }
     Line::from(format!(
-        "{}:{}  Ctrl+s: save  Ctrl+z/y: undo/redo  Ctrl+k: delete line  Esc: exit",
+        "{}:{}  Ctrl+s: save  Ctrl+z/y: undo/redo  Alt+←/→: 単語移動  Esc: exit",
         state.cursor.0 + 1,
         state.cursor.1 + 1
     ))
