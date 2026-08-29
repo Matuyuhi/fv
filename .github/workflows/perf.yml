@@ -5,7 +5,7 @@ name: perf
 # 手で確かめたいときは Actions タブから workflow_dispatch でも回せる
 on:
   pull_request:
-    types: [labeled, synchronize, reopened]
+    types: [opened, labeled, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
