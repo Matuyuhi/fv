@@ -98,9 +98,12 @@ impl EditState {
         // SUPER (mac の Cmd) は kitty keyboard protocol 対応端末でのみ届く (main.rs で opt-in)
         let cmd = mods.contains(KeyModifiers::SUPER);
         let shift = mods.contains(KeyModifiers::SHIFT);
-        // 修飾付き文字は端末により大文字 (Shift 畳み込み済み) で届くことがあるため小文字に揃える
+        // 修飾付き文字は端末により大文字 (Shift 畳み込み済み) で届くことがあるため小文字に揃える。
+        // ALT も畳むのは、Option を Meta として送る端末の ESC b / ESC f を取りこぼさないため
         let code = match key.code {
-            KeyCode::Char(c) if ctrl || cmd => KeyCode::Char(c.to_ascii_lowercase()),
+            KeyCode::Char(c) if ctrl || cmd || mods.contains(KeyModifiers::ALT) => {
+                KeyCode::Char(c.to_ascii_lowercase())
+            }
             other => other,
         };
         // discard 確認は Esc の連続でだけ成立させる。他のキーを挟んだら仕切り直し
@@ -568,9 +571,11 @@ mod tests {
         assert_eq!(state.cursor, (0, 8));
         state.handle_key(key(KeyCode::Left, alt), &mut viewer);
         assert_eq!(state.cursor, (0, 7));
-        // Option を Meta として送る端末向けの別名
+        // Option を Meta として送る端末向けの別名。大文字で報告する端末も同じに畳む
         state.handle_key(key(KeyCode::Char('b'), alt), &mut viewer);
         assert_eq!(state.cursor, (0, 4));
+        state.handle_key(key(KeyCode::Char('F'), alt), &mut viewer);
+        assert_eq!(state.cursor, (0, 7));
     }
 
     #[test]

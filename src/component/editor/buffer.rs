@@ -165,11 +165,19 @@ impl EditBuffer {
         end
     }
 
-    /// 範囲を別のテキストへ差し替える。undo は常に独立した 1 単位になる。
-    /// 戻り値は挿入テキスト末尾の位置
+    /// 範囲を別のテキストへ差し替える。undo は常に独立した 1 単位になる
     pub fn replace(&mut self, from: (usize, usize), to: (usize, usize), text: &str) {
+        // 行数が変わらない差し替え (行の入れ替え) では以降の行番号がずれない。
+        // 途中経過の delete/insert が立てた shifted をここで元へ戻さないと、
+        // 中身も位置も変わっていない後続の行まで組み立て直すことになる
+        let was_shifted = self.touched.is_some_and(|pending| pending.shifted);
         let removed = self.apply_delete(from, to);
         self.apply_insert(from, text);
+        if removed.matches('\n').count() == text.matches('\n').count()
+            && let Some(pending) = &mut self.touched
+        {
+            pending.shifted = was_shifted;
+        }
         self.dirty = true;
         self.redo.clear();
         self.undo.push(EditOp::Replace {
@@ -375,6 +383,24 @@ mod tests {
         assert_eq!(b.lines(), ["one", "two", "three"]);
         assert_eq!(b.redo(), Some((0, 0)));
         assert_eq!(b.lines(), ["two", "one", "three"]);
+    }
+
+    #[test]
+    fn replace_reports_a_line_swap_as_unshifted() {
+        let mut b = buffer("one\ntwo\nthree\n");
+        let len = b.line_len(1);
+        b.replace((0, 0), (1, len), "two\none");
+        let touched = b.take_touched().unwrap();
+        assert_eq!((touched.from, touched.to), (0, 1));
+        // 行数が変わっていないので 3 行目以降は行番号も中身もそのまま = 組み立て直さなくてよい
+        assert!(!touched.shifted);
+    }
+
+    #[test]
+    fn replace_reports_a_line_count_change_as_shifted() {
+        let mut b = buffer("one\ntwo\n");
+        b.replace((0, 0), (0, 3), "one\nextra");
+        assert!(b.take_touched().unwrap().shifted);
     }
 
     #[test]
