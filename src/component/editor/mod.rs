@@ -2,6 +2,7 @@ mod buffer;
 // word-level diff (#29) が LCS 実装を再利用するため gitlane からも見える必要がある
 pub(crate) mod diff;
 pub mod view;
+mod word;
 
 pub use buffer::EditBuffer;
 
@@ -97,9 +98,12 @@ impl EditState {
         // SUPER (mac の Cmd) は kitty keyboard protocol 対応端末でのみ届く (main.rs で opt-in)
         let cmd = mods.contains(KeyModifiers::SUPER);
         let shift = mods.contains(KeyModifiers::SHIFT);
-        // 修飾付き文字は端末により大文字 (Shift 畳み込み済み) で届くことがあるため小文字に揃える
+        // 修飾付き文字は端末により大文字 (Shift 畳み込み済み) で届くことがあるため小文字に揃える。
+        // ALT も畳むのは、Option を Meta として送る端末の ESC b / ESC f を取りこぼさないため
         let code = match key.code {
-            KeyCode::Char(c) if ctrl || cmd => KeyCode::Char(c.to_ascii_lowercase()),
+            KeyCode::Char(c) if ctrl || cmd || mods.contains(KeyModifiers::ALT) => {
+                KeyCode::Char(c.to_ascii_lowercase())
+            }
             other => other,
         };
         // discard 確認は Esc の連続でだけ成立させる。他のキーを挟んだら仕切り直し
@@ -121,8 +125,9 @@ impl EditState {
                 _ => {}
             }
         }
-        // 端末により word 移動は Ctrl+矢印 / Alt+矢印 のどちらでも届くため両方受ける
-        let word = mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        // 端末により word 移動は Ctrl+矢印 / Alt+矢印 (mac の Option) のどちらでも届くため両方受ける
+        let alt = mods.contains(KeyModifiers::ALT);
+        let word = ctrl || alt;
         // 保存だけは cache 再読込のため Viewer 全体が要る。先に処理して抜けることで、
         // 以降の操作は viewport しか借りないことを型で保証する
         if code == KeyCode::Char('s') && (ctrl || cmd) {
@@ -162,23 +167,45 @@ impl EditState {
                 }
             }
             KeyCode::Char('k') if ctrl => self.delete_line(vp),
+            // Option を Meta として送る端末 (Terminal.app 等) では Option+←/→ が
+            // ESC b / ESC f として届くので、単語移動の別名として受ける
+            KeyCode::Char('b') if alt && !ctrl && !cmd => self.word_left(vp),
+            KeyCode::Char('f') if alt && !ctrl && !cmd => self.word_right(vp),
+            // readline 慣習の行編集。Ctrl+矢印が端末に奪われる環境の逃げ道でもある
+            KeyCode::Char('a') if ctrl => self.move_home(vp),
+            KeyCode::Char('e') if ctrl => {
+                self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), vp)
+            }
+            KeyCode::Char('w') if ctrl => self.delete_word_left(vp),
+            KeyCode::Char('u') if ctrl => self.delete_to_line_start(vp),
             KeyCode::Enter => {
                 self.cursor = self.buffer.insert_block(self.cursor, "\n");
                 self.after_edit(vp);
             }
+            // Cmd+Backspace は mac 慣習で行頭まで、Option/Ctrl+Backspace は 1 単語ぶん
+            KeyCode::Backspace if cmd => self.delete_to_line_start(vp),
+            KeyCode::Backspace if word => self.delete_word_left(vp),
             KeyCode::Backspace => self.backspace(vp),
+            KeyCode::Delete if cmd => self.delete_to_line_end(vp),
+            KeyCode::Delete if word => self.delete_word_right(vp),
             KeyCode::Delete => self.delete_forward(vp),
             KeyCode::Tab => {
                 self.cursor = self.buffer.insert_typed(self.cursor, '\t');
                 self.after_edit(vp);
             }
-            // mac 慣習: Cmd+←/→ は行頭・行末
-            KeyCode::Left if cmd => self.move_to((self.cursor.0, 0), vp),
+            // mac 慣習: Cmd+←/→ は行頭・行末、Cmd+↑/↓ は文書の先頭・末尾
+            KeyCode::Left if cmd => self.move_home(vp),
             KeyCode::Right if cmd => {
                 self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), vp)
             }
+            KeyCode::Up if cmd => self.move_to((0, 0), vp),
+            KeyCode::Down if cmd => self.move_to_end(vp),
             KeyCode::Left if word => self.word_left(vp),
             KeyCode::Right if word => self.word_right(vp),
+            // VSCode 慣習: Alt+↑/↓ は行の入れ替え。Ctrl は含めない (Ctrl+↑/↓ を
+            // 押しただけで行が動くのは事故になりやすい)
+            KeyCode::Up if alt => self.move_line(-1, vp),
+            KeyCode::Down if alt => self.move_line(1, vp),
             KeyCode::Left => self.move_left(vp),
             KeyCode::Right => self.move_right(vp),
             KeyCode::Up => self.move_vertical(-1, vp),
@@ -191,7 +218,9 @@ impl EditState {
                 let page = vp.height.max(1) as isize;
                 self.move_vertical(page, vp)
             }
-            KeyCode::Home => self.move_to((self.cursor.0, 0), vp),
+            KeyCode::Home if ctrl => self.move_to((0, 0), vp),
+            KeyCode::End if ctrl => self.move_to_end(vp),
+            KeyCode::Home => self.move_home(vp),
             KeyCode::End => self.move_to((self.cursor.0, self.buffer.line_len(self.cursor.0)), vp),
             // Cmd/Alt 付きは未割当ショートカットの可能性が高いので文字として挿入しない
             KeyCode::Char(c) if !ctrl && !cmd && !mods.contains(KeyModifiers::ALT) => {
@@ -316,43 +345,112 @@ impl EditState {
         self.ensure_visible(vp);
     }
 
-    /// WORD (非空白の連なり) 単位で次の語頭へ。行末からは次行頭へ
-    fn word_right(&mut self, vp: &mut Viewport) {
+    // 単語単位の移動・削除が同じ境界を見るよう、行を跨ぐ判断だけをここに置き
+    // 行内の境界計算は word.rs に任せる。戻り値は移動/削除の対象位置
+    fn word_right_target(&self) -> Option<(usize, usize)> {
         let (line, col) = self.cursor;
-        let chars: Vec<char> = self.buffer.line(line).chars().collect();
-        if col >= chars.len() {
-            if line + 1 < self.buffer.line_count() {
-                self.move_to((line + 1, 0), vp);
-            }
-            return;
+        if col >= self.buffer.line_len(line) {
+            // 行末からは次行の先頭へ (改行 1 つを跨ぐ)
+            return (line + 1 < self.buffer.line_count()).then_some((line + 1, 0));
         }
-        let mut c = col;
-        while c < chars.len() && !chars[c].is_whitespace() {
-            c += 1;
+        Some((line, word::next_boundary(self.buffer.line(line), col)))
+    }
+
+    fn word_left_target(&self) -> Option<(usize, usize)> {
+        let (line, col) = self.cursor;
+        if col == 0 {
+            return (line > 0).then(|| (line - 1, self.buffer.line_len(line - 1)));
         }
-        while c < chars.len() && chars[c].is_whitespace() {
-            c += 1;
+        Some((line, word::prev_boundary(self.buffer.line(line), col)))
+    }
+
+    fn word_right(&mut self, vp: &mut Viewport) {
+        if let Some(target) = self.word_right_target() {
+            self.move_to(target, vp);
         }
-        self.move_to((line, c), vp);
     }
 
     fn word_left(&mut self, vp: &mut Viewport) {
-        let (line, col) = self.cursor;
-        if col == 0 {
-            if line > 0 {
-                self.move_to((line - 1, self.buffer.line_len(line - 1)), vp);
-            }
+        if let Some(target) = self.word_left_target() {
+            self.move_to(target, vp);
+        }
+    }
+
+    /// Alt/Ctrl+Backspace: カーソルの手前 1 単語を消す。行頭では手前の改行を消して行を繋ぐ
+    fn delete_word_left(&mut self, vp: &mut Viewport) {
+        let Some(target) = self.word_left_target() else {
+            return;
+        };
+        if target == self.cursor {
             return;
         }
-        let chars: Vec<char> = self.buffer.line(line).chars().collect();
-        let mut c = col;
-        while c > 0 && chars[c - 1].is_whitespace() {
-            c -= 1;
+        self.buffer.delete(target, self.cursor);
+        self.cursor = target;
+        self.after_edit(vp);
+    }
+
+    /// Alt/Ctrl+Delete: カーソルの先 1 単語を消す。行末では次の改行を消して行を繋ぐ
+    fn delete_word_right(&mut self, vp: &mut Viewport) {
+        let Some(target) = self.word_right_target() else {
+            return;
+        };
+        if target == self.cursor {
+            return;
         }
-        while c > 0 && !chars[c - 1].is_whitespace() {
-            c -= 1;
+        self.buffer.delete(self.cursor, target);
+        self.after_edit(vp);
+    }
+
+    /// Cmd+Backspace / Ctrl+u: 行頭からカーソルまでを消す (改行は跨がない)
+    fn delete_to_line_start(&mut self, vp: &mut Viewport) {
+        let (line, col) = self.cursor;
+        if col == 0 {
+            return;
         }
-        self.move_to((line, c), vp);
+        self.buffer.delete((line, 0), (line, col));
+        self.cursor = (line, 0);
+        self.after_edit(vp);
+    }
+
+    /// Cmd+Delete: カーソルから行末までを消す (改行は跨がない)
+    fn delete_to_line_end(&mut self, vp: &mut Viewport) {
+        let (line, col) = self.cursor;
+        let len = self.buffer.line_len(line);
+        if col >= len {
+            return;
+        }
+        self.buffer.delete((line, col), (line, len));
+        self.after_edit(vp);
+    }
+
+    // Home / Cmd+← / Ctrl+a: インデント直後と行頭を往復する
+    fn move_home(&mut self, vp: &mut Viewport) {
+        let (line, col) = self.cursor;
+        let target = word::home_col(self.buffer.line(line), col);
+        self.move_to((line, target), vp);
+    }
+
+    fn move_to_end(&mut self, vp: &mut Viewport) {
+        let last = self.buffer.line_count() - 1;
+        self.move_to((last, self.buffer.line_len(last)), vp);
+    }
+
+    /// Alt+↑/↓: カーソル行を隣の行と入れ替える。カーソルは動いた行に付いていく。
+    /// 2 行ぶんをまとめて差し替える (EditBuffer::replace) ので undo は 1 回で戻る
+    fn move_line(&mut self, delta: isize, vp: &mut Viewport) {
+        let (line, col) = self.cursor;
+        let target = line as isize + delta;
+        if target < 0 || target >= self.buffer.line_count() as isize {
+            return;
+        }
+        let target = target as usize;
+        let (top, bottom) = (line.min(target), line.max(target));
+        let swapped = format!("{}\n{}", self.buffer.line(bottom), self.buffer.line(top));
+        self.buffer
+            .replace((top, 0), (bottom, self.buffer.line_len(bottom)), &swapped);
+        // 行の中身ごと動くので col はそのまま有効
+        self.cursor = (target, col);
+        self.after_edit(vp);
     }
 
     fn move_to(&mut self, cursor: (usize, usize), vp: &mut Viewport) {
@@ -430,5 +528,85 @@ impl EditState {
     // gutter を除いたコンテンツ部の桁数。wrap の折返し幅と hscroll のクランプ幅を兼ねる
     fn content_width(&self, vp: &Viewport) -> usize {
         vp.width.saturating_sub(self.gutter_width()).max(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, mods)
+    }
+
+    // handle_key を通して確かめるのは、境界計算そのもの (word.rs のテスト) ではなく
+    // 「その修飾キーの組み合わせがその操作へ振り分けられるか」を見たいため
+    fn session(text: &str) -> (EditState, Viewer) {
+        let path = std::env::temp_dir().join(format!(
+            "fv-edit-state-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        fs::write(&path, text).unwrap();
+        let state = EditState::open(&path, 0, &std::env::temp_dir()).unwrap();
+        let _ = fs::remove_file(&path);
+        let mut viewer = Viewer::new();
+        viewer.viewport.height = 10;
+        viewer.viewport.width = 40;
+        (state, viewer)
+    }
+
+    #[test]
+    fn alt_and_ctrl_arrows_move_by_word() {
+        let (mut state, mut viewer) = session("let foo.bar = baz;\nsecond\n");
+        let alt = KeyModifiers::ALT;
+        let ctrl = KeyModifiers::CONTROL;
+
+        state.handle_key(key(KeyCode::Right, alt), &mut viewer);
+        assert_eq!(state.cursor, (0, 3));
+        state.handle_key(key(KeyCode::Right, alt), &mut viewer);
+        assert_eq!(state.cursor, (0, 7));
+        // 記号も 1 つの区切りとして止まる (行末まで飛ばない)
+        state.handle_key(key(KeyCode::Right, ctrl), &mut viewer);
+        assert_eq!(state.cursor, (0, 8));
+        state.handle_key(key(KeyCode::Left, alt), &mut viewer);
+        assert_eq!(state.cursor, (0, 7));
+        // Option を Meta として送る端末向けの別名。大文字で報告する端末も同じに畳む
+        state.handle_key(key(KeyCode::Char('b'), alt), &mut viewer);
+        assert_eq!(state.cursor, (0, 4));
+        state.handle_key(key(KeyCode::Char('F'), alt), &mut viewer);
+        assert_eq!(state.cursor, (0, 7));
+    }
+
+    #[test]
+    fn alt_backspace_deletes_one_word() {
+        let (mut state, mut viewer) = session("let foo.bar = baz;\n");
+        state.cursor = (0, 7);
+        state.handle_key(key(KeyCode::Backspace, KeyModifiers::ALT), &mut viewer);
+        assert_eq!(state.buffer.line(0), "let .bar = baz;");
+        assert_eq!(state.cursor, (0, 4));
+    }
+
+    #[test]
+    fn alt_down_swaps_lines_and_carries_the_cursor() {
+        let (mut state, mut viewer) = session("one\ntwo\nthree\n");
+        state.cursor = (0, 2);
+        state.handle_key(key(KeyCode::Down, KeyModifiers::ALT), &mut viewer);
+        assert_eq!(state.buffer.lines(), ["two", "one", "three"]);
+        assert_eq!(state.cursor, (1, 2));
+    }
+
+    #[test]
+    fn home_toggles_and_ctrl_home_jumps_to_the_top() {
+        let (mut state, mut viewer) = session("fn main() {\n    let x = 1;\n}\n");
+        state.cursor = (1, 10);
+        state.handle_key(key(KeyCode::Home, KeyModifiers::NONE), &mut viewer);
+        assert_eq!(state.cursor, (1, 4));
+        state.handle_key(key(KeyCode::Home, KeyModifiers::NONE), &mut viewer);
+        assert_eq!(state.cursor, (1, 0));
+        state.handle_key(key(KeyCode::End, KeyModifiers::CONTROL), &mut viewer);
+        assert_eq!(state.cursor, (2, 1));
+        state.handle_key(key(KeyCode::Home, KeyModifiers::CONTROL), &mut viewer);
+        assert_eq!(state.cursor, (0, 0));
     }
 }

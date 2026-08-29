@@ -420,8 +420,25 @@ fn sections() -> Vec<Section> {
             entries: &[
                 ("文字入力", "挿入 (クリックでカーソル移動)"),
                 ("↑/↓/←/→", "カーソル移動"),
-                ("Ctrl+←/→", "単語単位で移動"),
-                ("Home/End", "行頭 / 行末へ (Cmd+←/→ も可)"),
+                (
+                    "Alt+←/→",
+                    "単語単位で移動 (Option+←/→ / Ctrl+←/→ / Alt+b・f も可)",
+                ),
+                (
+                    "Home/End",
+                    "行頭 (インデント直後 ⇄ 桁 0) / 行末へ (Cmd+←/→・Ctrl+a/e も可)",
+                ),
+                ("Ctrl+Home/End", "文書の先頭 / 末尾へ (Cmd+↑/↓ も可)"),
+                ("Alt+↑/↓", "カーソル行を上 / 下の行と入れ替える"),
+                (
+                    "Alt+Backspace",
+                    "手前の 1 単語を削除 (Ctrl+Backspace / Ctrl+w も可)",
+                ),
+                ("Alt+Delete", "先の 1 単語を削除 (Ctrl+Delete も可)"),
+                (
+                    "Cmd+Backspace",
+                    "行頭まで削除 (Ctrl+u も可) / Cmd+Delete: 行末まで削除",
+                ),
                 ("Ctrl+s / Cmd+s", "保存"),
                 ("Ctrl+z / Ctrl+y", "undo / redo (Cmd+z / Cmd+Shift+z)"),
                 ("Ctrl+k", "行削除"),

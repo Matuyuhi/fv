@@ -4,11 +4,24 @@ use std::path::Path;
 
 use crate::component::viewer::{LineSource, Touched};
 
-// 編集の最小単位。char 挿入・改行・行削除・ペーストを全部この 2 種で表現すると、
+// 編集の最小単位。char 挿入・改行・行削除・ペーストを Insert/Delete の 2 種で表現すると、
 // undo/redo は「逆 op の適用」(Insert の逆 = 同範囲の Delete) だけになる
 enum EditOp {
-    Insert { at: (usize, usize), text: String },
-    Delete { at: (usize, usize), text: String },
+    Insert {
+        at: (usize, usize),
+        text: String,
+    },
+    Delete {
+        at: (usize, usize),
+        text: String,
+    },
+    /// 削除と挿入が「1 つの操作」として取り消されるべきもの (行の入れ替え等) 用。
+    /// delete + insert の 2 op で組むと undo を 2 回押す羽目になるため専用の変種にする
+    Replace {
+        at: (usize, usize),
+        removed: String,
+        inserted: String,
+    },
 }
 
 pub struct EditBuffer {
@@ -152,6 +165,29 @@ impl EditBuffer {
         end
     }
 
+    /// 範囲を別のテキストへ差し替える。undo は常に独立した 1 単位になる
+    pub fn replace(&mut self, from: (usize, usize), to: (usize, usize), text: &str) {
+        // 行数が変わらない差し替え (行の入れ替え) では以降の行番号がずれない。
+        // 途中経過の delete/insert が立てた shifted をここで元へ戻さないと、
+        // 中身も位置も変わっていない後続の行まで組み立て直すことになる
+        let was_shifted = self.touched.is_some_and(|pending| pending.shifted);
+        let removed = self.apply_delete(from, to);
+        self.apply_insert(from, text);
+        if removed.matches('\n').count() == text.matches('\n').count()
+            && let Some(pending) = &mut self.touched
+        {
+            pending.shifted = was_shifted;
+        }
+        self.dirty = true;
+        self.redo.clear();
+        self.undo.push(EditOp::Replace {
+            at: from,
+            removed,
+            inserted: text.to_string(),
+        });
+        self.coalesce = false;
+    }
+
     /// 範囲削除。1 文字削除 (Backspace/Delete 連打) は方向を判定して undo 1 単位にまとめる
     pub fn delete(&mut self, from: (usize, usize), to: (usize, usize)) {
         let removed = self.apply_delete(from, to);
@@ -195,6 +231,15 @@ impl EditBuffer {
                 *at
             }
             EditOp::Delete { at, text } => self.apply_insert(*at, text),
+            EditOp::Replace {
+                at,
+                removed,
+                inserted,
+            } => {
+                self.apply_delete(*at, end_of(*at, inserted));
+                self.apply_insert(*at, removed);
+                *at
+            }
         };
         self.redo.push(op);
         Some(cursor)
@@ -208,6 +253,15 @@ impl EditBuffer {
             EditOp::Insert { at, text } => self.apply_insert(*at, text),
             EditOp::Delete { at, text } => {
                 self.apply_delete(*at, end_of(*at, text));
+                *at
+            }
+            EditOp::Replace {
+                at,
+                removed,
+                inserted,
+            } => {
+                self.apply_delete(*at, end_of(*at, removed));
+                self.apply_insert(*at, inserted);
                 *at
             }
         };
@@ -299,4 +353,60 @@ fn byte_of(s: &str, char_idx: usize) -> usize {
         .nth(char_idx)
         .map(|(byte, _)| byte)
         .unwrap_or(s.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn buffer(text: &str) -> EditBuffer {
+        let path = std::env::temp_dir().join(format!(
+            "fv-edit-buffer-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        fs::write(&path, text).unwrap();
+        let buffer = EditBuffer::load(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        buffer
+    }
+
+    #[test]
+    fn replace_swaps_two_lines_and_undoes_in_one_step() {
+        let mut b = buffer("one\ntwo\nthree\n");
+        let len = b.line_len(1);
+        b.replace((0, 0), (1, len), "two\none");
+        assert_eq!(b.lines(), ["two", "one", "three"]);
+
+        // 行の入れ替えは 1 操作。undo 1 回で元に戻る (delete + insert の 2 op にしない理由)
+        assert_eq!(b.undo(), Some((0, 0)));
+        assert_eq!(b.lines(), ["one", "two", "three"]);
+        assert_eq!(b.redo(), Some((0, 0)));
+        assert_eq!(b.lines(), ["two", "one", "three"]);
+    }
+
+    #[test]
+    fn replace_reports_a_line_swap_as_unshifted() {
+        let mut b = buffer("one\ntwo\nthree\n");
+        let len = b.line_len(1);
+        b.replace((0, 0), (1, len), "two\none");
+        let touched = b.take_touched().unwrap();
+        assert_eq!((touched.from, touched.to), (0, 1));
+        // 行数が変わっていないので 3 行目以降は行番号も中身もそのまま = 組み立て直さなくてよい
+        assert!(!touched.shifted);
+    }
+
+    #[test]
+    fn replace_reports_a_line_count_change_as_shifted() {
+        let mut b = buffer("one\ntwo\n");
+        b.replace((0, 0), (0, 3), "one\nextra");
+        assert!(b.take_touched().unwrap().shifted);
+    }
+
+    #[test]
+    fn replace_keeps_the_saved_text_shape() {
+        let mut b = buffer("a\nb\n");
+        b.replace((0, 0), (1, 1), "b\na");
+        assert_eq!(b.to_text(), "b\na\n");
+    }
 }
