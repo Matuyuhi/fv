@@ -35,6 +35,14 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "tree-empty",
+        description: "ツリーが空の状態 (表示対象なし)",
+        size: None,
+        setup: |app| {
+            app.tree.set_filter(Some(std::collections::HashSet::new()));
+        },
+    },
+    Scene {
         name: "tree-ignored",
         description: "ツリー: i で .gitignore 対象も表示 (暗色)",
         size: None,
