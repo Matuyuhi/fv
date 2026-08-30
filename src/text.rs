@@ -2,7 +2,6 @@
 //! タブ幅・gutter 幅の解釈が場所によってズレると、検索ハイライト・カーソル・
 //! クリック座標の桁対応 (CLAUDE.md の整合インバリアント) が全て壊れるため一箇所に集める。
 
-use ratatui::style::Style;
 use ratatui::text::Span;
 
 /// タブ 1 文字の展開結果。normalize と display_col/char_col_at の換算は必ずこれ経由で揃える
@@ -91,10 +90,9 @@ impl WrapCursor {
 // 生の行をそのまま食わせられる (折返しの計算はキー入力ごとに通る経路)。
 // f が false を返したら打ち切る
 fn walk(line: &str, mut f: impl FnMut(usize, &str) -> bool) {
-    let span = Span::raw(line);
     let mut col = 0usize;
-    for grapheme in span.styled_graphemes(Style::default()) {
-        if grapheme.symbol == "\t" {
+    for grapheme in unicode_segmentation::UnicodeSegmentation::graphemes(line, true) {
+        if grapheme == "\t" {
             for _ in 0..TAB_EXPANDED.chars().count() {
                 if !f(col, " ") {
                     return;
@@ -103,10 +101,10 @@ fn walk(line: &str, mut f: impl FnMut(usize, &str) -> bool) {
             }
             continue;
         }
-        if !f(col, grapheme.symbol) {
+        if !f(col, grapheme) {
             return;
         }
-        col += grapheme.symbol.chars().count();
+        col += grapheme.chars().count();
     }
 }
 
