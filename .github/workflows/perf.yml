@@ -1,11 +1,10 @@
 name: perf
 
-# 毎 PR で回すには重い (base 側もビルドして 2 回測る) ので、`perf` ラベルが付いた PR
-# だけで動かす。ラベルを外しても既に出したコメントは残る (次に付け直した時に更新される)。
+# 毎 PR で回すには重いが、性能劣化の見逃しを防ぐため PR 更新ごとに計測する。
 # 手で確かめたいときは Actions タブから workflow_dispatch でも回せる
 on:
   pull_request:
-    types: [opened, labeled, synchronize, reopened]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -17,8 +16,6 @@ env:
 jobs:
   bench:
     name: perf (ubuntu-24.04)
-    # labeled 以外 (synchronize 等) で来た時も、ラベルが付いたままかをここで見る
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'perf')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
