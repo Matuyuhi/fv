@@ -98,19 +98,27 @@ pub(crate) fn draw_tree(
             ListItem::new(Line::from(spans))
         })
         .collect();
-    let list = List::new(items).block(block).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
-    // items は [first, last) だけの部分列なので、List に渡す選択位置もその中の相対位置に
-    // 直す必要がある。絶対値は app.tree.list_state (offset() 経由でクリック判定が読む) 側に
-    // 既に書き戻し済みなので、ここは使い捨ての一時 state で構わない
-    let mut render_state = ListState::default();
-    if let Some(sel) = selected {
-        render_state.select(Some(sel - first));
+    if items.is_empty() {
+        use ratatui::widgets::Paragraph;
+        let paragraph = Paragraph::new("(empty)")
+            .block(block)
+            .style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(paragraph, area);
+    } else {
+        let list = List::new(items).block(block).highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
+        // items は [first, last) だけの部分列なので、List に渡す選択位置もその中の相対位置に
+        // 直す必要がある。絶対値は app.tree.list_state (offset() 経由でクリック判定が読む) 側に
+        // 既に書き戻し済みなので、ここは使い捨ての一時 state で構わない
+        let mut render_state = ListState::default();
+        if let Some(sel) = selected {
+            render_state.select(Some(sel - first));
+        }
+        frame.render_stateful_widget(list, area, &mut render_state);
     }
-    frame.render_stateful_widget(list, area, &mut render_state);
 }
 
 /// 名前自体に付ける変更マーク。行頭の XY マーカーはファイルにしか付かず、しかも
