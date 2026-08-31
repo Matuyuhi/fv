@@ -18,7 +18,7 @@ pub(super) fn draw_tab_bar(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut areas = [Rect::default(); Workspace::LABELS.len()];
     let mut x = area.x;
     for (i, label) in Workspace::LABELS.iter().enumerate() {
-        let mut text = (*label).to_string();
+        let mut text = format!("{}: {}", i + 1, label);
         if i == 0 && viewer_dirty {
             text.push_str(" ●");
         }

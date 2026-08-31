@@ -1,3 +1,3 @@
-## 2024-05-19 - Added Empty State for File Tree
-**Learning:** `ratatui` UI elements (like `List`) lack built-in empty states out-of-the-box. When filtering yields 0 files or a directory is completely empty, it shows nothing, appearing broken.
-**Action:** Always check the item count before rendering iterative components in `ratatui`. Provide an explicit fallback `Paragraph` UI (e.g. `(empty)`) to give explicit feedback to the user.
+## 2024-10-27 - Added keyboard shortcut hints to tab bar
+**Learning:** Adding numeric prefixes to tab labels (e.g., "1: Viewer") is a simple but highly effective way to teach users keyboard shortcuts (Alt+1, Alt+2, etc.) in a TUI environment where tooltips aren't natively available.
+**Action:** Look for other areas where keyboard shortcuts exist but aren't visually discoverable, and consider adding inline hints to labels or status bars.
