@@ -124,8 +124,9 @@ pub(crate) fn draw_text_detail(
         return;
     }
     if lines.is_empty() {
-        let paragraph = Paragraph::new("(empty)")
+        let paragraph = Paragraph::new("No items found")
             .block(pane_block(title, focused))
+            .alignment(ratatui::layout::Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;

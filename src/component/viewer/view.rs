@@ -22,9 +22,11 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
     let focus_row = focused.then(|| viewer.cursor());
 
     let Some(open) = &viewer.current else {
-        let paragraph = Paragraph::new("no file selected")
-            .block(pane_block(String::from("viewer"), focused))
-            .style(Style::default().fg(Color::DarkGray));
+        let paragraph =
+            Paragraph::new("No file selected\n\nSelect a file from the tree to view its contents")
+                .block(pane_block(String::from("viewer"), focused))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     };
