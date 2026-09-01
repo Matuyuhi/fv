@@ -100,8 +100,9 @@ pub(crate) fn draw_tree(
         .collect();
     if items.is_empty() {
         use ratatui::widgets::Paragraph;
-        let paragraph = Paragraph::new("(empty)")
+        let paragraph = Paragraph::new("No files found")
             .block(block)
+            .alignment(ratatui::layout::Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
     } else {

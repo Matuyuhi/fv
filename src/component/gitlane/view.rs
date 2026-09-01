@@ -30,9 +30,11 @@ pub(crate) fn draw_git(
 
     let Some(title) = git.title() else {
         let title = format!("diff [{}]", git.base_label());
-        let paragraph = Paragraph::new("no file selected")
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::DarkGray));
+        let paragraph =
+            Paragraph::new("No file selected\n\nSelect a changed file to view its diff")
+                .block(pane_block(title, focused))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     };

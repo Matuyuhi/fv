@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1018" height="668" viewBox="0 0 1018 668" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, &apos;DejaVu Sans Mono&apos;, monospace" font-size="15">
 <rect width="1018" height="668" rx="8" fill="#1e222a"/>
-<rect x="14" y="14" width="72" height="20" fill="#8fa1b3"/>
-<rect x="95" y="14" width="72" height="20" fill="#2a2a2a"/>
-<rect x="176" y="14" width="135" height="20" fill="#2a2a2a"/>
-<text x="23 32 41 50 59 68" y="29" fill="#eff1f5">Viewer</text>
-<text x="104 113 122 131 140 149" y="29" fill="#eff1f5">Issues</text>
-<text x="185 194 203 212 230 239 248 257 266 275 284 293" y="29" fill="#eff1f5">PullRequests</text>
+<rect x="14" y="14" width="99" height="20" fill="#8fa1b3"/>
+<rect x="122" y="14" width="99" height="20" fill="#2a2a2a"/>
+<rect x="230" y="14" width="162" height="20" fill="#2a2a2a"/>
+<text x="23 32 50 59 68 77 86 95" y="29" fill="#eff1f5">1:Viewer</text>
+<text x="131 140 158 167 176 185 194 203" y="29" fill="#eff1f5">2:Issues</text>
+<text x="239 248 266 275 284 293 311 320 329 338 347 356 365 374" y="29" fill="#eff1f5">3:PullRequests</text>
 <rect x="311" y="34" width="693" height="20" fill="#2b303b"/>
 <text x="14 23 32 41 50 59 68 77 95 104 113 122 131 140 149 158 167 176 185 194 203 212 221 230 239 248 257 266 275 284 293 302" y="49" fill="#96b5b4">┌changes(4)────────────────────┐</text>
 <text x="311 320 329 338 347 356 365 374 383 392 401 410 437 446 455 464 473 482 509 518 527 536 554 563 572 581 590 599 608 617 626 635 644 653 662 671 680 689 698 707 716 725 734 743 752 761 770 779 788 797 806 815 824 833 842 851 860 869 878 887 896 905 914 923 932 941 950 959 968 977 986 995" y="49" fill="#65737e">┌src/main.rs[HEAD]hunk1/1──────────────────────────────────────────────┐</text>
