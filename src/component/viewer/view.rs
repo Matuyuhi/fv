@@ -6,8 +6,8 @@ use ratatui::widgets::Paragraph;
 use crate::component::viewer::{Content, Viewer};
 use crate::text;
 
-use crate::widget::pane_block;
 use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
+use crate::widget::{center_text, pane_block};
 
 pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool, area: Rect) {
     // マウス・キー処理が次のフレームで読む実測値の書き戻し (ui→app 逆流の統一パターン)
@@ -22,11 +22,13 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
     let focus_row = focused.then(|| viewer.cursor());
 
     let Some(open) = &viewer.current else {
-        let paragraph =
-            Paragraph::new("No file selected\n\nSelect a file from the tree to view its contents")
-                .block(pane_block(String::from("viewer"), focused))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().fg(Color::DarkGray));
+        let paragraph = Paragraph::new(center_text(
+            "No file selected\n\nSelect a file from the tree to view its contents",
+            area.height.saturating_sub(2),
+        ))
+        .block(pane_block(String::from("viewer"), focused))
+        .alignment(ratatui::layout::Alignment::Center)
+        .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     };

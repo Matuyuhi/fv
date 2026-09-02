@@ -84,3 +84,12 @@ pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect 
     .areas(middle);
     center
 }
+
+pub(crate) fn center_text(text: &str, height: u16) -> String {
+    let lines = text.lines().count() as u16;
+    let padding = height.saturating_sub(lines) / 2;
+    if padding == 0 {
+        return text.to_string();
+    }
+    format!("{}{}", "\n".repeat(padding as usize), text)
+}

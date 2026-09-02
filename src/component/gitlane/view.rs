@@ -6,8 +6,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::component::gitlane::GitState;
 
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
-use crate::widget::pane_block;
 use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
+use crate::widget::{center_text, pane_block};
 
 // GitState は App の中にあるので、&App と同時には借りられない。
 // 必要な値 (フォーカス・背景色) だけ呼び出し側で取り出して渡す
@@ -30,11 +30,13 @@ pub(crate) fn draw_git(
 
     let Some(title) = git.title() else {
         let title = format!("diff [{}]", git.base_label());
-        let paragraph =
-            Paragraph::new("No file selected\n\nSelect a changed file to view its diff")
-                .block(pane_block(title, focused))
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().fg(Color::DarkGray));
+        let paragraph = Paragraph::new(center_text(
+            "No file selected\n\nSelect a changed file to view its diff",
+            area.height.saturating_sub(2),
+        ))
+        .block(pane_block(title, focused))
+        .alignment(ratatui::layout::Alignment::Center)
+        .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     };
