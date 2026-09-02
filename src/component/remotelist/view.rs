@@ -12,8 +12,8 @@ use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 use crate::component::remotelist::ListMatch;
 use crate::component::viewer::Viewport;
 
-use crate::widget::pane_block;
 use crate::widget::text_pane::{LineWindow, TextPane};
+use crate::widget::{center_text, pane_block};
 
 /// 左ペイン: 一覧。row_line が行の型ごとの表示テキスト組み立てを担う
 /// (issue_line/pr_line。「一覧行の表示テキストを組み立てる関数を型ごとに差し替える」形)
@@ -124,10 +124,11 @@ pub(crate) fn draw_text_detail(
         return;
     }
     if lines.is_empty() {
-        let paragraph = Paragraph::new("No items found")
-            .block(pane_block(title, focused))
-            .alignment(ratatui::layout::Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
+        let paragraph =
+            Paragraph::new(center_text("No items found", area.height.saturating_sub(2)))
+                .block(pane_block(title, focused))
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }

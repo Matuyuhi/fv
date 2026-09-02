@@ -9,7 +9,7 @@ use ratatui::widgets::{List, ListItem, ListState};
 use crate::component::tree::Tree;
 use crate::git::{FileStatus, GitStatus, StatusKind};
 
-use crate::widget::{pane_block, visible_window};
+use crate::widget::{center_text, pane_block, visible_window};
 
 pub(crate) fn draw_tree(
     frame: &mut Frame,
@@ -100,10 +100,11 @@ pub(crate) fn draw_tree(
         .collect();
     if items.is_empty() {
         use ratatui::widgets::Paragraph;
-        let paragraph = Paragraph::new("No files found")
-            .block(block)
-            .alignment(ratatui::layout::Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
+        let paragraph =
+            Paragraph::new(center_text("No files found", area.height.saturating_sub(2)))
+                .block(block)
+                .alignment(ratatui::layout::Alignment::Center)
+                .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
     } else {
         let list = List::new(items).block(block).highlight_style(
