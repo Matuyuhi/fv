@@ -199,9 +199,13 @@ fn remote_job_line(job: &str) -> Line<'static> {
 }
 
 fn notice_line(message: &str, is_error: bool) -> Line<'static> {
-    let color = if is_error { Color::Red } else { Color::Green };
+    let (icon, color) = if is_error {
+        ("⚠ ", Color::Red)
+    } else {
+        ("✓ ", Color::Green)
+    };
     Line::from(Span::styled(
-        message.to_string(),
+        format!("{icon}{message}"),
         Style::default().fg(color),
     ))
 }
