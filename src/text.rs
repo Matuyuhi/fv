@@ -9,9 +9,12 @@ pub const TAB_EXPANDED: &str = "    ";
 
 /// 改行を落とし、端末で幅が不定になるタブをスペースに展開する
 pub fn normalize(segment: &str) -> String {
-    segment
-        .trim_end_matches(['\n', '\r'])
-        .replace('\t', TAB_EXPANDED)
+    let trimmed = segment.trim_end_matches(['\n', '\r']);
+    if trimmed.contains('\t') {
+        trimmed.replace('\t', TAB_EXPANDED)
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// 行番号 gutter の全体 char 幅 (行番号の桁数 + 末尾の区切り空白 1 文字)
