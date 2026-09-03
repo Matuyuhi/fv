@@ -1,3 +1,5 @@
-## 2024-05-17 - TUI Vertical Centering of Empty States
-**Learning:** Ratatui's `Paragraph` widget with `Alignment::Center` only centers horizontally. To achieve vertical centering (e.g., for empty state messages like "No files found"), manual padding with newlines must be calculated based on the available block area's height.
-**Action:** When implementing empty states in TUI apps using ratatui, always calculate and inject vertical padding to center the message both horizontally and vertically, making the interface feel more polished.
+## 2024-05-23 - Status Bar Notice Indicator
+
+**Learning:** There is a notice message overlay in the application that is drawn over the normal keyboard hint line at the bottom when present (`app.notice`). Currently it just overwrites the hint bar text with `message`, and lacks visual distinction from the normal hints besides color.
+
+**Action:** Update `notice_line` in `src/shell/status_bar.rs` to include a visual indicator (e.g., prefix with an info/warning symbol like `i` or `!`, or Nerd Font icon if supported, but simpler is safer if we want it to work without Nerd Fonts. Actually, let's use standard unicode characters like `✓` for success/info and `⚠` for error).
