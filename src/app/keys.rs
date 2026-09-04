@@ -385,6 +385,9 @@ impl App {
         }
         if saved {
             self.status_pending = true;
+            // 横断検索の結果も同じ理由で古くなる (監視を張れない環境では watcher 経由の
+            // invalidate が来ないので、保存の経路からも印を付ける)
+            self.grep.invalidate();
         }
     }
 
@@ -535,13 +538,15 @@ impl App {
     }
 
     // 選択中のヒットを VIEW で開き、その行へ飛ぶ。ファイル内検索 (`/`) と同じクエリを
-    // 立てた状態にするので、飛んだ先で n/N がそのまま次のヒットへ効く
+    // 立てた状態にするので、飛んだ先で n/N がそのまま次のヒットへ効く。
+    // クエリは入力中の query ではなく、表示中の行を作った result_query — デバウンス待ちの
+    // 間は前の結果が残っているので、そこで Enter を押しても行とクエリが食い違わない
     fn open_grep_hit(&mut self) {
-        let Some((rel, line)) = self.grep.selected_hit() else {
+        let Some((rel, line, col)) = self.grep.selected_hit() else {
             return;
         };
         let path = self.root.join(rel);
-        let query = self.grep.query.clone();
+        let query = self.grep.result_query().to_string();
         self.mode = Mode::Normal;
         // GIT レーンで open_selected を呼ぶと diff が開く。ヒットは本文の行なので VIEW へ移す
         // (enter_lane がツリーの絞り込み解除まで面倒を見る)
@@ -549,7 +554,7 @@ impl App {
             self.enter_lane(0);
         }
         self.open_selected(&path);
-        self.viewer.locate_search(&query, line);
+        self.viewer.locate_search(&query, line, col);
         self.focus = Focus::Viewer;
     }
 

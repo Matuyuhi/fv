@@ -41,6 +41,9 @@ pub struct GrepState {
     root: PathBuf,
     opts: ScanOptions,
     pub query: String,
+    /// 今の files/rows を作った走査のクエリ。query はデバウンス待ちの間に先へ進むので、
+    /// 表示中のヒットを開く時はこちらを使う (query A の行に query B の `/` を立てない)
+    result_query: String,
     /// クエリが変わってからまだ走査を起こしていない間の、最後の打鍵時刻
     pending_since: Option<Instant>,
     job: Option<Job>,
@@ -64,6 +67,7 @@ impl GrepState {
             root,
             opts,
             query: String::new(),
+            result_query: String::new(),
             pending_since: None,
             job: None,
             files: Vec::new(),
@@ -138,6 +142,7 @@ impl GrepState {
         {
             self.pending_since = None;
             self.clear_results();
+            self.result_query = self.query.clone();
             let cancel = Arc::new(AtomicBool::new(false));
             let rx = search::spawn(
                 self.root.clone(),
@@ -254,11 +259,17 @@ impl GrepState {
         self.selected = (self.selected as isize + delta).clamp(0, last) as usize;
     }
 
-    /// 選択中のヒット (root からの相対パス, 0-origin 行)
-    pub fn selected_hit(&self) -> Option<(&std::path::Path, usize)> {
+    /// 選択中のヒット (root からの相対パス, 0-origin 行, plain の char 桁)
+    pub fn selected_hit(&self) -> Option<(&std::path::Path, usize, usize)> {
         let row = self.rows.get(self.selected)?;
         let file = &self.files[row.file];
-        Some((&file.path, file.hits[row.hit].line))
+        let hit = &file.hits[row.hit];
+        Some((&file.path, hit.line, hit.col))
+    }
+
+    /// 表示中のヒットを作ったクエリ (入力中の query とは別)
+    pub fn result_query(&self) -> &str {
+        &self.result_query
     }
 }
 
@@ -318,9 +329,13 @@ mod tests {
         assert_eq!(state.scanned(), 2);
         assert!(!state.truncated());
         state.move_selection(2);
-        let (path, line) = state.selected_hit().unwrap();
+        let (path, line, col) = state.selected_hit().unwrap();
         assert_eq!(path.to_string_lossy(), "src/b.rs");
-        assert_eq!(line, 1);
+        assert_eq!((line, col), (1, 0));
+        // 打ち直してデバウンス待ちの間、表示中の行はまだ前のクエリのもの
+        state.push_char('x');
+        assert_eq!(state.result_query(), "needle");
+        assert_eq!(state.hit_count(), 3);
         let _ = fs::remove_dir_all(root);
     }
 

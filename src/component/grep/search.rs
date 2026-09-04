@@ -15,7 +15,7 @@ use std::thread;
 use ignore::{DirEntry, WalkState};
 
 use crate::component::tree::ScanOptions;
-use crate::component::viewer::search_matches;
+use crate::component::viewer::line_matches;
 use crate::text;
 
 /// これ以上のヒットは集めない (走査ごと打ち切る)。1 文字のクエリを巨大 repo に投げた時に
@@ -38,10 +38,13 @@ const LINE_CONTEXT_BEFORE: usize = 40;
 pub struct Hit {
     /// 0-origin
     pub line: usize,
+    /// 行の中での一致位置 (plain の char 桁)。開いた先で同じ一致を現在位置にするために使う
+    pub col: usize,
+    /// text 内での強調範囲。切り出していなければ start_col == col
     pub start_col: usize,
     pub end_col: usize,
     /// 表示用の行本文 (plain)。MAX_LINE_CHARS を超える行は切り出し済みで、その場合
-    /// start_col/end_col もこの text 内の座標に直してある (`clipped` が true)
+    /// start_col/end_col はこの text 内の座標に直してある (`clipped` が true)
     pub text: String,
     pub clipped: bool,
 }
@@ -170,9 +173,19 @@ fn search_entry(entry: &DirEntry, root: &Path, needle: &Needle) -> Option<FileHi
 }
 
 // ファイル全体を 1 本の文字列として `str::find` (two-way 法) で流し、当たった行だけを
-// 行単位の照合 (search_matches) にかけ直す。行ごとに小文字化・char 化する
-// search_matches をファイル全体に使うと、ヒットの無い大多数の行にも確保が付いて回るため
+// 行単位の照合 (line_matches) にかけ直す。行ごとに小文字化・char 化する照合を
+// ファイル全体に使うと、ヒットの無い大多数の行にも確保が付いて回るため
 fn search_text(text: &str, needle: &Needle) -> Vec<Hit> {
+    // プリフィルタも VIEW と同じ plain (タブ展開済み) の上で行う。生テキストのままだと
+    // 「空白 4 つ + foo」のクエリが `\tfoo` の行に当たらず、`/` では見つかるのに
+    // 横断検索では出ない、という食い違いになる。展開しても改行の位置は変わらないので
+    // 行の切り出しはこの写しの上でそのまま行える
+    let text: std::borrow::Cow<str> = if text.contains('\t') {
+        text.replace('\t', text::TAB_EXPANDED).into()
+    } else {
+        text.into()
+    };
+    let text = text.as_ref();
     let folded: std::borrow::Cow<str> = if needle.ignore_case {
         text.to_ascii_lowercase().into()
     } else {
@@ -192,11 +205,14 @@ fn search_text(text: &str, needle: &Needle) -> Vec<Hit> {
         line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
         let line_end = text[at..].find('\n').map_or(text.len(), |i| at + i);
         let plain = text::normalize(&text[line_start..line_end]);
-        for m in search_matches(std::slice::from_ref(&plain), &needle.query) {
-            hits.push(clip(&plain, line_no, m.start_col, m.end_col));
-            if hits.len() >= MAX_HITS_PER_FILE {
-                return hits;
-            }
+        // 上限までしか一致を数えない (minified な 1 行に 1 文字のクエリを投げても、
+        // 残り枠ぶんで走査を止める)
+        let remaining = MAX_HITS_PER_FILE - hits.len();
+        for (start_col, end_col) in line_matches(&plain, &needle.query).take(remaining) {
+            hits.push(clip(&plain, line_no, start_col, end_col));
+        }
+        if hits.len() >= MAX_HITS_PER_FILE {
+            return hits;
         }
         // 次の行頭から続ける (この行の残りの一致は上で数え終えている)
         cursor = line_end;
@@ -215,6 +231,7 @@ fn clip(plain: &str, line: usize, start_col: usize, end_col: usize) -> Hit {
     if len <= MAX_LINE_CHARS {
         return Hit {
             line,
+            col: start_col,
             start_col,
             end_col,
             text: plain.to_string(),
@@ -225,6 +242,7 @@ fn clip(plain: &str, line: usize, start_col: usize, end_col: usize) -> Hit {
     let text: String = plain.chars().skip(from).take(MAX_LINE_CHARS).collect();
     Hit {
         line,
+        col: start_col,
         start_col: start_col - from,
         end_col: (end_col - from).min(MAX_LINE_CHARS),
         text,
@@ -260,6 +278,33 @@ mod tests {
     fn columns_are_in_tab_expanded_plain_coordinates() {
         let text = "\tfoo\n";
         assert_eq!(hits(text, "foo"), vec![(0, 4, 7)]);
+    }
+
+    #[test]
+    fn query_with_expanded_tab_matches_a_tab_in_the_file() {
+        // `/` は plain (タブ → 空白 4) の上で探すので、横断検索も同じ行に当たること
+        assert_eq!(hits("\tfoo\n", "    foo"), vec![(0, 0, 7)]);
+        assert_eq!(hits("a\tb\n", "a b"), Vec::new());
+    }
+
+    #[test]
+    fn per_file_cap_stops_counting_inside_a_huge_line() {
+        let text = "a".repeat(100_000);
+        let found = search_text(&text, &Needle::new("a"));
+        assert_eq!(found.len(), MAX_HITS_PER_FILE);
+        // 2 行目は 1 行目で枠を使い切っているので数えない
+        let text = format!("{}\nfoo\n", "foo ".repeat(MAX_HITS_PER_FILE));
+        let found = search_text(&text, &Needle::new("foo"));
+        assert_eq!(found.len(), MAX_HITS_PER_FILE);
+        assert!(found.iter().all(|h| h.line == 0));
+    }
+
+    #[test]
+    fn clipped_hit_keeps_the_original_column() {
+        let text = format!("{}foo\n", "x".repeat(1000));
+        let hit = &search_text(&text, &Needle::new("foo"))[0];
+        assert_eq!(hit.col, 1000);
+        assert_ne!(hit.start_col, hit.col);
     }
 
     #[test]
