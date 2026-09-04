@@ -49,7 +49,7 @@
 <text x="302" y="309" fill="#96b5b4">│</text>
 <text x="311 581 590 608 617 626 635 653 662 671 680 689 698 707 716 995" y="309" fill="#65737e">│Nofileselected│</text>
 <text x="14" y="329" fill="#96b5b4">│</text>
-<text x="95 104 122 131 140 149 158 176 185 194 203 212" y="329" fill="#65737e">Nofilesfound</text>
+<text x="86 95 113 122 131 140 149 158 167 185 194 203 212 221" y="329" fill="#65737e">Nochangedfiles</text>
 <text x="302" y="329" fill="#96b5b4">│</text>
 <text x="311 995" y="329" fill="#65737e">││</text>
 <text x="14" y="349" fill="#96b5b4">│</text>

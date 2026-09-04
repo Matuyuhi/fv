@@ -100,11 +100,27 @@ pub(crate) fn draw_tree(
         .collect();
     if items.is_empty() {
         use ratatui::widgets::Paragraph;
-        let paragraph =
-            Paragraph::new(center_text("No files found", area.height.saturating_sub(2)))
-                .block(block)
-                .alignment(ratatui::layout::Alignment::Center)
-                .style(Style::default().fg(Color::DarkGray));
+        let mut text = if tree.is_filtered() {
+            "No changed files".to_string()
+        } else {
+            "No files found".to_string()
+        };
+        if !tree.is_filtered() && (!tree.show_hidden() || !tree.show_ignored()) {
+            text.push_str("\n\n(press ");
+            let mut hints = vec![];
+            if !tree.show_hidden() {
+                hints.push("'a' for hidden");
+            }
+            if !tree.show_ignored() {
+                hints.push("'i' for ignored");
+            }
+            text.push_str(&hints.join(", "));
+            text.push(')');
+        }
+        let paragraph = Paragraph::new(center_text(&text, area.height.saturating_sub(2)))
+            .block(block)
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
     } else {
         let list = List::new(items).block(block).highlight_style(
