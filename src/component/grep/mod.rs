@@ -46,6 +46,8 @@ struct Job {
     /// 走査を起こした時点で FS 監視が生きていたか。完走した corpus を次回そのまま信用できるか
     /// はこれで決まる (監視が無い間に起きた変更は誰にも分からない)
     watched: bool,
+    /// 走査を起こした時点の global gitignore の指紋 (完走した一覧に添える)
+    global_ignore: GlobalIgnoreStamp,
     /// 走査中に変更の通知が来た。読み直した項目 (Refreshed) をそのまま一覧へ書き戻すと、
     /// 読んだ後に来た変更の dirty を消してしまうので、その走査の Refreshed は捨てる
     changed_during: bool,
@@ -61,6 +63,22 @@ struct Snapshot {
     /// 一覧が今の root の中身と一致していると言えるか。完走時に監視が生きていれば true、
     /// 構造が変わる (作成・削除・リネーム) 通知や監視の途切れで false になる
     trusted: bool,
+    /// 走査を起こした時点の global gitignore (core.excludesFile) の指紋。root の外にあって
+    /// FS 監視が届かないので、一覧を使い回す前にこれを照合する
+    global_ignore: GlobalIgnoreStamp,
+}
+
+/// global gitignore の (path, mtime, size)。無ければ None 同士で一致する
+type GlobalIgnoreStamp = Option<(PathBuf, Option<std::time::SystemTime>, u64)>;
+
+fn global_ignore_stamp() -> GlobalIgnoreStamp {
+    let path = ignore::gitignore::gitconfig_excludes_path()?;
+    let meta = std::fs::metadata(&path).ok();
+    Some((
+        path,
+        meta.as_ref().and_then(|m| m.modified().ok()),
+        meta.map_or(0, |m| m.len()),
+    ))
 }
 
 pub struct GrepState {
@@ -93,7 +111,7 @@ pub struct GrepState {
 }
 
 impl Snapshot {
-    fn new(corpus: Corpus, trusted: bool) -> Self {
+    fn new(corpus: Corpus, trusted: bool, global_ignore: GlobalIgnoreStamp) -> Self {
         let index = corpus
             .iter()
             .enumerate()
@@ -105,6 +123,7 @@ impl Snapshot {
             index,
             dirty,
             trusted,
+            global_ignore,
         }
     }
 
@@ -291,7 +310,7 @@ impl GrepState {
                 Ok(Message::Corpus(corpus)) => {
                     // 完走した時点でも監視が生きていてこそ「以後の変更は必ず届く」と言える
                     let trusted = job.watched && self.watched;
-                    self.snapshot = Some(Snapshot::new(corpus, trusted));
+                    self.snapshot = Some(Snapshot::new(corpus, trusted, job.global_ignore.clone()));
                 }
                 Ok(Message::Refreshed(entries)) => {
                     if !job.changed_during
@@ -319,6 +338,13 @@ impl GrepState {
     // 走査を起こす。信用できる一覧があればメモリ上の照合だけ、無ければ root を歩き直す
     fn start_job(&mut self) {
         let cancel = Arc::new(AtomicBool::new(false));
+        // root の外の無視設定 (global gitignore) は監視が届かないので、使い回す前に指紋で照合する
+        let global_ignore = global_ignore_stamp();
+        if let Some(snapshot) = &mut self.snapshot
+            && snapshot.global_ignore != global_ignore
+        {
+            snapshot.trusted = false;
+        }
         let rx = match &self.snapshot {
             Some(snapshot) if self.watched && snapshot.trusted => search::spawn_corpus(
                 self.root.clone(),
@@ -340,6 +366,7 @@ impl GrepState {
             cancel,
             done: false,
             watched: self.watched,
+            global_ignore,
             changed_during: false,
         });
     }

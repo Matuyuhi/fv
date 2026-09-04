@@ -74,6 +74,10 @@ src/component/grep/
 - 走査中に来た通知 — その走査は変更の前後どちらを読んだか分からないので `Job::watched = false`
 - 監視が途切れた (`set_watched(false)`)
 - 走査条件の切替 (`set_options`) — 一覧そのものを捨てる
+- 無視設定の変更 — 各階層の `.gitignore` / `.ignore` と `.git/info/exclude` は watch.rs が
+  (隠しファイルでも) 常に structural として通す。root の外の global gitignore
+  (`core.excludesFile`) は監視が届かないので、走査を起こす時点の (mtime, size) を snapshot に
+  添え、次に使い回す前に照合する (`global_ignore_stamp`)
 
 `touch(path)` で一覧にあるパスなら、その項目だけ `dirty` にして一覧は使い続ける (AI が 1 ファイルを
 書き換え続ける状況で、そのたびに歩き直さないため)。dirty な項目は次の照合で **stat を見ずに必ず
@@ -103,7 +107,14 @@ path は root、structural) として通すようにした。後者は以前は�
 する (消えた・無視対象になったファイルはここで落ちる)、途中で止まったなら前の map に重ねる。
 最初は per-file の `Mutex<HashMap>` + `Arc::from(&buf)` の写しで作っていたが、cold の走査が
 2 倍 (41ms → 80ms) に遅くなり、ロック 3 回 + memcpy を消して 54ms まで戻した。上限の判定は
-`AtomicUsize` の予約で、読み取りだけで弾ける時は RMW を発行しない。
+`AtomicUsize` の予約で、読み取りだけで弾ける時は RMW を発行しない。読んでいる間に伸びた
+ぶんは追加で予約し、収まらなければ Uncached に戻す。
+
+**走査は同時に複数走りうる** (キャンセルは join しない)。古い走査が新しい走査より後に終わって
+map を差し替えると、新しい走査が読んだ版が古い版に戻る。そこで cache は世代 (`Cache::begin`)
+を持ち、差し替え (`replace`) は世代の判定と map の入れ替えを同じロックの中で行って、古い世代は
+「完走扱いにしない + map に無いパスだけ足す」に降格する。予約の会計 (`bytes`) は差し替えで
+正確な値に置き直すので、古い走査の `release` は飽和減算で 0 で止める (ずれは次の差し替えで消える)。
 
 残る cold の差 (41ms → 54ms、cache の保持込みで 70ms 台) は stat と、120MB を新しく確保する
 page fault。初回に 1 度払うだけで、以後は walk 経路で読まなくなるぶん (33ms) と corpus 経路

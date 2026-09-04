@@ -76,7 +76,15 @@ impl FsWatcher {
                 continue;
             };
             for path in event.paths {
-                if !self.is_ignored(&path) {
+                // 無視設定そのものの変更は、どのファイルが対象かを丸ごと変えるので常に構造変化
+                // として通す (隠しファイルとして落とさない)。横断検索の一覧はこれで信用を失う
+                if is_ignore_config(&self.root, &path) {
+                    changes.push(Change {
+                        path,
+                        structural: true,
+                        overflow: false,
+                    });
+                } else if !self.is_ignored(&path) {
                     changes.push(Change {
                         path,
                         structural,
@@ -134,6 +142,19 @@ impl FsWatcher {
             None => false,
         }
     }
+}
+
+/// 走査側 (ignore クレート) が読む無視設定ファイルか: 各階層の .gitignore / .ignore と
+/// root の .git/info/exclude。root 外の global gitignore は監視できないので、横断検索側が
+/// 指紋 (mtime, size) で別途照合する
+fn is_ignore_config(root: &Path, path: &Path) -> bool {
+    if path == root.join(".git").join("info").join("exclude") {
+        return true;
+    }
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some(".gitignore" | ".ignore")
+    )
 }
 
 /// 中身が変わったと見なすイベントだけ通し、**ツリーの構造 (作成・削除・リネーム) を変えるか**
@@ -236,6 +257,12 @@ mod tests {
         assert!(watcher.is_ignored(&root.join("notes.md")));
         assert!(watcher.is_ignored(&root.join("src/main.rs.bak")));
         assert!(!watcher.is_ignored(&root.join("src/main.rs")));
+        // 無視設定そのものは隠しファイルでも構造変化として通す
+        assert!(is_ignore_config(&root, &root.join(".gitignore")));
+        assert!(is_ignore_config(&root, &root.join("src/.gitignore")));
+        assert!(is_ignore_config(&root, &root.join(".ignore")));
+        assert!(is_ignore_config(&root, &root.join(".git/info/exclude")));
+        assert!(!is_ignore_config(&root, &root.join(".git/index")));
 
         // 無視ファイルを表示している間は、その変更も追従させたいので通す
         let showing = FsWatcher::new(

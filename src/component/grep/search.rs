@@ -132,11 +132,24 @@ pub(super) struct Cache {
     /// Text として残している本文の合計 (上限 MAX_CACHE_BYTES の判定用)。走査中は読む前に
     /// 予約として足すので概算で、差し替え時に正確な値へ戻す
     bytes: AtomicUsize,
+    /// 走査の世代。`begin` のたびに進み、古い世代の走査 (キャンセルされたが終わり切っていない
+    /// もの) は map を丸ごと差し替えたり既存の項目を上書きしたりできない — 新しい走査が
+    /// 読んだ版を古い版で戻さないため。キャンセルは join しないので、走査は同時に複数走りうる
+    generation: AtomicUsize,
 }
+
+/// 走査の開始時に受け取り、終わりの差し替えに添える
+#[derive(Clone, Copy)]
+struct Generation(usize);
 
 impl Cache {
     fn snapshot(&self) -> Arc<Map> {
         Arc::clone(&self.map.lock().unwrap())
+    }
+
+    /// 新しい走査を始める。以後、これより前の世代の差し替えは降格される (`replace`)
+    fn begin(&self) -> Generation {
+        Generation(self.generation.fetch_add(1, Ordering::Relaxed) + 1)
     }
 
     /// 読む前に呼ぶ。上限に収まるなら予約して true。読み取りだけで弾ける時は RMW を発行しない
@@ -152,40 +165,51 @@ impl Cache {
         false
     }
 
+    /// 予約を戻す。古い世代の走査が差し替え後に戻すと (差し替えで正確な値に置き直した後なので)
+    /// 引きすぎになるため、0 で止める。ずれは次の差し替えで正確な値に戻る
     fn release(&self, len: usize) {
-        self.bytes.fetch_sub(len, Ordering::Relaxed);
+        let _ = self
+            .bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+                Some(b.saturating_sub(len))
+            });
     }
 
     /// 走査の終わりに map を差し替える。完走していれば seen だけ (消えた・無視対象になった
     /// ファイルはここで落ちる)、途中で止まったなら前の map に**読み直したぶんだけ**重ねる
     /// (読んだぶんは無駄にしない)。打鍵のたびにキャンセルされる走査で、cache がそのまま
-    /// 当たった項目まで map を複製し直さないよう、既に同じ Arc が入っているものは省く
-    fn replace(&self, seen: Vec<Arc<Entry>>, complete: bool) {
-        let mut map = if complete {
-            Map::with_capacity(seen.len())
+    /// 当たった項目まで map を複製し直さないよう、既に同じ Arc が入っているものは省く。
+    /// 古い世代の走査は完走扱いにせず、しかも **map に無いパスしか足さない** — 既にある項目は
+    /// 新しい走査が読んだ版かもしれず、古い走査の読みで上書きすると stale が復活する
+    fn replace(&self, seen: Vec<Arc<Entry>>, complete: bool, generation: Generation) {
+        // 判定と差し替えを同じロックの中で行う (判定の後に別の走査が世代を進めて commit すると、
+        // その結果をこの古い走査が上書きしてしまう)
+        let mut slot = self.map.lock().unwrap();
+        let current = generation.0 == self.generation.load(Ordering::Relaxed);
+        let map = if complete && current {
+            let mut map = Map::with_capacity(seen.len());
+            for entry in seen {
+                map.insert(Arc::clone(&entry.rel), entry);
+            }
+            map
         } else {
-            let known = self.snapshot();
+            let known = &*slot;
             let fresh: Vec<Arc<Entry>> = seen
                 .into_iter()
-                .filter(|e| !known.get(&e.rel).is_some_and(|k| Arc::ptr_eq(k, e)))
+                .filter(|e| match known.get(&e.rel) {
+                    Some(k) => current && !Arc::ptr_eq(k, e),
+                    None => true,
+                })
                 .collect();
             if fresh.is_empty() {
                 return;
             }
-            let mut map = Map::clone(&known);
+            let mut map = Map::clone(known);
             for entry in fresh {
                 map.insert(Arc::clone(&entry.rel), entry);
             }
-            self.commit(map);
-            return;
+            map
         };
-        for entry in seen {
-            map.insert(Arc::clone(&entry.rel), entry);
-        }
-        self.commit(map);
-    }
-
-    fn commit(&self, map: Map) {
         let bytes = map
             .values()
             .map(|e| match &e.content {
@@ -193,7 +217,7 @@ impl Cache {
                 _ => 0,
             })
             .sum();
-        *self.map.lock().unwrap() = Arc::new(map);
+        *slot = Arc::new(map);
         self.bytes.store(bytes, Ordering::Relaxed);
     }
 
@@ -296,6 +320,7 @@ pub(super) fn spawn_walk(
     thread::spawn(move || {
         let progress = Progress::new(tx, cancel);
         let needle = Needle::new(&query);
+        let generation = cache.begin();
         let known = cache.snapshot();
         let sink: Mutex<Vec<Arc<Entry>>> = Mutex::new(Vec::new());
         let walker = opts.walker(&root).build_parallel();
@@ -342,7 +367,7 @@ pub(super) fn spawn_walk(
         if complete {
             let _ = progress.tx.send(Message::Corpus(seen.clone()));
         }
-        cache.replace(seen, complete);
+        cache.replace(seen, complete, generation);
     });
     rx
 }
@@ -363,6 +388,7 @@ pub(super) fn spawn_corpus(
     thread::spawn(move || {
         let progress = Progress::new(tx, cancel);
         let needle = Needle::new(&query);
+        let generation = cache.begin();
         let next = AtomicUsize::new(0);
         let workers = thread::available_parallelism().map_or(1, |n| n.get());
         let sink: Mutex<Vec<Arc<Entry>>> = Mutex::new(Vec::new());
@@ -409,7 +435,7 @@ pub(super) fn spawn_corpus(
             if !progress.cancelled() {
                 let _ = progress.tx.send(Message::Refreshed(reread.clone()));
             }
-            cache.replace(reread, false);
+            cache.replace(reread, false, generation);
         }
     });
     rx
@@ -459,11 +485,18 @@ fn load(
         let mut own = Vec::with_capacity(want + 1);
         match read_into(abs, &mut own) {
             Some(true) => {
-                // 予約は stat の値なので読めた長さに合わせる
+                // 予約は stat の値なので読めた長さに合わせる。読んでいる間に伸びたぶんは
+                // 追加で予約し、収まらなければ残さない (上限を黙って超えない)
                 if own.len() < want {
                     cache.release(want - own.len());
+                    Content::Text(own)
+                } else if own.len() == want || cache.reserve(own.len() - want) {
+                    Content::Text(own)
+                } else {
+                    cache.release(want);
+                    std::mem::swap(buf, &mut own);
+                    Content::Uncached
                 }
-                Content::Text(own)
             }
             other => {
                 cache.release(want);
@@ -903,6 +936,40 @@ mod tests {
         assert_eq!(find_at(b"xx3 needle3", b"needle3", true), Some(4));
         // 稀なバイトが先頭付近に立っても手前が足りない位置は候補にしない
         assert_eq!(find_at(b"3", b"ab3", false), None);
+    }
+
+    fn entry(rel: &str, text: &str) -> Arc<Entry> {
+        Arc::new(Entry {
+            rel: Arc::from(Path::new(rel)),
+            mtime: None,
+            size: text.len() as u64,
+            content: Content::Text(text.as_bytes().to_vec()),
+        })
+    }
+
+    fn text_of(cache: &Cache, rel: &str) -> String {
+        match &cache.snapshot().get(Path::new(rel)).unwrap().content {
+            Content::Text(b) => String::from_utf8_lossy(b).into_owned(),
+            _ => panic!("text"),
+        }
+    }
+
+    // キャンセルされた古い走査は join されず、新しい走査より後に終わりうる。その差し替えで
+    // 新しい走査が読んだ版を古い版で戻さないこと (無いパスを足すだけ)。予約の会計も 0 を下回らない
+    #[test]
+    fn stale_generation_never_overwrites_newer_entries() {
+        let cache = Cache::default();
+        let old = cache.begin();
+        let new = cache.begin();
+        cache.replace(vec![entry("a", "new-a"), entry("b", "b")], true, new);
+        cache.replace(vec![entry("a", "old-a"), entry("c", "c")], true, old);
+        assert_eq!(text_of(&cache, "a"), "new-a");
+        assert_eq!(text_of(&cache, "b"), "b");
+        assert_eq!(text_of(&cache, "c"), "c");
+        assert_eq!(cache.bytes.load(Ordering::Relaxed), "new-a".len() + 2);
+        cache.release(1 << 40);
+        assert_eq!(cache.bytes.load(Ordering::Relaxed), 0);
+        assert!(cache.reserve(10));
     }
 
     #[test]
