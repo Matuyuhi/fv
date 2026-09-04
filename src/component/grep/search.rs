@@ -315,12 +315,14 @@ pub(super) fn spawn_walk(
     cache: SharedCache,
 ) -> Receiver<Message> {
     let (tx, rx) = mpsc::channel();
+    // 世代はスレッドを起こす前 (呼び出し側) で採る。スレッドの中で採るとキャンセル済みの古い
+    // 走査が遅れて起動して新しい世代を取り、新しい走査の差し替えが古い扱いに降格される
+    let generation = cache.begin();
     // walker.run はスレッドを内部で複数起こしたうえで**呼び出し側をブロックする**ので、
     // それ自体をさらに 1 本のスレッドへ出す (UI スレッドを止めない)
     thread::spawn(move || {
         let progress = Progress::new(tx, cancel);
         let needle = Needle::new(&query);
-        let generation = cache.begin();
         let known = cache.snapshot();
         let sink: Mutex<Vec<Arc<Entry>>> = Mutex::new(Vec::new());
         let walker = opts.walker(&root).build_parallel();
@@ -385,10 +387,11 @@ pub(super) fn spawn_corpus(
     cache: SharedCache,
 ) -> Receiver<Message> {
     let (tx, rx) = mpsc::channel();
+    // 世代は spawn_walk と同じくスレッドを起こす前に採る
+    let generation = cache.begin();
     thread::spawn(move || {
         let progress = Progress::new(tx, cancel);
         let needle = Needle::new(&query);
-        let generation = cache.begin();
         let next = AtomicUsize::new(0);
         let workers = thread::available_parallelism().map_or(1, |n| n.get());
         let sink: Mutex<Vec<Arc<Entry>>> = Mutex::new(Vec::new());

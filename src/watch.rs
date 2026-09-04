@@ -60,6 +60,7 @@ impl FsWatcher {
             return Vec::new();
         };
         let mut changes = Vec::new();
+        let mut ignore_changed = false;
         while let Ok(res) = active.rx.try_recv() {
             let Ok(event) = res else { continue };
             // キューが溢れて取りこぼした (inotify の overflow 等)。何が変わったか分からないので
@@ -79,6 +80,7 @@ impl FsWatcher {
                 // 無視設定そのものの変更は、どのファイルが対象かを丸ごと変えるので常に構造変化
                 // として通す (隠しファイルとして落とさない)。横断検索の一覧はこれで信用を失う
                 if is_ignore_config(&self.root, &path) {
+                    ignore_changed = true;
                     changes.push(Change {
                         path,
                         structural: true,
@@ -92,6 +94,11 @@ impl FsWatcher {
                     });
                 }
             }
+        }
+        // 無視設定が変わったら間引きの matcher も作り直す。起動時のままだと、除外規則を外して
+        // 新しく表示対象になったファイルの変更通知を古い規則で落とし続ける
+        if ignore_changed {
+            self.ignore = build_gitignore(&self.root);
         }
         changes
     }

@@ -379,12 +379,13 @@ impl App {
         // (ファイルの増減は起きないので全走査は要らない = status_pending だけ)。
         // 再取得自体は on_tick の 500ms デバウンスに任せ、連続保存で git を連打しない
         let saved = state.take_saved();
-        let saved_path = state.path.clone();
+        // path の複製は保存した時だけ (毎打鍵のホットパスに確保を足さない)
+        let saved_path = saved.then(|| state.path.clone());
         match outcome {
             EditOutcome::Exit => self.lane = Lane::View,
             EditOutcome::Continue => {}
         }
-        if saved {
+        if let Some(saved_path) = saved_path {
             self.status_pending = true;
             // 横断検索の結果も同じ理由で古くなる (監視を張れない環境では watcher 経由の
             // 通知が来ないので、保存の経路からも印を付ける)
