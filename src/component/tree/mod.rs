@@ -159,6 +159,7 @@ impl Tree {
         // だけの階層はそのまま連鎖して開く (`com/example/app` を 3 回開かせない)
         if opened {
             scan::expand_single_child_chain(node, opts);
+            scan::expand_ancestors(&mut self.nodes, &index_path);
         }
         self.rebuild_visible();
         None

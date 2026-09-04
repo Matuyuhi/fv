@@ -288,6 +288,23 @@ fn insert_missing(top: &mut Vec<Node>, root: &Path, path: &Path) {
     });
 }
 
+/// index_path 上の祖先ディレクトリを全て展開済みにする。畳んだ行 (`api/v1`) の
+/// 開閉は末端ノードの expanded しか触らないので、途中のノードが閉じたまま
+/// (絞り込みの出入りで復元された状態など) でも末端だけ開けてしまう。その後で
+/// 途中の階層に兄弟が増えて連鎖が割れると、閉じた途中ノードが行に採用されて
+/// 開いていた配下が突然消える。開く時に経路ごと揃えておけば割れても見え方が保たれる
+pub(super) fn expand_ancestors(nodes: &mut [Node], index_path: &[usize]) {
+    for len in 1..index_path.len() {
+        if let Some(Node {
+            kind: NodeKind::Dir { expanded, .. },
+            ..
+        }) = node_mut(nodes, &index_path[..len])
+        {
+            *expanded = true;
+        }
+    }
+}
+
 pub(super) fn node_mut<'a>(nodes: &'a mut [Node], index_path: &[usize]) -> Option<&'a mut Node> {
     let (&first, rest) = index_path.split_first()?;
     let mut node = nodes.get_mut(first)?;
