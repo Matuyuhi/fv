@@ -10,6 +10,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # CI は毎回ソースが違うので incremental は効かず、debug の target/ を数百 MB 太らせて
+  # キャッシュを圧迫するだけ (scripts/ci-cargo-cache.sh)
+  CARGO_INCREMENTAL: 0
 
 jobs:
   check:
@@ -37,16 +40,12 @@ jobs:
           rustup component add rustfmt clippy
           rustc --version
 
-      # Cargo.lock には fv 自身の version 行が含まれ、release（bump）のたびに変わる。
-      # それを除いてハッシュし「依存が実際に変わった時だけ」キーが変わるようにする
-      # （依存の version 変更は checksum 行に必ず出るので取りこぼさない）。これをしないと
-      # bump ごとに別キーで巨大キャッシュが新規保存され、リポジトリのキャッシュ上限を食い潰す。
-      - name: Compute version-independent cargo cache key
+      # 鍵は「rustc の版 + 依存 (Cargo.lock から fv 自身の version 行を除いたもの)」で、
+      # bump では変わらず toolchain の更新と依存の変更でだけ変わる。方針の詳細と、鍵に
+      # rustc の版を含めつつ別の版へ restore-keys で落とさない理由は scripts/ci-cargo-cache.sh
+      - name: Compute cargo cache key
         id: cargo_key
-        shell: bash
-        run: |
-          key=$(grep -v '^version = "' Cargo.lock | shasum -a 256 | cut -d' ' -f1)
-          echo "key=$key" >> "$GITHUB_OUTPUT"
+        run: scripts/ci-cargo-cache.sh key >> "$GITHUB_OUTPUT"
 
       - name: Cache cargo & target
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -56,9 +55,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.key }}
+          key: ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.rustc }}-${{ steps.cargo_key.outputs.deps }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.rustc }}-
 
       - name: Format check
         run: cargo fmt --check
@@ -146,3 +145,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: scripts/ci-ui-screenshot-comment.sh
+
+      # actions/cache の保存はジョブの post で走るので、その直前に target/ から「コミットごとに
+      # 作り直すもの」(fv 自身の成果物・incremental) を落とす。同じ鍵のキャッシュが
+      # コミットのたびに太るのを止め、大きさを依存の総量で頭打ちにする (scripts/ci-cargo-cache.sh)
+      - name: Prune target before cache save
+        run: scripts/ci-cargo-cache.sh prune

@@ -25,6 +25,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # ci.yml と同じ理由 (scripts/ci-cargo-cache.sh)。release ビルドは元々 incremental 無し
+  CARGO_INCREMENTAL: 0
 
 jobs:
   guard:
@@ -93,16 +95,11 @@ jobs:
           rustup target add ${{ matrix.target }}
           rustc --version
 
-      # Cargo.lock には fv 自身の version 行が含まれ、release（bump）のたびに変わる。
-      # それを除いてハッシュし「依存が実際に変わった時だけ」キーが変わるようにする
-      # （依存の version 変更は checksum 行に必ず出るので取りこぼさない）。これをしないと
-      # bump ごとに別キーで巨大キャッシュが新規保存され、リポジトリのキャッシュ上限を食い潰す。
-      - name: Compute version-independent cargo cache key
+      # ci.yml と同じ鍵の部品 (scripts/ci-cargo-cache.sh)。release のたびに version が上がっても
+      # 鍵は変わらない (fv 自身の version 行を除いてハッシュしている)
+      - name: Compute cargo cache key
         id: cargo_key
-        shell: bash
-        run: |
-          key=$(grep -v '^version = "' Cargo.lock | shasum -a 256 | cut -d' ' -f1)
-          echo "key=$key" >> "$GITHUB_OUTPUT"
+        run: scripts/ci-cargo-cache.sh key >> "$GITHUB_OUTPUT"
 
       - name: Cache cargo & target
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -112,9 +109,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ steps.cargo_key.outputs.key }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ steps.cargo_key.outputs.rustc }}-${{ steps.cargo_key.outputs.deps }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-${{ steps.cargo_key.outputs.rustc }}-
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -128,6 +125,12 @@ jobs:
           REPO: ${{ github.repository }}
           VER: ${{ needs.guard.outputs.version }}
         run: gh release upload "v$VER" "${{ matrix.asset }}" --repo "$REPO" --clobber
+
+      # actions/cache の保存はジョブの post で走るので、その直前に target/ から「コミットごとに
+      # 作り直すもの」(fv 自身の成果物・incremental) を落とす。同じ鍵のキャッシュが
+      # コミットのたびに太るのを止め、大きさを依存の総量で頭打ちにする (scripts/ci-cargo-cache.sh)
+      - name: Prune target before cache save
+        run: scripts/ci-cargo-cache.sh prune
 
   publish:
     # 全ビルドが資産を上げ終えてから公開（ここで immutable にロックされる）。

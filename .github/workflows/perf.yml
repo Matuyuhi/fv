@@ -12,6 +12,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # ci.yml と同じ理由 (scripts/ci-cargo-cache.sh)。release ビルドは元々 incremental 無し
+  CARGO_INCREMENTAL: 0
 
 jobs:
   bench:
@@ -31,14 +33,11 @@ jobs:
           rustup default stable
           rustc --version
 
-      # ci.yml と同じ理由・同じ鍵。release ビルドの成果物も同じ target/ に入るので、
-      # base 側の測定でも依存のビルドを作り直さずに済む
-      - name: Compute version-independent cargo cache key
+      # ci.yml と同じ鍵の部品 (scripts/ci-cargo-cache.sh)。release ビルドの成果物も同じ
+      # target/ に入るので、base 側の測定でも依存のビルドを作り直さずに済む
+      - name: Compute cargo cache key
         id: cargo_key
-        shell: bash
-        run: |
-          key=$(grep -v '^version = "' Cargo.lock | shasum -a 256 | cut -d' ' -f1)
-          echo "key=$key" >> "$GITHUB_OUTPUT"
+        run: scripts/ci-cargo-cache.sh key >> "$GITHUB_OUTPUT"
 
       - name: Cache cargo & target
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -48,10 +47,10 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-perf-${{ steps.cargo_key.outputs.key }}
+          key: ${{ runner.os }}-cargo-perf-${{ steps.cargo_key.outputs.rustc }}-${{ steps.cargo_key.outputs.deps }}
           restore-keys: |
-            ${{ runner.os }}-cargo-perf-
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-perf-${{ steps.cargo_key.outputs.rustc }}-
+            ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.rustc }}-
 
       # base と head を同じ runner で連続して測り、比を PR コメントに出す。
       # 遅くなっていても PR は落とさない (閾値超えは ::warning::) — ci.yml の
@@ -61,3 +60,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: scripts/ci-perf.sh
+
+      # actions/cache の保存はジョブの post で走るので、その直前に target/ から「コミットごとに
+      # 作り直すもの」(fv 自身の成果物・incremental) を落とす。同じ鍵のキャッシュが
+      # コミットのたびに太るのを止め、大きさを依存の総量で頭打ちにする (scripts/ci-cargo-cache.sh)
+      - name: Prune target before cache save
+        run: scripts/ci-cargo-cache.sh prune
