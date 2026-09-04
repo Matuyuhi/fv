@@ -301,14 +301,21 @@ impl App {
         }
         // 横断検索の走査結果 (Ctrl+f) も同じ tick で drain する。オーバーレイを閉じている間は
         // 一覧が見えないので、変わっていても再描画は起こさない
+        // 監視が生きているかは走査を起こす前に伝える (生きていれば前回の一覧をメモリ上で照合できる)
+        self.grep.set_watched(self.watcher.is_active());
         if self.grep.poll() && matches!(self.mode, Mode::Grep) {
             changed = true;
         }
         let changed_paths = self.watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
-        // 中身が 1 つでも変わったら横断検索の結果は古い。歩き直すのは次に開いた時 (invalidate 参照)
-        if !changed_paths.is_empty() {
-            self.grep.invalidate();
+        // 中身が 1 つでも変わったら横断検索の結果は古い。歩き直すのは次に開いた時 (invalidate 参照)。
+        // 内容だけの変更はそのファイルを読み直す印に留め、一覧 (どのパスがあるか) は使い回す
+        for change in &changed_paths {
+            if change.structural {
+                self.grep.invalidate();
+            } else {
+                self.grep.touch(&change.path);
+            }
         }
 
         for change in &changed_paths {

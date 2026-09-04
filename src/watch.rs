@@ -62,6 +62,15 @@ impl FsWatcher {
         let mut changes = Vec::new();
         while let Ok(res) = active.rx.try_recv() {
             let Ok(event) = res else { continue };
+            // キューが溢れて取りこぼした (inotify の overflow 等)。何が変わったか分からないので
+            // root 全体の構造変化として通す — 横断検索はこれを見て前回の一覧を信用しなくなる
+            if event.need_rescan() {
+                changes.push(Change {
+                    path: self.root.clone(),
+                    structural: true,
+                });
+                continue;
+            }
             let Some(structural) = classify(&event.kind) else {
                 continue;
             };
@@ -72,6 +81,13 @@ impl FsWatcher {
             }
         }
         changes
+    }
+
+    /// 監視が張られていて、以後の変更が必ず届く状態か。横断検索が「前回の一覧を歩き直さずに
+    /// 使ってよいか」の根拠にする (登録前・失敗時は false)
+    pub fn is_active(&mut self) -> bool {
+        self.adopt();
+        matches!(self.state, State::Active(_))
     }
 
     // 別スレッドでの監視開始を待たずに毎 tick 覗きに行く (届いていなければ何もしない)
