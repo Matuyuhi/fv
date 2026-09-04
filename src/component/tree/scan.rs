@@ -61,21 +61,46 @@ pub(super) fn flatten(
                 expanded: false,
                 ignored: node.ignored,
             }),
-            NodeKind::Dir {
-                expanded, children, ..
-            } => {
+            NodeKind::Dir { .. } => {
+                // 子がディレクトリ 1 つだけの階層は `api/v1` のように 1 行へ畳む
+                // (VSCode の compact folders)。行の index_path・path・展開状態は
+                // 連鎖の末端のノードのものになるので、開閉も選択の復元もそこへ効く
+                let mut leaf = node;
+                let mut name = node.name.clone();
+                let mut ignored = node.ignored;
+                let pushed = prefix.len();
+                while let NodeKind::Dir { children, .. } = &leaf.kind {
+                    let [only] = children.as_slice() else { break };
+                    if !matches!(only.kind, NodeKind::Dir { .. })
+                        || filter.is_some_and(|f| !f.contains(&only.path))
+                    {
+                        break;
+                    }
+                    name.push('/');
+                    name.push_str(&only.name);
+                    ignored |= only.ignored;
+                    prefix.push(0);
+                    leaf = only;
+                }
+                let NodeKind::Dir {
+                    expanded, children, ..
+                } = &leaf.kind
+                else {
+                    unreachable!("chain walks Dir nodes only");
+                };
                 rows.push(Row {
                     index_path: prefix.clone(),
-                    name: node.name.clone(),
-                    path: node.path.clone(),
+                    name,
+                    path: leaf.path.clone(),
                     depth,
                     is_dir: true,
                     expanded: *expanded,
-                    ignored: node.ignored,
+                    ignored,
                 });
                 if *expanded {
                     flatten(children, depth + 1, prefix, rows, filter);
                 }
+                prefix.truncate(pushed);
             }
         }
         prefix.pop();
@@ -358,11 +383,10 @@ pub(super) fn load(node: &mut Node, opts: ScanOptions) {
     *children = read_dir(&path, opts, ignored);
 }
 
-/// 子がディレクトリ 1 つだけの階層を連鎖して展開する。Java/Kotlin の
+/// 子がディレクトリ 1 つだけの階層を連鎖して読み込む。Java/Kotlin の
 /// `com/example/app` のような「中身の無い中継ディレクトリ」を 1 段ずつ
-/// 開かせないため (VSCode の compact folders と同じ考え方)。表示上は
-/// 各階層が別の行のまま残るので、畳む側・親へ戻る側の操作は変えない。
-/// 走査は連鎖の分だけ増えるが、どれも「開いた時に読む」範囲に収まる
+/// 開かせないため。読み込んだ連鎖は `flatten` が 1 行 (`com/example/app`) に
+/// 畳んで見せる。走査は連鎖の分だけ増えるが、どれも「開いた時に読む」範囲に収まる
 pub(super) fn expand_single_child_chain(node: &mut Node, opts: ScanOptions) {
     let mut node = node;
     loop {

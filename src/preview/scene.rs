@@ -44,7 +44,7 @@ pub const SCENES: &[Scene] = &[
     },
     Scene {
         name: "tree-chain",
-        description: "ツリー: 子がディレクトリ 1 つだけの階層は 1 回の展開で連鎖して開く (docs/api/v1)",
+        description: "ツリー: 子がディレクトリ 1 つだけの階層は 1 行に畳んで 1 回で開く (docs/api/v1)",
         size: None,
         setup: |app| {
             // api を開いた 1 打鍵で v1 まで開く (docs 自体は子が複数なので連鎖の起点にならない)
@@ -362,7 +362,14 @@ fn select(app: &mut App, rel: &str) -> PathBuf {
     let components: Vec<&str> = rel.split('/').collect();
     for (i, component) in components.iter().enumerate() {
         path = path.join(component);
-        let Some(index) = app.tree.visible.iter().position(|row| row.path == path) else {
+        // 連鎖が 1 行に畳まれていると行の path は末端のもの (docs/api/v1) になるので、
+        // 途中のディレクトリ (docs/api) を指す時はそれを含む行を選ぶ
+        let Some(index) = app
+            .tree
+            .visible
+            .iter()
+            .position(|row| row.path == path || (row.is_dir && row.path.starts_with(&path)))
+        else {
             break;
         };
         app.tree.selected = index;
