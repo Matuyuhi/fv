@@ -28,7 +28,7 @@ pub(crate) fn draw_grep(frame: &mut Frame, grep: &mut GrepState, area: Rect) {
 // 一覧の見た目からは区別できないため、必ずここで言葉にする
 fn title(grep: &GrepState) -> String {
     let mut title = String::from("grep (Ctrl+f)");
-    if grep.query.is_empty() {
+    if !grep.searchable() {
         return title;
     }
     title.push_str(&format!(
@@ -62,8 +62,8 @@ fn draw_input(frame: &mut Frame, grep: &GrepState, area: Rect) {
 fn draw_list(frame: &mut Frame, grep: &mut GrepState, area: Rect) {
     let total = grep.rows().len();
     if total == 0 || area.height == 0 {
-        let message = if grep.query.is_empty() {
-            "type to search the workspace"
+        let message = if !grep.searchable() {
+            "type 2+ characters to search the workspace"
         } else if grep.busy() {
             "searching..."
         } else {

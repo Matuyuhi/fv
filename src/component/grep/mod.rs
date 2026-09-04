@@ -24,6 +24,9 @@ use search::Message;
 
 /// キー入力が止まってから走査を起こすまでの間。1 打鍵ごとに repo 全体を歩き直さないため
 const DEBOUNCE: Duration = Duration::from_millis(150);
+/// これより短いクエリでは走査しない。1 文字は repo のほぼ全行に当たり、上限で打ち切られた
+/// 「先頭 5000 件」を見せるだけになるので、歩くコストに見合う結果が出ない
+const MIN_QUERY_CHARS: usize = 2;
 
 /// 一覧の 1 行 = 1 ヒット。files 内の位置で指す (ヒット本体は複製しない)
 #[derive(Clone, Copy)]
@@ -80,9 +83,14 @@ impl GrepState {
         }
     }
 
+    /// 走査に値するクエリか (MIN_QUERY_CHARS 以上)。短い間は結果も走査も持たない
+    pub fn searchable(&self) -> bool {
+        self.query.chars().count() >= MIN_QUERY_CHARS
+    }
+
     /// Ctrl+f で開いた時に呼ぶ。結果が古ければ同じクエリで歩き直す
     pub fn on_open(&mut self) {
-        if self.stale && !self.query.is_empty() {
+        if self.stale && self.searchable() {
             self.stale = false;
             self.schedule();
         }
@@ -111,7 +119,7 @@ impl GrepState {
     fn schedule(&mut self) {
         self.cancel_job();
         self.stale = false;
-        if self.query.is_empty() {
+        if !self.searchable() {
             self.pending_since = None;
             self.clear_results();
         } else {
@@ -205,7 +213,7 @@ impl GrepState {
     /// FS 監視が変更を拾った時に呼ぶ。走査中なら止めて起こし直す (その走査は変更前後が混ざる)。
     /// 完了済みなら印だけ付け、次に開いた時に歩き直す (閉じている間に何度も歩かない)
     pub fn invalidate(&mut self) {
-        if self.query.is_empty() {
+        if !self.searchable() {
             return;
         }
         if self.busy() {
@@ -348,6 +356,10 @@ mod tests {
         };
         let mut state = GrepState::new(root.clone(), opts);
         state.push_char('n');
+        // 1 文字では走査しない (結果も持たない)
+        assert!(!state.busy());
+        assert!(!state.searchable());
+        state.push_char('e');
         wait(&mut state);
         assert!(!state.stale());
         state.invalidate();
@@ -361,5 +373,77 @@ mod tests {
         assert!(!state.busy());
         assert_eq!(state.hit_count(), 0);
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+// 走査コストの物差し。合成ツリー (2 万ファイル・タブ入り混在) を歩いて完了までの時間を出す。
+// 通常の cargo test では走らせない (数秒かかる):
+//   cargo test --release -- --ignored grep_bench --nocapture
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+
+    #[test]
+    #[ignore]
+    fn grep_bench() {
+        let root = std::env::temp_dir().join("fv-grep-bench");
+        if !root.join(".done").exists() {
+            let _ = fs::remove_dir_all(&root);
+            for d in 0..200 {
+                let dir = root.join(format!("pkg{d:03}/src"));
+                fs::create_dir_all(&dir).unwrap();
+                for f in 0..100 {
+                    let mut out = fs::File::create(dir.join(format!("mod{f:03}.rs"))).unwrap();
+                    let indent = if f % 2 == 0 { "\t" } else { "    " };
+                    for i in 0..60 {
+                        writeln!(
+                            out,
+                            "{indent}fn item_{d}_{f}_{i}(x: usize) -> usize {{ x + {i} }}"
+                        )
+                        .unwrap();
+                        writeln!(out, "{indent}// Some Comment about Needle{}", i % 7).unwrap();
+                    }
+                }
+            }
+            fs::write(root.join(".done"), "").unwrap();
+        }
+        let opts = ScanOptions {
+            show_hidden: false,
+            show_ignored: false,
+        };
+        // 上の 3 つは上限で打ち切られる経路、"item_150_50_" は全ファイルを歩いて 1 ファイルだけ
+        // 当たる経路、"zzzz" は全ファイルを歩いて何も当たらない (= 純粋な走査 + 読み込み) 経路、"Zzzz" は同じく大小区別 (小文字化の写し無し)
+        for query in [
+            "needle3",
+            "Needle3",
+            "fn item",
+            "item_150_50_",
+            "zzzz",
+            "Zzzz",
+        ] {
+            let mut best = Duration::MAX;
+            let mut hits = 0;
+            for _ in 0..3 {
+                let mut state = GrepState::new(root.clone(), opts);
+                for c in query.chars() {
+                    state.push_char(c);
+                }
+                // デバウンス待ちは測らない
+                std::thread::sleep(DEBOUNCE);
+                let start = Instant::now();
+                loop {
+                    state.poll();
+                    if !state.busy() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                best = best.min(start.elapsed());
+                hits = state.hit_count();
+            }
+            println!("{query:>14}  {best:?}  hits={hits}");
+        }
     }
 }

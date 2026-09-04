@@ -529,7 +529,7 @@ fn sections() -> Vec<Section> {
             entries: &[
                 (
                     "文字入力",
-                    "クエリ (部分一致・smart-case。打鍵が止まると repo 全体を歩き直す)",
+                    "クエリ (部分一致・smart-case・2 文字以上。打鍵が止まると repo 全体を歩き直す)",
                 ),
                 ("↑/↓ Ctrl+n/p", "ヒット選択"),
                 ("Backspace / Ctrl+u", "一文字削除 / 全消去"),
