@@ -43,6 +43,24 @@ pub const THEME_NAMES: [&str; 7] = [
     "Solarized (light)",
 ];
 
+/// 読み込み済みテキストの cache に残す総量の上限。長く使うほど開いたファイルぶん膨らみ
+/// 続けていたので、これを超えたら使っていない順に捨てる (今開いているものは捨てない)
+const MAX_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+struct Cached {
+    content: Rc<Content>,
+    mtime: Option<std::time::SystemTime>,
+    size: u64,
+    bytes: usize,
+}
+
+fn stat(path: &Path) -> (Option<std::time::SystemTime>, u64) {
+    match std::fs::metadata(path) {
+        Ok(meta) => (meta.modified().ok(), meta.len()),
+        Err(_) => (None, 0),
+    }
+}
+
 pub struct Viewer {
     /// シンタックス定義とテーマの置き場。編集 (EditState) も描画時にこれだけを借りる
     pub highlighter: Highlighter,
@@ -52,8 +70,13 @@ pub struct Viewer {
     /// 描画時に ui が直接触る (ui→app の書き戻しと同じく、他フィールドと独立に借りるため)
     pub render: HighlightCache,
     // 読み込み済みテキストのキャッシュ。ハイライトは焼き込まれていないので、
-    // テーマを変えてもここは捨てなくてよい
-    cache: HashMap<PathBuf, Rc<Content>>,
+    // テーマを変えてもここは捨てなくてよい。上限 (MAX_CACHE_BYTES) を超えたら古い順に捨て、
+    // 使う時は stat で (mtime, size) を照合する — 開いていない間に外から書き換えられた
+    // ファイルは watcher の reload (current だけ) が届かないため、ここで見抜くしかない
+    cache: HashMap<PathBuf, Cached>,
+    /// cache の使用順 (末尾が最新)。数十件なので Vec で足りる
+    cache_order: Vec<PathBuf>,
+    cache_bytes: usize,
     pub current: Option<Open>,
     // ファイルごとではなく viewer に1つだけ持つ検索状態
     pub search: Option<SearchState>,
@@ -84,6 +107,8 @@ impl Viewer {
             viewport: Viewport::new(false),
             render: HighlightCache::new(),
             cache: HashMap::new(),
+            cache_order: Vec::new(),
+            cache_bytes: 0,
             current: None,
             search: None,
             selection: None,
@@ -184,14 +209,7 @@ impl Viewer {
             .unwrap_or(path)
             .display()
             .to_string();
-        let content = match self.cache.get(path) {
-            Some(cached) => Rc::clone(cached),
-            None => {
-                let loaded = Rc::new(content::load(path));
-                self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
-                loaded
-            }
-        };
+        let content = self.cached_or_load(path);
         self.render.reset(path, plain_only(&content));
         self.selection = None;
         self.viewport.scroll = scroll;
@@ -208,16 +226,89 @@ impl Viewer {
         self.recompute_search();
     }
 
+    // cache にあり (mtime, size) が変わっていなければそれを、無ければ読んで cache に入れたものを返す
+    fn cached_or_load(&mut self, path: &Path) -> Rc<Content> {
+        let (mtime, size) = stat(path);
+        if let Some(cached) = self.cache.get(path)
+            && cached.mtime == mtime
+            && cached.size == size
+        {
+            let content = Rc::clone(&cached.content);
+            self.touch_order(path);
+            return content;
+        }
+        self.load_into_cache(path, mtime, size)
+    }
+
+    fn load_into_cache(
+        &mut self,
+        path: &Path,
+        mtime: Option<std::time::SystemTime>,
+        size: u64,
+    ) -> Rc<Content> {
+        self.forget(path);
+        let content = Rc::new(content::load(path));
+        let bytes = content.approx_bytes();
+        self.cache.insert(
+            path.to_path_buf(),
+            Cached {
+                content: Rc::clone(&content),
+                mtime,
+                size,
+                bytes,
+            },
+        );
+        self.cache_bytes += bytes;
+        self.cache_order.push(path.to_path_buf());
+        self.evict(path);
+        content
+    }
+
+    fn touch_order(&mut self, path: &Path) {
+        if let Some(i) = self.cache_order.iter().position(|p| p == path) {
+            let p = self.cache_order.remove(i);
+            self.cache_order.push(p);
+        }
+    }
+
+    // 上限を超えたぶんを古い順に捨てる。keep (今開こうとしているもの) だけは残す
+    fn evict(&mut self, keep: &Path) {
+        while self.cache_bytes > MAX_CACHE_BYTES {
+            let Some(i) = self.cache_order.iter().position(|p| p != keep) else {
+                return;
+            };
+            let victim = self.cache_order.remove(i);
+            self.forget(&victim);
+        }
+    }
+
+    /// cache から落とす (今開いているものには触れない)。開いていないファイルの外部変更で呼び、
+    /// 変わったファイルの古い内容を持ち続けない。呼ばれなくても次に開く時の stat で見抜ける
+    pub fn forget(&mut self, path: &Path) {
+        if let Some(old) = self.cache.remove(path) {
+            self.cache_bytes -= old.bytes;
+            self.cache_order.retain(|p| p != path);
+        }
+    }
+
+    /// cache を全部捨てる (監視のキュー溢れで何が変わったか分からない時)。current の内容は
+    /// 呼び出し側が reload で読み直す
+    pub fn forget_all(&mut self) {
+        self.cache.clear();
+        self.cache_order.clear();
+        self.cache_bytes = 0;
+    }
+
     /// 外部変更を検知したファイルを読み直す。current が同じファイルなら
     /// 差し替え、スクロール位置は維持しつつ新しい行数にクランプする。
     pub fn reload(&mut self, path: &Path) {
-        self.cache.remove(path);
         let is_current = self.current.as_ref().is_some_and(|open| open.path == path);
         if !is_current {
+            self.forget(path);
             return;
         }
-        let loaded = Rc::new(content::load(path));
-        self.cache.insert(path.to_path_buf(), Rc::clone(&loaded));
+        let (mtime, size) = stat(path);
+        let loaded = self.load_into_cache(path, mtime, size);
         self.render.reset(path, plain_only(&loaded));
         // 行が入れ替わった後の桁を指したままにしない (外部から書き換えられたファイル)
         self.selection = None;
@@ -504,5 +595,66 @@ fn plain_only(content: &Content) -> bool {
     match content {
         Content::Text(doc) => doc.plain_only,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::fs;
+
+    fn dir(name: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("fv-viewer-cache-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    // 開いていない間に外から書き換えられたファイルは、watcher の reload (current だけ) が
+    // 届かない。開き直した時に cache の古い内容を出さないこと
+    #[test]
+    fn reopening_a_file_changed_while_another_was_open_shows_the_new_content() {
+        let root = dir("stale");
+        let a = root.join("a.txt");
+        let b = root.join("b.txt");
+        fs::write(&a, "old\n").unwrap();
+        fs::write(&b, "b\n").unwrap();
+        let mut viewer = Viewer::new();
+        viewer.open(&a, &root);
+        viewer.open(&b, &root);
+        // mtime の粒度に依らず size を変える
+        fs::write(&a, "new content\n").unwrap();
+        viewer.open(&a, &root);
+        let Content::Text(doc) = viewer.current.as_ref().unwrap().content.as_ref() else {
+            panic!("text");
+        };
+        assert_eq!(doc.plain, ["new content"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_evicts_oldest_files_beyond_the_byte_limit_but_keeps_the_open_one() {
+        let root = dir("evict");
+        let big = "x".repeat(MAX_CACHE_BYTES / 4);
+        let paths: Vec<PathBuf> = (0..4).map(|i| root.join(format!("{i}.txt"))).collect();
+        for p in &paths {
+            fs::write(p, &big).unwrap();
+        }
+        let mut viewer = Viewer::new();
+        for p in &paths {
+            viewer.open(p, &root);
+        }
+        assert!(viewer.cache_bytes <= MAX_CACHE_BYTES);
+        assert!(viewer.cache.contains_key(&paths[3]));
+        assert!(!viewer.cache.contains_key(&paths[0]));
+        // 外部変更の通知で開いていないものは落ち、開いているものは残る
+        viewer.forget(&paths[2]);
+        assert!(!viewer.cache.contains_key(&paths[2]));
+        assert_eq!(
+            viewer.cache_bytes,
+            viewer.cache.values().map(|c| c.bytes).sum::<usize>()
+        );
+        let _ = fs::remove_dir_all(root);
     }
 }

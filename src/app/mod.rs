@@ -301,20 +301,37 @@ impl App {
         }
         // 横断検索の走査結果 (Ctrl+f) も同じ tick で drain する。オーバーレイを閉じている間は
         // 一覧が見えないので、変わっていても再描画は起こさない
+        // 監視が生きているかは走査を起こす前に伝える (生きていれば前回の一覧をメモリ上で照合できる)
+        self.grep.set_watched(self.watcher.is_active());
         if self.grep.poll() && matches!(self.mode, Mode::Grep) {
             changed = true;
         }
         let changed_paths = self.watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
-        // 中身が 1 つでも変わったら横断検索の結果は古い。歩き直すのは次に開いた時 (invalidate 参照)
-        if !changed_paths.is_empty() {
-            self.grep.invalidate();
+        // 中身が 1 つでも変わったら横断検索の結果は古い。歩き直すのは次に開いた時 (invalidate 参照)。
+        // 内容だけの変更はそのファイルを読み直す印に留め、一覧 (どのパスがあるか) は使い回す
+        for change in &changed_paths {
+            if change.structural {
+                self.grep.invalidate();
+            } else {
+                self.grep.touch(&change.path);
+            }
         }
 
         for change in &changed_paths {
-            if open_path.as_deref() == Some(change.path.as_path()) {
+            if change.overflow {
+                // 何が変わったか分からないので、cache を全部捨てて開いているものは読み直す
+                self.viewer.forget_all();
+                if let Some(path) = &open_path {
+                    self.viewer.reload(path);
+                    changed = true;
+                }
+            } else if open_path.as_deref() == Some(change.path.as_path()) {
                 self.viewer.reload(&change.path);
                 changed = true;
+            } else {
+                // 開いていないファイルは読み直さず、cache に残っている古い内容だけ捨てる
+                self.viewer.forget(&change.path);
             }
             // 開いているファイル自身の変更でも git status の再取得は要る。以前はここが
             // else if で繋がっていたため、閲覧・編集中のファイルを書き換えても差分の有無

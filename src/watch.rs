@@ -60,18 +60,54 @@ impl FsWatcher {
             return Vec::new();
         };
         let mut changes = Vec::new();
+        let mut ignore_changed = false;
         while let Ok(res) = active.rx.try_recv() {
             let Ok(event) = res else { continue };
+            // キューが溢れて取りこぼした (inotify の overflow 等)。何が変わったか分からないので
+            // root 全体の構造変化として通す — 横断検索はこれを見て前回の一覧を信用しなくなる
+            if event.need_rescan() {
+                changes.push(Change {
+                    path: self.root.clone(),
+                    structural: true,
+                    overflow: true,
+                });
+                continue;
+            }
             let Some(structural) = classify(&event.kind) else {
                 continue;
             };
             for path in event.paths {
-                if !self.is_ignored(&path) {
-                    changes.push(Change { path, structural });
+                // 無視設定そのものの変更は、どのファイルが対象かを丸ごと変えるので常に構造変化
+                // として通す (隠しファイルとして落とさない)。横断検索の一覧はこれで信用を失う
+                if is_ignore_config(&self.root, &path) {
+                    ignore_changed = true;
+                    changes.push(Change {
+                        path,
+                        structural: true,
+                        overflow: false,
+                    });
+                } else if !self.is_ignored(&path) {
+                    changes.push(Change {
+                        path,
+                        structural,
+                        overflow: false,
+                    });
                 }
             }
         }
+        // 無視設定が変わったら間引きの matcher も作り直す。起動時のままだと、除外規則を外して
+        // 新しく表示対象になったファイルの変更通知を古い規則で落とし続ける
+        if ignore_changed {
+            self.ignore = build_gitignore(&self.root);
+        }
         changes
+    }
+
+    /// 監視が張られていて、以後の変更が必ず届く状態か。横断検索が「前回の一覧を歩き直さずに
+    /// 使ってよいか」の根拠にする (登録前・失敗時は false)
+    pub fn is_active(&mut self) -> bool {
+        self.adopt();
+        matches!(self.state, State::Active(_))
     }
 
     // 別スレッドでの監視開始を待たずに毎 tick 覗きに行く (届いていなければ何もしない)
@@ -115,6 +151,19 @@ impl FsWatcher {
     }
 }
 
+/// 走査側 (ignore クレート) が読む無視設定ファイルか: 各階層の .gitignore / .ignore と
+/// root の .git/info/exclude。root 外の global gitignore は監視できないので、横断検索側が
+/// 指紋 (mtime, size) で別途照合する
+fn is_ignore_config(root: &Path, path: &Path) -> bool {
+    if path == root.join(".git").join("info").join("exclude") {
+        return true;
+    }
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some(".gitignore" | ".ignore")
+    )
+}
+
 /// 中身が変わったと見なすイベントだけ通し、**ツリーの構造 (作成・削除・リネーム) を変えるか**
 /// を Some の中身 (structural) で表す。None は完全に無視するイベント (Access・chmod 等)。
 /// **Access と Modify(Metadata) を落とすのが要点**で、通してしまうと「開いているファイルを
@@ -141,6 +190,10 @@ fn classify(kind: &EventKind) -> Option<bool> {
 pub struct Change {
     pub path: PathBuf,
     pub structural: bool,
+    /// 監視のキューが溢れて何が変わったか分からない (path は root)。呼び出し側は「全部が
+    /// 変わったかもしれない」として扱う — path 単位の後始末 (開いているファイルの reload・
+    /// cache からの削除) では、取りこぼした変更が表示中のファイルだった場合に古いままになる
+    pub overflow: bool,
 }
 
 impl Active {
@@ -211,6 +264,12 @@ mod tests {
         assert!(watcher.is_ignored(&root.join("notes.md")));
         assert!(watcher.is_ignored(&root.join("src/main.rs.bak")));
         assert!(!watcher.is_ignored(&root.join("src/main.rs")));
+        // 無視設定そのものは隠しファイルでも構造変化として通す
+        assert!(is_ignore_config(&root, &root.join(".gitignore")));
+        assert!(is_ignore_config(&root, &root.join("src/.gitignore")));
+        assert!(is_ignore_config(&root, &root.join(".ignore")));
+        assert!(is_ignore_config(&root, &root.join(".git/info/exclude")));
+        assert!(!is_ignore_config(&root, &root.join(".git/index")));
 
         // 無視ファイルを表示している間は、その変更も追従させたいので通す
         let showing = FsWatcher::new(
