@@ -86,6 +86,13 @@ fn write_initial(root: &Path) -> Result<(), Box<dyn Error>> {
     fs::write(root.join("src/app/mod.rs"), APP_MOD_RS)?;
     fs::write(root.join("docs/guide.md"), guide_md(false))?;
     fs::write(root.join("docs/old.md"), "# 旧仕様\n\n削除予定のメモ。\n")?;
+    // 子がディレクトリ 1 つだけの階層 (Java の com/example/app のような中継ディレクトリ)
+    // が連鎖して開く様子 (tree-chain) 用。docs は他のシーンで展開しないので見え方は変わらない
+    fs::create_dir_all(root.join("docs/api/v1"))?;
+    fs::write(
+        root.join("docs/api/v1/openapi.md"),
+        "# API v1\n\n`GET /files` — ツリーの一覧を返す。\n",
+    )?;
     // 非テキストの見え方 (VIEW レーンのフォールバック) もプレビューできるようにする
     fs::write(root.join("assets/logo.bin"), [0u8, 1, 2, 255, 254, 0, 42])?;
     Ok(())
