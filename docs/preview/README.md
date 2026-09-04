@@ -17,6 +17,8 @@
 | <img width="500" src="search.svg" /> | <img width="500" src="narrow.svg" /> |
 | **select** — 行単位の範囲選択 (`v` → `j`) とコピーのヒント | **tree-ignored** — `i` で `.gitignore` 対象も表示 (暗色) |
 | <img width="500" src="select.svg" /> | <img width="500" src="tree-ignored.svg" /> |
+| **tree-chain** — 子がディレクトリ 1 つだけの階層は 1 行に畳んで 1 回で開く (`docs/api/v1`) | |
+| <img width="500" src="tree-chain.svg" /> | |
 
 ## EDIT レーン
 
