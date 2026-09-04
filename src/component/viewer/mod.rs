@@ -291,6 +291,14 @@ impl Viewer {
         }
     }
 
+    /// cache を全部捨てる (監視のキュー溢れで何が変わったか分からない時)。current の内容は
+    /// 呼び出し側が reload で読み直す
+    pub fn forget_all(&mut self) {
+        self.cache.clear();
+        self.cache_order.clear();
+        self.cache_bytes = 0;
+    }
+
     /// 外部変更を検知したファイルを読み直す。current が同じファイルなら
     /// 差し替え、スクロール位置は維持しつつ新しい行数にクランプする。
     pub fn reload(&mut self, path: &Path) {

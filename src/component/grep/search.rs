@@ -79,6 +79,9 @@ pub(super) enum Message {
     /// root 以下を最後まで歩き切った時の、その時点のファイル一覧。キャンセルされた走査は送らない
     /// (途中までの一覧では「無い」と「まだ歩いていない」が区別できないため)
     Corpus(Corpus),
+    /// corpus 経路で dirty だった項目を読み直した結果。呼び出し側が一覧の該当項目を差し替えて
+    /// dirty を消す (消さないと変更されたファイルが単調に増え、毎回それら全件を読み直す)
+    Refreshed(Vec<Arc<Entry>>),
 }
 
 /// 完走した走査 1 回ぶんのファイル一覧。`spawn_corpus` はこれをそのまま照合対象にするので、
@@ -321,7 +324,7 @@ pub(super) fn spawn_walk(
                 let Ok(rel) = entry.path().strip_prefix(root) else {
                     return WalkState::Continue;
                 };
-                let Some(loaded) = load(entry.path(), rel, known, cache, &mut buf) else {
+                let Some(loaded) = load(entry.path(), rel, Some(known), cache, &mut buf) else {
                     return WalkState::Continue;
                 };
                 if !progress.truncated()
@@ -345,8 +348,10 @@ pub(super) fn spawn_walk(
 }
 
 /// 前回完走した走査の一覧をメモリ上で照合する。walk も stat もしない (呼び出し側が「変更が無い」
-/// を保証する)。`dirty` が true の項目だけは変更が通知されたものなので stat と cache を通し直す。
-/// 打ち切りで止まっても一覧は変わらないので Corpus は送らない
+/// を保証する)。`dirty` が true の項目だけは変更が通知されたものなので**必ず読み直す**
+/// (cache の (mtime, size) は見ない — 同じ大きさで mtime の粒度内に書き換えられた場合、stat
+/// では変わっていないように見える。通知で確定した変更を stat の推測に戻さない)。
+/// 打ち切りで止まっても一覧は変わらないので Corpus は送らず、読み直した項目を Refreshed で返す
 pub(super) fn spawn_corpus(
     root: PathBuf,
     corpus: Vec<(Arc<Entry>, bool)>,
@@ -358,7 +363,6 @@ pub(super) fn spawn_corpus(
     thread::spawn(move || {
         let progress = Progress::new(tx, cancel);
         let needle = Needle::new(&query);
-        let known = cache.snapshot();
         let next = AtomicUsize::new(0);
         let workers = thread::available_parallelism().map_or(1, |n| n.get());
         let sink: Mutex<Vec<Arc<Entry>>> = Mutex::new(Vec::new());
@@ -380,7 +384,7 @@ pub(super) fn spawn_corpus(
                         };
                         let loaded = if *dirty {
                             let abs = root.join(&entry.rel);
-                            let fresh = load(&abs, &entry.rel, &known, &cache, &mut buf);
+                            let fresh = load(&abs, &entry.rel, None, &cache, &mut buf);
                             if let Some(fresh) = &fresh {
                                 reread.local.push(Arc::clone(fresh));
                             }
@@ -398,9 +402,13 @@ pub(super) fn spawn_corpus(
             }
         });
         progress.finish();
-        // 読み直した項目は cache にも反映する (次も dirty のままなら stat だけで済む)
+        // 読み直した項目は cache と呼び出し側の一覧の両方に反映する。キャンセルされた走査の
+        // ぶんは一覧へ返さない (途中で来た変更と前後が混ざるため)
         let reread = sink.into_inner().unwrap();
         if !reread.is_empty() {
+            if !progress.cancelled() {
+                let _ = progress.tx.send(Message::Refreshed(reread.clone()));
+            }
             cache.replace(reread, false);
         }
     });
@@ -424,17 +432,18 @@ impl Entry {
 /// 返す (cache への反映は呼び出し側が走査の終わりにまとめて行う)。stat も open もできないものは
 /// None (一覧にも入れない)。以前は stat せず「上限 + 1 バイトまで読んで溢れたら捨てる」だったが、
 /// cache を照合する鍵として stat が要るようになった。実測では stat は read の 1/5 ほどで、
-/// cache が当たる限り read を丸ごと省けるので差し引きで速い
+/// cache が当たる限り read を丸ごと省けるので差し引きで速い。
+/// known が None なら必ず読む (変更が通知で確定している dirty 項目)
 fn load(
     abs: &Path,
     rel: &Path,
-    known: &Map,
+    known: Option<&Map>,
     cache: &Cache,
     buf: &mut Vec<u8>,
 ) -> Option<Arc<Entry>> {
     let meta = std::fs::metadata(abs).ok()?;
     let (mtime, size) = (meta.modified().ok(), meta.len());
-    if let Some(entry) = known.get(rel)
+    if let Some(entry) = known.and_then(|k| k.get(rel))
         && entry.mtime == mtime
         && entry.size == size
     {

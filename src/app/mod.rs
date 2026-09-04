@@ -319,7 +319,14 @@ impl App {
         }
 
         for change in &changed_paths {
-            if open_path.as_deref() == Some(change.path.as_path()) {
+            if change.overflow {
+                // 何が変わったか分からないので、cache を全部捨てて開いているものは読み直す
+                self.viewer.forget_all();
+                if let Some(path) = &open_path {
+                    self.viewer.reload(path);
+                    changed = true;
+                }
+            } else if open_path.as_deref() == Some(change.path.as_path()) {
                 self.viewer.reload(&change.path);
                 changed = true;
             } else {

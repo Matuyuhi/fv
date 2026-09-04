@@ -68,6 +68,7 @@ impl FsWatcher {
                 changes.push(Change {
                     path: self.root.clone(),
                     structural: true,
+                    overflow: true,
                 });
                 continue;
             }
@@ -76,7 +77,11 @@ impl FsWatcher {
             };
             for path in event.paths {
                 if !self.is_ignored(&path) {
-                    changes.push(Change { path, structural });
+                    changes.push(Change {
+                        path,
+                        structural,
+                        overflow: false,
+                    });
                 }
             }
         }
@@ -157,6 +162,10 @@ fn classify(kind: &EventKind) -> Option<bool> {
 pub struct Change {
     pub path: PathBuf,
     pub structural: bool,
+    /// 監視のキューが溢れて何が変わったか分からない (path は root)。呼び出し側は「全部が
+    /// 変わったかもしれない」として扱う — path 単位の後始末 (開いているファイルの reload・
+    /// cache からの削除) では、取りこぼした変更が表示中のファイルだった場合に古いままになる
+    pub overflow: bool,
 }
 
 impl Active {

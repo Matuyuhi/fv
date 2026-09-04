@@ -46,6 +46,9 @@ struct Job {
     /// 走査を起こした時点で FS 監視が生きていたか。完走した corpus を次回そのまま信用できるか
     /// はこれで決まる (監視が無い間に起きた変更は誰にも分からない)
     watched: bool,
+    /// 走査中に変更の通知が来た。読み直した項目 (Refreshed) をそのまま一覧へ書き戻すと、
+    /// 読んだ後に来た変更の dirty を消してしまうので、その走査の Refreshed は捨てる
+    changed_during: bool,
 }
 
 /// 前回完走した走査のファイル一覧と、それを歩き直さずに使ってよいかの根拠
@@ -118,6 +121,21 @@ impl Snapshot {
             }
             None => false,
         }
+    }
+
+    /// 読み直した項目を一覧へ書き戻して dirty を消す
+    fn apply_refreshed(&mut self, entries: Vec<Arc<search::Entry>>) {
+        for entry in entries {
+            if let Some(&i) = self.index.get(entry.rel.as_ref()) {
+                self.corpus[i] = entry;
+                self.dirty[i] = false;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn dirty_count(&self) -> usize {
+        self.dirty.iter().filter(|&&d| d).count()
     }
 
     fn entries_with_dirty(&self) -> Vec<(Arc<search::Entry>, bool)> {
@@ -227,6 +245,11 @@ impl GrepState {
         self.cache.len()
     }
 
+    #[cfg(test)]
+    fn dirty_count(&self) -> usize {
+        self.snapshot.as_ref().map_or(0, Snapshot::dirty_count)
+    }
+
     fn clear_results(&mut self) {
         self.files.clear();
         self.rows.clear();
@@ -270,6 +293,13 @@ impl GrepState {
                     let trusted = job.watched && self.watched;
                     self.snapshot = Some(Snapshot::new(corpus, trusted));
                 }
+                Ok(Message::Refreshed(entries)) => {
+                    if !job.changed_during
+                        && let Some(snapshot) = &mut self.snapshot
+                    {
+                        snapshot.apply_refreshed(entries);
+                    }
+                }
                 // スレッドが終わった (完走・cancel 後・パニック)。Done 無しでも走査中扱いを解く
                 Err(TryRecvError::Disconnected) => {
                     self.job = None;
@@ -310,6 +340,7 @@ impl GrepState {
             cancel,
             done: false,
             watched: self.watched,
+            changed_during: false,
         });
     }
 
@@ -353,6 +384,7 @@ impl GrepState {
         // (打ち切り後に一覧の組み立てだけ続いている間も同じ)
         if let Some(job) = &mut self.job {
             job.watched = false;
+            job.changed_during = true;
         }
         if !list_intact {
             self.distrust();
@@ -556,10 +588,21 @@ needle
         state.touch(&root.join("src/a.rs"));
         assert!(state.trusted());
         assert!(state.stale());
+        assert_eq!(state.dirty_count(), 1);
         state.on_open();
         search(&mut state, "needle");
         assert_eq!(lines(&state).len(), 5);
         assert!(state.trusted());
+        // 読み直した項目は一覧へ書き戻され、次から dirty ではない (毎回読み直さない)
+        assert_eq!(state.dirty_count(), 0);
+
+        // 同じ大きさで書き換えても (stat では見抜けない) 通知があれば読み直す
+        fs::write(root.join("src/a.rs"), "needle\nneedle\nnothin\n").unwrap();
+        state.touch(&root.join("src/a.rs"));
+        state.on_open();
+        search(&mut state, "needle");
+        assert_eq!(lines(&state).len(), 4);
+        assert_eq!(state.dirty_count(), 0);
 
         // 新しいファイル: 構造の変更なので歩き直し、新しいファイルも当たる
         fs::write(
@@ -572,7 +615,7 @@ needle
         assert!(!state.trusted());
         state.on_open();
         search(&mut state, "needle");
-        assert_eq!(lines(&state).len(), 6);
+        assert_eq!(lines(&state).len(), 5);
         assert!(state.trusted());
 
         // 一覧に無いパスの内容変更は (取りこぼしの可能性があるので) 歩き直す側に倒す
