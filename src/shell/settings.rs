@@ -30,6 +30,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         on_off(app.viewer.viewport.wrap),
         app.viewer.theme_name().to_string(),
         on_off(app.github_enabled),
+        crate::lang::current().as_str().to_string(),
     ];
     let items: Vec<ListItem> = SETTINGS_ROWS
         .iter()
@@ -49,8 +50,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let mut list_state = ListState::default().with_selected(Some(state.selected));
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
-    let hint = Paragraph::new("j/k 選択  h/l/Enter 変更  s/Esc 閉じる")
-        .style(Style::default().fg(Color::DarkGray));
+    let hint = Paragraph::new(crate::lang::t(
+        "j/k 選択  h/l/Enter 変更  s/Esc 閉じる",
+        "j/k select  h/l/Enter change  s/Esc close",
+    ))
+    .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(hint, hint_area);
 }
 

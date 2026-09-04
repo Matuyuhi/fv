@@ -24,6 +24,7 @@ use crate::component::remotelist::{DetailSlot, ListMatch, ListRow, PollOutcome, 
 use crate::component::viewer::{Viewport, rowcursor};
 use crate::git;
 use crate::github::{self, PrRow};
+use crate::lang::t;
 use crate::text;
 use crate::widget::text_pane::line_body;
 
@@ -387,7 +388,11 @@ impl PrsState {
             return None;
         }
         Some((
-            "diff が大きいため表示を打ち切りました (20000 行 / 2MB)".to_string(),
+            t(
+                "diff が大きいため表示を打ち切りました (20000 行 / 2MB)",
+                "diff too large — truncated (20000 lines / 2MB)",
+            )
+            .to_string(),
             true,
         ))
     }

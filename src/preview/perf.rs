@@ -172,6 +172,7 @@ fn measure(root: &Path, case: &Case, events: &[KeyEvent]) -> Duration {
     let config = Config {
         // 実行環境 (Nerd Font の有無・保存済み設定) で仕事量が変わらないよう固定する
         icons: false,
+        lang: super::preview_lang(),
         ..Config::default()
     };
     let mut app = App::new(root.to_path_buf(), config, false);

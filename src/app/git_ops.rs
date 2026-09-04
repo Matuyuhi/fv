@@ -7,6 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::component::gitlane::{HunkPatch, LinePatch};
 use crate::git;
+use crate::lang::t;
 
 use super::{App, ConfirmAction, Lane, Mode};
 
@@ -63,7 +64,7 @@ impl App {
             self.rescan_now();
         } else {
             let message = if outcome.message.is_empty() {
-                "git の実行に失敗しました".to_string()
+                t("git の実行に失敗しました", "failed to run git").to_string()
             } else {
                 outcome.message
             };
@@ -95,14 +96,20 @@ impl App {
             } => (patch, ordinal, total),
             HunkPatch::ShowingAll => {
                 self.set_notice(
-                    "まとめ diff 表示中は hunk 単位でステージできません (A で解除)",
+                    t(
+                        "まとめ diff 表示中は hunk 単位でステージできません (A で解除)",
+                        "can't stage hunk-wise while showing the combined diff (A to exit)",
+                    ),
                     true,
                 );
                 return;
             }
             HunkPatch::NotApplicable => {
                 self.set_notice(
-                    "untracked は hunk 単位で stage できません (ツリー側の Space を使ってください)",
+                    t(
+                        "untracked は hunk 単位で stage できません (ツリー側の Space を使ってください)",
+                        "can't stage untracked files hunk-wise (use Space on the tree instead)",
+                    ),
                     true,
                 );
                 return;
@@ -114,14 +121,20 @@ impl App {
         let outcome = git::apply_cached(&self.root, &patch, unstaging);
         if outcome.ok {
             let verb = if unstaging { "unstage" } else { "stage" };
-            self.set_notice(format!("hunk {ordinal}/{total} を {verb} しました"), false);
+            self.set_notice(
+                crate::tr!(
+                    "hunk {ordinal}/{total} を {verb} しました",
+                    "{verb}d hunk {ordinal}/{total}"
+                ),
+                false,
+            );
             // ツリーの XY 表示・絞り込み・diff の取り直しは stage_path と同じ入口に相乗りさせる。
             // GitState::refresh がスクロール位置を行数にクランプして維持するので、適用済みの
             // hunk が diff から消えても読んでいた位置の近くに留まる
             self.rescan_now();
         } else {
             let mut message = if outcome.message.is_empty() {
-                "hunk の適用に失敗しました".to_string()
+                t("hunk の適用に失敗しました", "failed to apply hunk").to_string()
             } else {
                 outcome.message
             };
@@ -129,7 +142,10 @@ impl App {
             // 見せるため、その hunk の文脈行が既にステージ済みだと index に対して適用できない。
             // 基準を切り替えれば通ることが多いので、失敗の理由ではなく次の一手を添える
             if !unstaging && matches!(self.lane, Lane::Git(ref g) if g.base_label() == "HEAD") {
-                message.push_str(" (t で unstaged 基準に切り替えると通ることがあります)");
+                message.push_str(t(
+                    " (t で unstaged 基準に切り替えると通ることがあります)",
+                    " (try switching to the unstaged base with t)",
+                ));
             }
             self.set_notice(message, true);
         }
@@ -152,42 +168,60 @@ impl App {
             LinePatch::Ready { patch, lines } => (patch, lines),
             LinePatch::ShowingAll => {
                 self.set_notice(
-                    "まとめ diff 表示中は行単位でステージできません (A で解除)",
+                    t(
+                        "まとめ diff 表示中は行単位でステージできません (A で解除)",
+                        "can't stage line-wise while showing the combined diff (A to exit)",
+                    ),
                     true,
                 );
                 return;
             }
             LinePatch::SideBySide => {
                 self.set_notice(
-                    "side-by-side 表示中は行単位でステージできません (v で inline に戻してください)",
+                    t(
+                        "side-by-side 表示中は行単位でステージできません (v で inline に戻してください)",
+                        "can't stage line-wise while side-by-side (v to switch back to inline)",
+                    ),
                     true,
                 );
                 return;
             }
             LinePatch::NotApplicable => {
                 self.set_notice(
-                    "untracked は行単位で stage できません (ツリー側の Space を使ってください)",
+                    t(
+                        "untracked は行単位で stage できません (ツリー側の Space を使ってください)",
+                        "can't stage untracked files line-wise (use Space on the tree instead)",
+                    ),
                     true,
                 );
                 return;
             }
             LinePatch::Rename => {
                 self.set_notice(
-                    "rename されたファイルは行単位で stage できません (Space でファイル単位に)",
+                    t(
+                        "rename されたファイルは行単位で stage できません (Space でファイル単位に)",
+                        "can't stage a renamed file line-wise (use Space to stage the whole file)",
+                    ),
                     true,
                 );
                 return;
             }
             LinePatch::WholeFileOnly => {
                 self.set_notice(
-                    "新規/削除ファイルの一部だけはこの向きでは反映できません (Space で hunk/ファイル単位に)",
+                    t(
+                        "新規/削除ファイルの一部だけはこの向きでは反映できません (Space で hunk/ファイル単位に)",
+                        "can't apply part of a new/deleted file this way (use Space to stage by hunk/file)",
+                    ),
                     true,
                 );
                 return;
             }
             LinePatch::NoChangedLine => {
                 self.set_notice(
-                    "カーソル行は変更行 (+/-) ではありません (V で範囲選択)",
+                    t(
+                        "カーソル行は変更行 (+/-) ではありません (V で範囲選択)",
+                        "cursor is not on a changed line (+/-) (V to select a range)",
+                    ),
                     true,
                 );
                 return;
@@ -199,7 +233,10 @@ impl App {
         let outcome = git::apply_cached(&self.root, &patch, unstaging);
         if outcome.ok {
             let verb = if unstaging { "unstage" } else { "stage" };
-            self.set_notice(format!("{lines} 行を {verb} しました"), false);
+            self.set_notice(
+                crate::tr!("{lines} 行を {verb} しました", "{verb}d {lines} lines"),
+                false,
+            );
             // 適用した行が diff から消えるので選択は畳む (伸ばしたまま残すと、
             // 詰まった後の行に対して意図しない範囲を掴んだままになる)
             if let Lane::Git(git) = &mut self.lane {
@@ -208,13 +245,16 @@ impl App {
             self.rescan_now();
         } else {
             let mut message = if outcome.message.is_empty() {
-                "行の適用に失敗しました".to_string()
+                t("行の適用に失敗しました", "failed to apply lines").to_string()
             } else {
                 outcome.message
             };
             // hunk 単位と同じ理由 (HEAD 基準の diff は index とずれることがある)
             if !unstaging && matches!(self.lane, Lane::Git(ref g) if g.base_label() == "HEAD") {
-                message.push_str(" (t で unstaged 基準に切り替えると通ることがあります)");
+                message.push_str(t(
+                    " (t で unstaged 基準に切り替えると通ることがあります)",
+                    " (try switching to the unstaged base with t)",
+                ));
             }
             self.set_notice(message, true);
         }
@@ -229,7 +269,10 @@ impl App {
             && state.buffer.dirty()
         {
             self.set_notice(
-                "未保存の変更があります (保存または破棄してから実行してください)",
+                t(
+                    "未保存の変更があります (保存または破棄してから実行してください)",
+                    "unsaved changes (save or discard before running this)",
+                ),
                 true,
             );
             return true;
@@ -281,9 +324,16 @@ impl App {
         // 絶対パスは確認枠をはみ出して肝心のファイル名が読めなくなるので repo 相対で出す
         // (GIT ペインのタイトルと同じ扱い)
         let shown = path.strip_prefix(&self.root).unwrap_or(&path);
-        let mut prompt = format!("{count} 件の変更を破棄しますか？\n{}", shown.display());
+        let mut prompt = crate::tr!(
+            "{count} 件の変更を破棄しますか？\n{}",
+            "discard {count} change(s)?\n{}",
+            shown.display()
+        );
         if has_untracked {
-            prompt.push_str("\n(untracked ファイルは削除されます。破棄すると復元できません)");
+            prompt.push_str(t(
+                "\n(untracked ファイルは削除されます。破棄すると復元できません)",
+                "\n(untracked files will be deleted. this cannot be undone)",
+            ));
         }
         self.mode = Mode::Confirm {
             prompt,
@@ -321,7 +371,10 @@ impl App {
         // Confirm 表示中の 500ms デバウンス再取得で対象が消えている可能性がある (稀)。
         // 「何もせず成功扱い」にしないよう、対象なしは明示的にエラー扱いで知らせる
         if !has_tracked && untracked_files.is_empty() {
-            self.set_notice("破棄対象が見つかりませんでした", true);
+            self.set_notice(
+                t("破棄対象が見つかりませんでした", "nothing to discard"),
+                true,
+            );
             return;
         }
         let mut ok = true;
@@ -346,10 +399,10 @@ impl App {
             self.reload_if_affected(&path, is_dir);
             self.rescan_now();
             self.refresh_git_diff_selection();
-            self.set_notice("変更を破棄しました", false);
+            self.set_notice(t("変更を破棄しました", "changes discarded"), false);
         } else {
             let message = if message.is_empty() {
-                "破棄に失敗しました".to_string()
+                t("破棄に失敗しました", "failed to discard").to_string()
             } else {
                 message
             };
@@ -366,8 +419,9 @@ impl App {
         if count == 0 {
             return;
         }
-        let prompt = format!(
-            "{count} 件の変更を stash に退避しますか？\n(untracked ファイルも含めて退避します)"
+        let prompt = crate::tr!(
+            "{count} 件の変更を stash に退避しますか？\n(untracked ファイルも含めて退避します)",
+            "stash {count} change(s)?\n(untracked files are included)"
         );
         self.mode = Mode::Confirm {
             prompt,
@@ -391,10 +445,10 @@ impl App {
             self.reload_current_view();
             self.rescan_now();
             self.refresh_git_diff_selection();
-            self.set_notice("変更を stash に退避しました", false);
+            self.set_notice(t("変更を stash に退避しました", "changes stashed"), false);
         } else {
             let message = if outcome.message.is_empty() {
-                "stash push に失敗しました".to_string()
+                t("stash push に失敗しました", "failed to stash push").to_string()
             } else {
                 outcome.message
             };
@@ -407,9 +461,11 @@ impl App {
         if self.refuse_if_edit_dirty() {
             return;
         }
-        let prompt =
-            "直近の stash を pop しますか？\n(コンフリクト時は stash を残したままエラーを表示します)"
-                .to_string();
+        let prompt = t(
+            "直近の stash を pop しますか？\n(コンフリクト時は stash を残したままエラーを表示します)",
+            "pop the latest stash?\n(on conflict, the stash is kept and an error is shown)",
+        )
+        .to_string();
         self.mode = Mode::Confirm {
             prompt,
             action: ConfirmAction::StashPop,
@@ -427,10 +483,14 @@ impl App {
         self.rescan_now();
         self.refresh_git_diff_selection();
         if outcome.ok {
-            self.set_notice("stash を復元しました", false);
+            self.set_notice(t("stash を復元しました", "stash restored"), false);
         } else {
             let message = if outcome.message.is_empty() {
-                "stash pop に失敗しました (コンフリクトの可能性があります)".to_string()
+                t(
+                    "stash pop に失敗しました (コンフリクトの可能性があります)",
+                    "failed to pop stash (possibly a conflict)",
+                )
+                .to_string()
             } else {
                 outcome.message
             };
@@ -518,11 +578,14 @@ impl App {
         } else {
             format!("origin/{} (new upstream)", status.name)
         };
-        let mut prompt = format!("push を実行しますか？\n{target}");
+        let mut prompt = crate::tr!("push を実行しますか？\n{target}", "push to {target}?");
         if let Lane::Edit(state) = &self.lane
             && state.buffer.dirty()
         {
-            prompt.push_str("\n(未保存の編集があります。保存を忘れずに)");
+            prompt.push_str(t(
+                "\n(未保存の編集があります。保存を忘れずに)",
+                "\n(unsaved edits — don't forget to save)",
+            ));
         }
         self.mode = Mode::Confirm {
             prompt,

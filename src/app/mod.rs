@@ -32,6 +32,7 @@ use crate::config::Config;
 use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
 use crate::job;
+use crate::lang;
 use crate::watch::FsWatcher;
 
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
@@ -163,6 +164,8 @@ impl App {
     /// github_cli は `--github` の指定。その起動限りの有効化で config には書かない
     /// (config.github との合成は github_enabled の初期値としてのみ行う)
     pub fn new(root: PathBuf, config: Config, github_cli: bool) -> Self {
+        // 以降の notice・描画が全てこの static を読む。App の構築より前に確定させる
+        lang::set(config.lang);
         let opts = ScanOptions {
             show_hidden: config.show_hidden,
             show_ignored: config.show_ignored,
@@ -466,7 +469,13 @@ impl App {
         if let Lane::Edit(state) = &mut self.lane
             && state.buffer.dirty()
         {
-            state.notice = Some("未保存の変更があります (Ctrl+s: 保存 / Esc: 破棄)".to_string());
+            state.notice = Some(
+                lang::t(
+                    "未保存の変更があります (Ctrl+s: 保存 / Esc: 破棄)",
+                    "unsaved changes (Ctrl+s: save / Esc: discard)",
+                )
+                .to_string(),
+            );
             return;
         }
         self.pending_g = false;
@@ -563,7 +572,10 @@ impl App {
             return;
         }
         if !self.log_available() {
-            self.set_notice("git リポジトリではありません", true);
+            self.set_notice(
+                lang::t("git リポジトリではありません", "not a git repository"),
+                true,
+            );
             return;
         }
         // Viewport の実測値は右ペイン (diff を出す場所) のもの。GitState::new と同じ理由で、
@@ -817,6 +829,13 @@ impl App {
         self.persist_config();
     }
 
+    /// 設定画面の language 行。値はプロセス全体の static (lang::set) に置くので
+    /// App 側には持たない
+    pub fn cycle_lang(&mut self, delta: isize) {
+        lang::set(lang::current().next(delta));
+        self.persist_config();
+    }
+
     /// delta の符号方向に THEME_NAMES を巡回する (設定画面の h/l 用)
     pub fn cycle_theme(&mut self, delta: isize) {
         let names = viewer::THEME_NAMES;
@@ -833,7 +852,13 @@ impl App {
     pub(super) fn copy_selection(&mut self) {
         match self.viewer.selection_text() {
             Some(text) => self.copy_to_clipboard(text),
-            None => self.set_notice("選択がありません (ドラッグ または v で選択)", true),
+            None => self.set_notice(
+                lang::t(
+                    "選択がありません (ドラッグ または v で選択)",
+                    "no selection (drag or v to select)",
+                ),
+                true,
+            ),
         }
     }
 
@@ -842,7 +867,10 @@ impl App {
     pub(super) fn copy_open_file(&mut self) {
         match self.viewer.all_text() {
             Some(text) => self.copy_to_clipboard(text),
-            None => self.set_notice("コピーできるテキストがありません", true),
+            None => self.set_notice(
+                lang::t("コピーできるテキストがありません", "no text to copy"),
+                true,
+            ),
         }
     }
 
@@ -904,7 +932,7 @@ impl App {
             self.set_notice(summarize_remote_job(&pending, &outcome), false);
         } else {
             let message = if outcome.message.is_empty() {
-                format!("{} に失敗しました", pending.kind.label())
+                crate::tr!("{} に失敗しました", "failed to {}", pending.kind.label())
             } else {
                 outcome.message
             };
@@ -923,6 +951,7 @@ impl App {
             // github_enabled ではなく github_persisted を使う。cli 由来の一時的な有効化が
             // 他の設定操作 (ペイン幅ドラッグ等) の persist_config に巻き込まれて書き込まれるのを防ぐ
             github: self.github_persisted,
+            lang: lang::current(),
         }
     }
 
@@ -956,9 +985,9 @@ fn summarize_remote_job(pending: &PendingRemoteJob, outcome: &git::GitOutcome) -
     match pending.kind {
         git::RemoteJobKind::Fetch => {
             if outcome.message.is_empty() {
-                "fetch 完了".to_string()
+                lang::t("fetch 完了", "fetch done").to_string()
             } else {
-                format!("fetch 完了: {}", outcome.message)
+                crate::tr!("fetch 完了: {}", "fetch done: {}", outcome.message)
             }
         }
         git::RemoteJobKind::Pull => {

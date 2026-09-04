@@ -6,6 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::component::branch::BranchState;
 use crate::git;
+use crate::lang::t;
 
 use super::{App, Lane, Mode};
 
@@ -21,7 +22,11 @@ impl App {
             && state.buffer.dirty()
         {
             self.set_notice(
-                "未保存の変更があります。保存してから切り替えてください".to_string(),
+                t(
+                    "未保存の変更があります。保存してから切り替えてください",
+                    "unsaved changes — save before switching",
+                )
+                .to_string(),
                 true,
             );
             return;
@@ -95,7 +100,10 @@ impl App {
         if state.matches_existing_local() {
             let name = state.query.clone();
             self.set_notice(
-                format!("ブランチ「{name}」は既に存在します (Enter で切替)"),
+                crate::tr!(
+                    "ブランチ「{name}」は既に存在します (Enter で切替)",
+                    "branch \"{name}\" already exists (Enter to switch)"
+                ),
                 true,
             );
             return;
@@ -111,7 +119,7 @@ impl App {
         self.mode = Mode::Normal;
         if !outcome.ok {
             let message = if outcome.message.is_empty() {
-                "git の実行に失敗しました".to_string()
+                t("git の実行に失敗しました", "failed to run git").to_string()
             } else {
                 outcome.message
             };
@@ -135,9 +143,12 @@ impl App {
             .map(|s| s.name.as_str())
             .unwrap_or("?");
         let message = if stale {
-            format!("{branch} に切り替えました (開いていたファイルが見つからないため閉じました)")
+            crate::tr!(
+                "{branch} に切り替えました (開いていたファイルが見つからないため閉じました)",
+                "switched to {branch} (closed the open file — it no longer exists)"
+            )
         } else {
-            format!("{branch} に切り替えました")
+            crate::tr!("{branch} に切り替えました", "switched to {branch}")
         };
         self.set_notice(message, false);
     }

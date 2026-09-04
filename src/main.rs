@@ -5,6 +5,7 @@ mod config;
 mod git;
 mod github;
 mod job;
+mod lang;
 // 開発用の静的プレビュー (preview/mod.rs)。製品ビルドには含めないため既定では無効で、
 // 見た目を確認する時だけ `cargo preview <scene>` (= --features preview) で有効化する
 #[cfg(feature = "preview")]
@@ -225,6 +226,10 @@ fn resolve_config(cli_hidden: bool, cli_ignored: bool, cli_icons: Option<bool>) 
             .map(|c| c.split_ratio)
             .unwrap_or(Config::default().split_ratio),
         github: saved.as_ref().is_some_and(|c| c.github),
+        lang: saved
+            .as_ref()
+            .map(|c| c.lang)
+            .unwrap_or_else(lang::Lang::detect),
         theme: saved
             .map(|c| c.theme)
             .unwrap_or_else(|| "base16-ocean.dark".to_string()),

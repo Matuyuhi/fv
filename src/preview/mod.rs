@@ -165,6 +165,16 @@ fn resolve_scenes(names: &[String]) -> Result<Vec<&'static scene::Scene>, Box<dy
 
 // プレビューの出力を実行環境から切り離す。App::new より前 = スレッドを 1 つも
 // 起こしていない時点で呼ぶ
+/// スナップショットの言語。isolate_env が LC_ALL=C にするため Lang::detect に任せると
+/// 常に英語になるので、既定は日本語に固定し、英語の絵を見たい時だけ FV_PREVIEW_LANG=en で
+/// 切り替える (dev 専用の入口なので製品側の config には影響しない)
+pub(super) fn preview_lang() -> crate::lang::Lang {
+    std::env::var("FV_PREVIEW_LANG")
+        .ok()
+        .and_then(|v| crate::lang::Lang::parse(&v))
+        .unwrap_or(crate::lang::Lang::Ja)
+}
+
 fn isolate_env() {
     let scratch = std::env::temp_dir().join("fv-preview-config");
     unsafe {
@@ -214,6 +224,7 @@ fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16)) -> Buffer {
     let config = Config {
         // プレビューを実行した端末の環境 (Nerd Font の有無) に出力が左右されないよう固定する
         icons: false,
+        lang: preview_lang(),
         ..Config::default()
     };
     let mut app = App::new(root.to_path_buf(), config, false);
