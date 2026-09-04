@@ -110,8 +110,6 @@ jobs:
             ~/.cargo/git/db
             target
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ steps.cargo_key.outputs.rustc }}-${{ steps.cargo_key.outputs.deps }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.target }}-cargo-${{ steps.cargo_key.outputs.rustc }}-
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}

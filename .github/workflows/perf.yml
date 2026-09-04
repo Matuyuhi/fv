@@ -48,9 +48,6 @@ jobs:
             ~/.cargo/git/db
             target
           key: ${{ runner.os }}-cargo-perf-${{ steps.cargo_key.outputs.rustc }}-${{ steps.cargo_key.outputs.deps }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-perf-${{ steps.cargo_key.outputs.rustc }}-
-            ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.rustc }}-
 
       # base と head を同じ runner で連続して測り、比を PR コメントに出す。
       # 遅くなっていても PR は落とさない (閾値超えは ::warning::) — ci.yml の

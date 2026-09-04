@@ -41,8 +41,8 @@ jobs:
           rustc --version
 
       # 鍵は「rustc の版 + 依存 (Cargo.lock から fv 自身の version 行を除いたもの)」で、
-      # bump では変わらず toolchain の更新と依存の変更でだけ変わる。方針の詳細と、鍵に
-      # rustc の版を含めつつ別の版へ restore-keys で落とさない理由は scripts/ci-cargo-cache.sh
+      # bump では変わらず toolchain の更新と依存の変更でだけ変わる。restore-keys を
+      # 付けないのは意図的 (方針の詳細は scripts/ci-cargo-cache.sh)
       - name: Compute cargo cache key
         id: cargo_key
         run: scripts/ci-cargo-cache.sh key >> "$GITHUB_OUTPUT"
@@ -56,8 +56,6 @@ jobs:
             ~/.cargo/git/db
             target
           key: ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.rustc }}-${{ steps.cargo_key.outputs.deps }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ steps.cargo_key.outputs.rustc }}-
 
       - name: Format check
         run: cargo fmt --check
