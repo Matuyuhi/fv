@@ -238,10 +238,11 @@ fn draw_scene(scene: &scene::Scene, root: &Path, size: (u16, u16)) -> Buffer {
 
 // Finder の候補は別スレッドの全走査で埋まるため、開いた直後は "scanning..." のままになる。
 // 走査中のシーンだけ完了を待って、プレビューが毎回違う中途状態を写さないようにする
-// (走査を起こしていないシーンでは scanning() が false のまま = 1 度も待たない)
-fn settle(app: &mut App) {
-    for _ in 0..200 {
-        if !app.file_index.scanning() {
+// (走査を起こしていないシーンでは scanning() が false のまま = 1 度も待たない)。
+// 横断検索 (Ctrl+f) も同じ理由で、デバウンス待ち・走査中の間は完了まで待つ
+pub(super) fn settle(app: &mut App) {
+    for _ in 0..400 {
+        if !app.file_index.scanning() && !app.grep.busy() {
             break;
         }
         app.on_tick();

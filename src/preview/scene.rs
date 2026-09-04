@@ -185,6 +185,27 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "grep",
+        description: "Ctrl+f ワークスペース横断検索 (走査完了後)",
+        size: None,
+        setup: |app| {
+            open(app, "src/main.rs");
+            // 走査はデバウンス後に背景で走る。完了までは preview/mod.rs の settle が待つ
+            send(app, "<C-f>items");
+        },
+    },
+    Scene {
+        name: "grep-jump",
+        description: "Ctrl+f のヒットを Enter で開いた直後 (同じクエリで / が立つ)",
+        size: None,
+        setup: |app| {
+            send(app, "<C-f>items");
+            // Enter は結果が届いてからでないと何も開かないので、ここで走査完了を待つ
+            super::settle(app);
+            send(app, "<Down><Down><Down><Down><CR>");
+        },
+    },
+    Scene {
         name: "help",
         description: "? ヘルプオーバーレイ",
         size: None,

@@ -7,6 +7,7 @@ pub mod branch;
 pub mod editor;
 pub mod finder;
 pub mod gitlane;
+pub mod grep;
 pub mod issues;
 pub mod log;
 pub mod prs;

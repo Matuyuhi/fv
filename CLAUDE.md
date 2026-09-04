@@ -209,6 +209,17 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 - 走査完了前に開いた場合は**ツリーの読み込み済み分**で即座に開き、完了時に `on_tick` が `Finder::set_candidates` で差し替える（クエリは保つ）。タイトルの `scanning...` がその状態
 - FS 変更・隠しファイル切替では `invalidate` するだけ。ここで走査し直すと保存のたびに全走査になる（古い一覧は次に Finder を開くまで使い続ける）
 
+### ワークスペース横断検索（`Ctrl+f`、component/grep/）
+`/` はファイル内限定なので、ファイルを跨いで探す入口として `Ctrl+f` のオーバーレイを置く。**インデックスは持たない** — 「走査 + 読み込み」で足りるかを大きい repo で確かめるのが先で、足りないと分かった時に content cache（読んだ内容を (path, mtime, size) で残す）→ trigram の順に **`search.rs::spawn` の裏側だけ**を差し替える想定。`GrepState` は「クエリを渡すと (path, line, col) が流れてくる」以上を知らない形に閉じてある（作業メモ: docs/design/workspace-grep.md、落ち着いたら削除する）
+- **走査は `ignore` の並列 walker**（`WalkBuilder::build_parallel`、ripgrep と同じもの・新規依存なし）を `ScanOptions::walker` から組む。ツリー・Finder・FS 監視と同じ無視設定を通すので「ツリーには出るのに grep に出ない」が起きない。`run` は呼び出し側をブロックするため、それ自体をもう 1 本のスレッドへ出す（`search.rs::spawn`）
+- **結果はヒットのあるファイルごとに 1 メッセージで流し**（`Message::File`）、完了時に `Done { scanned, truncated }`。UI は走査完了を待たず最初のヒットから見せる。到着順はスレッド任せで毎回違うので `GrepState::files` は**パス昇順**に保ち、平らにした `rows` は `poll` のたびに 1 回だけ作り直す
+- **打ち切りの上限は 3 つ**: 全体 5000 件（`MAX_HITS`、跨いだ時点で走査ごと `Quit`）・1 ファイル 200 件・8MB 超と NUL 入り（バイナリ）は読まない。上限に当たったらタイトルに `truncated` を出す。まとめ diff の 20000 行上限と同じ「結果が画面とメモリを埋め尽くさない」ため
+- **座標は VIEW の `/` と同じ規則**: smart-case、列は plain（タブ展開済み）の char index。ファイル全体を `str::find` で流して当たった行だけ `text::normalize` → `viewer::search_matches` にかけ直すので、`Enter` で開いた先は `Viewer::locate_search` が**同じクエリで `/` を立て直すだけ**で同じ位置が光り、n/N が続けて効く。ASCII の小文字化はバイト長を変えないので、畳んだ写しで見つけた位置をそのまま元テキストに当てられる
+- **デバウンス 150ms**（打鍵ごとに repo を歩き直さない）。クエリが変わったら走っている走査を `AtomicBool` で止め、結果は次の走査を起こす瞬間まで捨てない（打っている間も前の結果が読める）。キャンセルされた走査は `Done` を送らないので、`poll` は `Disconnected` でも走査中扱いを解く
+- **状態は `Mode::Grep`（unit）ではなく `App.grep` に常駐**させる。閉じても走査は続き、開き直せば前回の結果がそのまま見える（大きい repo で同じクエリを歩き直さない）。`file_index` と同じ「背景走査の持ち主は App」の側
+- **FS 変更は stale 扱い**（`invalidate`）: 走査中なら止めて起こし直し（前後が混ざるため）、完了済みなら印だけ付けて次に開いた時（`on_open`）に歩き直す。閉じている間に変更のたびに歩かないのは FileIndex と同じ理由（AI が書き換え続ける状況で全走査を連打しない）
+- ヒットを開く時 GIT レーンに居たら `enter_lane(0)` で VIEW へ戻してから `open_selected`（GIT のままだと diff が開く）。一覧の描画はツリーと同じく `visible_window` で画面に映る行だけ `ListItem` を組む（最大 5000 行あるため）
+
 ### ツリーペインの描画（component/tree/view.rs）
 - **`ListItem` の組み立ては画面に映る行数に比例させる**（以前は `tree.visible` 全体に比例していた。展開済みの巨大なツリーで `j` を押しっぱなしにすると 1 回の再描画あたり `visible` 全件ぶんの `format!`/`Vec` 確保が走り、キー入力への追従が目に見えて遅れていた）。`ListState` の scroll/offset 管理は ratatui の `List` に任せず自前に持ち替えた（下記 A 案）。B 案（組み立て済み `Vec<ListItem>` をキャッシュし内容が変わった時だけ作り直す）も検討したが、A 案の方が「常に O(画面行数)」を型で保証できて strictly 強く、`List::new` が `Vec<ListItem>` を所有として消費する ratatui の API 上、キャッシュを毎フレーム使い回すにも結局クローンが要って B 案の優位性が薄れるため見送った
 - ツリーの行は高さが常に 1 (`row.name` に改行は入らない) という前提があるので、ratatui `List` が内部でやる「選択行を含む最小限のウィンドウを保つ」スクロール計算 (`get_items_bounds`、非公開 API) は、offset を起点に selected が入るまで前後にスライドさせるだけの O(1) の式に厳密に置き換えられる（`component/tree/view.rs::visible_window`）。この式は ratatui 側のテストケース (`selected_item_ensures_selected_item_is_visible_when_offset_is_*`) の期待値と突き合わせて導出した。可変高さ行 (`repeat_highlight_symbol`・複数行アイテム等) は使っていないので、この前提が崩れる変更 (行を複数行にする等) をする時はこの等価性も一緒に見直すこと

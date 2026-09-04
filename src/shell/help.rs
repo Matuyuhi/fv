@@ -73,6 +73,7 @@ enum SectionId {
     Branch,
     Remote,
     Finder,
+    Grep,
     Input,
 }
 
@@ -181,6 +182,7 @@ fn sections() -> Vec<Section> {
                     "コミット一覧パネルの表示切替 (VIEW のみ・左ペイン下半分)",
                 ),
                 ("Ctrl+p", "ファインダーを開く"),
+                ("Ctrl+f", "ワークスペース横断検索を開く"),
                 ("b", "ブランチ一覧オーバーレイを開く (git repo でのみ)"),
                 ("?", "このヘルプを開く"),
                 ("s", "設定画面を開く"),
@@ -519,6 +521,27 @@ fn sections() -> Vec<Section> {
                 ("Backspace", "一文字削除"),
                 ("Enter", "開く"),
                 ("Esc", "閉じる"),
+            ],
+        },
+        Section {
+            id: SectionId::Grep,
+            title: "Grep (Ctrl+f)",
+            entries: &[
+                (
+                    "文字入力",
+                    "クエリ (部分一致・smart-case。打鍵が止まると repo 全体を歩き直す)",
+                ),
+                ("↑/↓ Ctrl+n/p", "ヒット選択"),
+                ("Backspace / Ctrl+u", "一文字削除 / 全消去"),
+                (
+                    "Enter",
+                    "開いてその行へ (同じクエリで / を立てるので n/N が続けて効く)",
+                ),
+                ("Esc", "閉じる (結果は残り、次に開いた時にそのまま見える)"),
+                (
+                    "タイトル",
+                    "searching... / N files scanned / truncated (5000 件で打ち切り) / stale (変更あり)",
+                ),
             ],
         },
         Section {

@@ -55,6 +55,23 @@ impl Viewer {
         self.search = None;
     }
 
+    /// 横断検索 (Ctrl+f) のヒットへ着地する。同じクエリでファイル内検索を立て、その行の
+    /// マッチを現在位置にしてから中央へ寄せる — `/` で同じ語を探した後と同じ状態にする
+    /// (n/N が続けて効き、ハイライトも同じ色で出る)
+    pub fn locate_search(&mut self, query: &str, line: usize) {
+        let matches = self.compute_matches(query);
+        let current = matches
+            .iter()
+            .position(|m| m.line >= line)
+            .or_else(|| (!matches.is_empty()).then_some(0));
+        self.search = Some(SearchState {
+            query: query.to_string(),
+            matches,
+            current,
+        });
+        self.center_on(line);
+    }
+
     pub fn next_match(&mut self) {
         self.step_match(1);
     }
