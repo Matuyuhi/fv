@@ -24,6 +24,10 @@ enum EditOp {
     },
 }
 
+/// undo に残す単位の上限。連続タイピングは 1 単位にまとまるので、これで数百回ぶんの
+/// 操作に相当する
+const MAX_UNDO: usize = 500;
+
 pub struct EditBuffer {
     // 生テキスト (タブ・EOL を加工しない、改行なしの行)。viewer の plain は
     // タブ展開済みで保存に使えないため、disk から独立に読み直して保持する
@@ -146,7 +150,7 @@ impl EditBuffer {
             merged = true;
         }
         if !merged {
-            self.undo.push(EditOp::Insert { at, text });
+            self.push_undo(EditOp::Insert { at, text });
         }
         self.coalesce = true;
         end
@@ -157,7 +161,7 @@ impl EditBuffer {
         let end = self.apply_insert(at, text);
         self.dirty = true;
         self.redo.clear();
-        self.undo.push(EditOp::Insert {
+        self.push_undo(EditOp::Insert {
             at,
             text: text.to_string(),
         });
@@ -180,7 +184,7 @@ impl EditBuffer {
         }
         self.dirty = true;
         self.redo.clear();
-        self.undo.push(EditOp::Replace {
+        self.push_undo(EditOp::Replace {
             at: from,
             removed,
             inserted: text.to_string(),
@@ -212,7 +216,7 @@ impl EditBuffer {
             }
         }
         if !merged {
-            self.undo.push(EditOp::Delete {
+            self.push_undo(EditOp::Delete {
                 at: from,
                 text: removed,
             });
@@ -265,8 +269,18 @@ impl EditBuffer {
                 *at
             }
         };
-        self.undo.push(op);
+        self.push_undo(op);
         Some(cursor)
+    }
+
+    // undo に積む。上限を超えたら一番古い単位から落とす — 長い編集セッションで履歴
+    // (消した本文をそのまま持つ) が際限なく膨らまないようにするため
+    fn push_undo(&mut self, op: EditOp) {
+        self.undo.push(op);
+        if self.undo.len() > MAX_UNDO {
+            let excess = self.undo.len() - MAX_UNDO;
+            self.undo.drain(..excess);
+        }
     }
 
     // undo 記録なしの適用プリミティブ。戻り値は挿入テキスト末尾の位置
@@ -408,5 +422,20 @@ mod tests {
         let mut b = buffer("a\nb\n");
         b.replace((0, 0), (1, 1), "b\na");
         assert_eq!(b.to_text(), "b\na\n");
+    }
+
+    #[test]
+    fn undo_history_is_capped() {
+        let mut b = buffer("\n");
+        for _ in 0..(MAX_UNDO + 50) {
+            b.insert_block((0, 0), "x");
+        }
+        assert_eq!(b.undo.len(), MAX_UNDO);
+        for _ in 0..MAX_UNDO {
+            assert!(b.undo().is_some());
+        }
+        assert!(b.undo().is_none());
+        // 落とした 50 単位ぶんは戻せないので残る
+        assert_eq!(b.lines()[0].len(), 50);
     }
 }

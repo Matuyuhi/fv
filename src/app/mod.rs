@@ -322,6 +322,9 @@ impl App {
             if open_path.as_deref() == Some(change.path.as_path()) {
                 self.viewer.reload(&change.path);
                 changed = true;
+            } else {
+                // 開いていないファイルは読み直さず、cache に残っている古い内容だけ捨てる
+                self.viewer.forget(&change.path);
             }
             // 開いているファイル自身の変更でも git status の再取得は要る。以前はここが
             // else if で繋がっていたため、閲覧・編集中のファイルを書き換えても差分の有無

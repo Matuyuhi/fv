@@ -105,11 +105,15 @@ impl Snapshot {
         }
     }
 
-    /// 一覧にあるパスなら dirty にして true
+    /// 一覧にあるパスなら dirty にして true。古い本文は手放す (読み直すまで cache と二重に
+    /// 持たない。AI が同じファイルを書き換え続ける間、完走するまで古い版が溜まらないように)
     fn mark_dirty(&mut self, rel: &Path) -> bool {
         match self.index.get(rel) {
             Some(&i) => {
-                self.dirty[i] = true;
+                if !self.dirty[i] {
+                    self.dirty[i] = true;
+                    self.corpus[i] = self.corpus[i].without_content();
+                }
                 true
             }
             None => false,

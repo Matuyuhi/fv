@@ -12,6 +12,21 @@ pub enum Content {
     Error(String),
 }
 
+impl Content {
+    /// cache の上限判定に使うおおよその大きさ (raw + plain の文字列ぶん)。厳密である必要は無い
+    pub fn approx_bytes(&self) -> usize {
+        match self {
+            Content::Text(doc) => doc
+                .raw
+                .iter()
+                .zip(&doc.plain)
+                .map(|(r, p)| r.len() + p.len())
+                .sum(),
+            _ => 0,
+        }
+    }
+}
+
 /// 表示対象のテキスト。ハイライト済みの Line は持たない — 画面に映る範囲だけを
 /// HighlightCache (render.rs) が都度組み立てるので、ここは行のテキストだけを持つ。
 /// この型が cache (path → Rc<Content>) の中身なので、テーマを変えても捨てる必要がない

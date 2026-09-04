@@ -103,6 +103,19 @@ enum Content {
     Skip,
 }
 
+impl Entry {
+    /// 本文を持たない写し。dirty になった (次の照合で読み直す) 項目の古い本文を snapshot 側で
+    /// 持ち続けないため。stat の値は残すが、dirty の経路では cache を引き直すので使われない
+    pub(super) fn without_content(&self) -> Arc<Entry> {
+        Arc::new(Entry {
+            rel: Arc::clone(&self.rel),
+            mtime: self.mtime,
+            size: self.size,
+            content: Content::Skip,
+        })
+    }
+}
+
 type Map = HashMap<Arc<Path>, Arc<Entry>>;
 
 /// 読んだ内容を走査を跨いで残す (path → Entry)。持ち主は GrepState で、走査スレッドはこれを
@@ -141,16 +154,35 @@ impl Cache {
     }
 
     /// 走査の終わりに map を差し替える。完走していれば seen だけ (消えた・無視対象になった
-    /// ファイルはここで落ちる)、途中で止まったなら前の map に seen を重ねる (読んだぶんは無駄にしない)
+    /// ファイルはここで落ちる)、途中で止まったなら前の map に**読み直したぶんだけ**重ねる
+    /// (読んだぶんは無駄にしない)。打鍵のたびにキャンセルされる走査で、cache がそのまま
+    /// 当たった項目まで map を複製し直さないよう、既に同じ Arc が入っているものは省く
     fn replace(&self, seen: Vec<Arc<Entry>>, complete: bool) {
         let mut map = if complete {
             Map::with_capacity(seen.len())
         } else {
-            Map::clone(&self.snapshot())
+            let known = self.snapshot();
+            let fresh: Vec<Arc<Entry>> = seen
+                .into_iter()
+                .filter(|e| !known.get(&e.rel).is_some_and(|k| Arc::ptr_eq(k, e)))
+                .collect();
+            if fresh.is_empty() {
+                return;
+            }
+            let mut map = Map::clone(&known);
+            for entry in fresh {
+                map.insert(Arc::clone(&entry.rel), entry);
+            }
+            self.commit(map);
+            return;
         };
         for entry in seen {
             map.insert(Arc::clone(&entry.rel), entry);
         }
+        self.commit(map);
+    }
+
+    fn commit(&self, map: Map) {
         let bytes = map
             .values()
             .map(|e| match &e.content {
