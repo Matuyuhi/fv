@@ -15,7 +15,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::app::{App, Focus, Lane, Mode, Workspace};
-use crate::component::{branch, editor, finder, gitlane, issues, log, prs, tree, viewer};
+use crate::component::{branch, editor, finder, gitlane, grep, issues, log, prs, tree, viewer};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let full = frame.area();
@@ -54,6 +54,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let scanning = app.file_index.scanning();
     if let Mode::Finder(finder) = &mut app.mode {
         finder::view::draw_finder(frame, finder, scanning, full);
+    }
+    if matches!(app.mode, Mode::Grep) {
+        grep::view::draw_grep(frame, &mut app.grep, full);
     }
     if let Mode::Help { scroll } = app.mode {
         // 実測 (表示行数・総行数) を書き戻し、次フレームの on_help_key がクランプと

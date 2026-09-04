@@ -39,6 +39,10 @@ impl App {
             self.on_finder_key(key, ctrl);
             return;
         }
+        if let Mode::Grep = &self.mode {
+            self.on_grep_key(key, ctrl);
+            return;
+        }
         if let Mode::Input { kind, .. } = &self.mode {
             let kind = *kind;
             self.on_input_key(kind, key);
@@ -107,6 +111,13 @@ impl App {
         // Input モード中は除き、どのフォーカスからでも起動する
         if ctrl && key.code == KeyCode::Char('p') {
             self.open_finder();
+            return;
+        }
+        // Ctrl+f: ワークスペース横断検索。Ctrl+p と同じ位置 (レーン・フォーカスを問わない)
+        if ctrl && key.code == KeyCode::Char('f') {
+            self.pending_g = false;
+            self.grep.on_open();
+            self.mode = Mode::Grep;
             return;
         }
         match key.code {
@@ -374,6 +385,9 @@ impl App {
         }
         if saved {
             self.status_pending = true;
+            // 横断検索の結果も同じ理由で古くなる (監視を張れない環境では watcher 経由の
+            // invalidate が来ないので、保存の経路からも印を付ける)
+            self.grep.invalidate();
         }
     }
 
@@ -504,6 +518,44 @@ impl App {
             KeyCode::Char(c) if !ctrl => finder.push_char(c),
             _ => {}
         }
+    }
+
+    fn on_grep_key(&mut self, key: KeyEvent, ctrl: bool) {
+        match key.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Enter => self.open_grep_hit(),
+            KeyCode::Backspace => self.grep.backspace(),
+            KeyCode::Down => self.grep.move_selection(1),
+            KeyCode::Up => self.grep.move_selection(-1),
+            KeyCode::Char('n') if ctrl => self.grep.move_selection(1),
+            KeyCode::Char('p') if ctrl => self.grep.move_selection(-1),
+            // Ctrl+u はクエリの全消去 (readline 慣習。1 文字ずつ Backspace で消させない)
+            KeyCode::Char('u') if ctrl => self.grep.clear_query(),
+            // ctrl 付きの印字キー (上記以外) はクエリに積まない
+            KeyCode::Char(c) if !ctrl => self.grep.push_char(c),
+            _ => {}
+        }
+    }
+
+    // 選択中のヒットを VIEW で開き、その行へ飛ぶ。ファイル内検索 (`/`) と同じクエリを
+    // 立てた状態にするので、飛んだ先で n/N がそのまま次のヒットへ効く。
+    // クエリは入力中の query ではなく、表示中の行を作った result_query — デバウンス待ちの
+    // 間は前の結果が残っているので、そこで Enter を押しても行とクエリが食い違わない
+    fn open_grep_hit(&mut self) {
+        let Some((rel, line, col)) = self.grep.selected_hit() else {
+            return;
+        };
+        let path = self.root.join(rel);
+        let query = self.grep.result_query().to_string();
+        self.mode = Mode::Normal;
+        // GIT レーンで open_selected を呼ぶと diff が開く。ヒットは本文の行なので VIEW へ移す
+        // (enter_lane がツリーの絞り込み解除まで面倒を見る)
+        if let Lane::Git(_) = &self.lane {
+            self.enter_lane(0);
+        }
+        self.open_selected(&path);
+        self.viewer.locate_search(&query, line, col);
+        self.focus = Focus::Viewer;
     }
 
     /// ツリーから「開く」操作が来たときのファイルパスを返す。開く先はレーンで変わるため

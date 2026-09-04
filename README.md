@@ -18,6 +18,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 - **Commit log panel** (`L`) — the commit history sits under the tree in the same pane, so you can read a file and walk its history side by side; `Enter` shows the commit's diff on the right
 - Live changed-line markers (`▎`) in the gutter while editing (LCS diff against git HEAD, no per-keystroke git calls)
 - Fuzzy file finder (`Ctrl+p`)
+- Workspace-wide text search (`Ctrl+f`, streams hits while it scans)
 - In-file search (`/`, `n`/`N`) and line jump (`:N`)
 - **Copy out of the viewer** — drag with the mouse for a character range, `v` for a line range, `y` to copy, `Y` for the whole file (`pbcopy`/`wl-copy`/`xclip`/`xsel`/`clip.exe`, falling back to OSC 52 so it works over SSH)
 - Auto-reload on file system changes
@@ -56,6 +57,7 @@ Press `?` inside fv for the full list.
 | `Tab` | Switch focus (tree / viewer; the commit log joins the cycle while its panel is open) |
 | `L` | Toggle the commit log panel (VIEW only) |
 | `Ctrl+p` | Fuzzy finder |
+| `Ctrl+f` | Search the whole workspace (Enter jumps to the hit) |
 | `j`/`k`, `↑`/`↓` | Move / scroll |
 | `h`/`l`, `←`/`→` | Collapse/expand (tree), horizontal scroll (viewer) |
 | `gg` / `G` | Top / bottom |

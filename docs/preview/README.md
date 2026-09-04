@@ -49,8 +49,10 @@
 | <img width="500" src="finder.svg" /> | <img width="500" src="help.svg" /> |
 | **settings** — `s` 設定オーバーレイ | **commit** — `c` コミットメッセージ入力 (50/72 桁ルーラー付き) |
 | <img width="500" src="settings.svg" /> | <img width="500" src="commit.svg" /> |
-| **branch** — `b` ブランチ一覧オーバーレイ | |
-| <img width="500" src="branch.svg" /> | |
+| **branch** — `b` ブランチ一覧オーバーレイ | **grep** — `Ctrl+f` ワークスペース横断検索 (走査完了後) |
+| <img width="500" src="branch.svg" /> | <img width="500" src="grep.svg" /> |
+| **grep-jump** — grep のヒットを Enter で開いた直後 | |
+| <img width="500" src="grep-jump.svg" /> | |
 
 ## GitHub モード
 

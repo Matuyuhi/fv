@@ -55,6 +55,26 @@ impl Viewer {
         self.search = None;
     }
 
+    /// 横断検索 (Ctrl+f) のヒットへ着地する。同じクエリでファイル内検索を立て、その行の
+    /// マッチを現在位置にしてから中央へ寄せる — `/` で同じ語を探した後と同じ状態にする
+    /// (n/N が続けて効き、ハイライトも同じ色で出る)。col は plain の char 桁で、同じ行の
+    /// 2 つ目以降のヒットを選んだ時に n がその次へ進めるよう、行だけでなく桁まで突き合わせる
+    /// (開き直しで行がずれていて見つからなければ、その行以降の最初のマッチへ落とす)
+    pub fn locate_search(&mut self, query: &str, line: usize, col: usize) {
+        let matches = self.compute_matches(query);
+        let current = matches
+            .iter()
+            .position(|m| m.line == line && m.start_col == col)
+            .or_else(|| matches.iter().position(|m| m.line >= line))
+            .or_else(|| (!matches.is_empty()).then_some(0));
+        self.search = Some(SearchState {
+            query: query.to_string(),
+            matches,
+            current,
+        });
+        self.center_on(line);
+    }
+
     pub fn next_match(&mut self) {
         self.step_match(1);
     }
@@ -127,25 +147,37 @@ pub(crate) fn search_matches(plain: &[String], query: &str) -> Vec<Match> {
     if query.is_empty() {
         return Vec::new();
     }
+    plain
+        .iter()
+        .enumerate()
+        .flat_map(|(line, text)| {
+            line_matches(text, query).map(move |(start_col, end_col)| Match {
+                line,
+                start_col,
+                end_col,
+            })
+        })
+        .collect()
+}
+
+/// 1 行ぶんの一致 (start_col, end_col) を先頭から順に返す。search_matches の行単位の中身で、
+/// 横断検索 (component/grep/) が 1 ファイルあたりの上限まで `take` で打ち切れるよう
+/// イテレータとして分けてある — 巨大な 1 行 (minified な JS 等) で全マッチを確保してから
+/// 捨てる、を避けるため。規則 (smart-case・ASCII 畳み込み) はここが唯一の定義
+pub(crate) fn line_matches(text: &str, query: &str) -> impl Iterator<Item = (usize, usize)> {
     let ignore_case = !query.chars().any(|c| c.is_uppercase());
     let needle: Vec<char> = fold_case(query, ignore_case).collect();
-    let mut matches = Vec::new();
-    for (line, text) in plain.iter().enumerate() {
-        let haystack: Vec<char> = fold_case(text, ignore_case).collect();
-        if haystack.len() < needle.len() {
-            continue;
-        }
-        for start in 0..=(haystack.len() - needle.len()) {
-            if haystack[start..start + needle.len()] == needle[..] {
-                matches.push(Match {
-                    line,
-                    start_col: start,
-                    end_col: start + needle.len(),
-                });
-            }
-        }
-    }
-    matches
+    let haystack: Vec<char> = fold_case(text, ignore_case).collect();
+    let last_start = if needle.is_empty() || haystack.len() < needle.len() {
+        // 空クエリは何にも一致しない扱い (search_matches の入口でも弾いている)
+        0
+    } else {
+        haystack.len() - needle.len() + 1
+    };
+    (0..last_start).filter_map(move |start| {
+        (haystack[start..start + needle.len()] == needle[..])
+            .then_some((start, start + needle.len()))
+    })
 }
 
 fn fold_case(s: &str, ignore_case: bool) -> impl Iterator<Item = char> + '_ {

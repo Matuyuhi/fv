@@ -22,6 +22,7 @@ use crate::clipboard;
 use crate::component::editor::EditState;
 use crate::component::finder::index::FileIndex;
 use crate::component::gitlane::GitState;
+use crate::component::grep::GrepState;
 use crate::component::issues::IssuesState;
 use crate::component::log::LogState;
 use crate::component::prs::PrsState;
@@ -77,6 +78,9 @@ pub struct App {
     pub log: Option<LogState>,
     /// Finder の候補。ツリーが遅延走査になったぶん、全ファイル一覧は別に持つ
     pub file_index: FileIndex,
+    /// ワークスペース横断検索 (Ctrl+f) の状態。オーバーレイ (Mode::Grep) を閉じても結果と
+    /// 走査は残るので Mode の中ではなくここに持つ (file_index と同じ「背景走査の持ち主」)
+    pub grep: GrepState,
     // git repo でない / git 未インストールなら None のままで通常表示にフォールバックする
     pub git: Option<GitStatus>,
     /// ステータスバー常時表示用の現在ブランチ + ahead/behind。非 git repo なら None。
@@ -179,6 +183,7 @@ impl App {
         viewer.set_theme(&config.theme);
         let github_enabled = github_cli || config.github;
         let file_index = FileIndex::new(root.clone(), opts);
+        let grep = GrepState::new(root.clone(), opts);
         let mut app = Self {
             root,
             focus: Focus::Tree,
@@ -191,6 +196,7 @@ impl App {
             viewer,
             log: None,
             file_index,
+            grep,
             git,
             branch_status,
             notice: None,
@@ -293,8 +299,17 @@ impl App {
                 finder.set_candidates(to_candidates(files));
             }
         }
+        // 横断検索の走査結果 (Ctrl+f) も同じ tick で drain する。オーバーレイを閉じている間は
+        // 一覧が見えないので、変わっていても再描画は起こさない
+        if self.grep.poll() && matches!(self.mode, Mode::Grep) {
+            changed = true;
+        }
         let changed_paths = self.watcher.drain();
         let open_path = self.viewer.current.as_ref().map(|open| open.path.clone());
+        // 中身が 1 つでも変わったら横断検索の結果は古い。歩き直すのは次に開いた時 (invalidate 参照)
+        if !changed_paths.is_empty() {
+            self.grep.invalidate();
+        }
 
         for change in &changed_paths {
             if open_path.as_deref() == Some(change.path.as_path()) {
@@ -741,6 +756,11 @@ impl App {
                     finder.push_char(c);
                 }
             }
+            Mode::Grep => {
+                for c in text.chars().filter(|c| !c.is_control()) {
+                    self.grep.push_char(c);
+                }
+            }
             _ => {}
         }
     }
@@ -760,6 +780,7 @@ impl App {
     // 走査条件を変えた後の始末。Finder の候補と FS 監視をツリーと同じ条件へ揃え直す
     fn after_scan_options_changed(&mut self, opts: ScanOptions) {
         self.file_index.set_options(opts);
+        self.grep.set_options(opts);
         // 切替の内部で rescan が走り nodes が作り直されるため、削除ファイルの合成ノードも
         // 都度足し直さないと隠れてしまう (git status 自体は変わらないので既存 self.git を使う)
         self.tree.sync_deleted(&self.deleted_paths());
