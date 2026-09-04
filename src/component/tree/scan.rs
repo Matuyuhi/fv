@@ -358,6 +358,29 @@ pub(super) fn load(node: &mut Node, opts: ScanOptions) {
     *children = read_dir(&path, opts, ignored);
 }
 
+/// 子がディレクトリ 1 つだけの階層を連鎖して展開する。Java/Kotlin の
+/// `com/example/app` のような「中身の無い中継ディレクトリ」を 1 段ずつ
+/// 開かせないため (VSCode の compact folders と同じ考え方)。表示上は
+/// 各階層が別の行のまま残るので、畳む側・親へ戻る側の操作は変えない。
+/// 走査は連鎖の分だけ増えるが、どれも「開いた時に読む」範囲に収まる
+pub(super) fn expand_single_child_chain(node: &mut Node, opts: ScanOptions) {
+    let mut node = node;
+    loop {
+        load(node, opts);
+        let NodeKind::Dir { children, .. } = &mut node.kind else {
+            return;
+        };
+        let [only] = children.as_mut_slice() else {
+            return;
+        };
+        let NodeKind::Dir { expanded, .. } = &mut only.kind else {
+            return;
+        };
+        *expanded = true;
+        node = only;
+    }
+}
+
 /// 読み込み済みの階層だけを読み直して差分を取り込む。未走査のディレクトリには
 /// 触らないので、再走査のコストは「今開いている範囲」に比例する。
 /// 展開状態・読み込み済みの子は名前で引き継ぐ (index_path は作り直しになる)

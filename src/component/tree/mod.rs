@@ -155,9 +155,10 @@ impl Tree {
             NodeKind::File => return Some(node.path.clone()),
         };
         // 開く時だけ走査する。畳む時に読む必要はないし、閉じたまま残った子は
-        // 次に開く時のキャッシュとしてそのまま使える
+        // 次に開く時のキャッシュとしてそのまま使える。子がディレクトリ 1 つ
+        // だけの階層はそのまま連鎖して開く (`com/example/app` を 3 回開かせない)
         if opened {
-            scan::load(node, opts);
+            scan::expand_single_child_chain(node, opts);
         }
         self.rebuild_visible();
         None
