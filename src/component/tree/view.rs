@@ -75,7 +75,14 @@ pub(crate) fn draw_tree(
                 String::new()
             };
             // 行頭の XY マーカーは git status 準拠の赤/緑
-            let mut spans = vec![Span::raw(format!("{}{}", "  ".repeat(row.depth), marker))];
+            let mut prefix_str = String::with_capacity(row.depth * 2 + marker.len());
+            for _ in 0..row.depth {
+                prefix_str.push_str("  ");
+            }
+            prefix_str.push_str(marker);
+
+            let mut spans = Vec::with_capacity(3); // Expecting 2 to 3 spans usually
+            spans.push(Span::raw(prefix_str));
             if let Some(status) = file_status {
                 spans.push(Span::styled(
                     prefix,
