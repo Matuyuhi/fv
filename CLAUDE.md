@@ -57,7 +57,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 ### モジュール構成（コンポーネント単位 + 1 型 1 責務 1 ファイル）
 **画面上の 1 つの部品 = 1 フォルダ**で、その状態（mod.rs 以下）と描画（view.rs）を同じ場所に置く。レイヤ別（全ての UI を `component/*/view.rs` に集める）ではなくコンポーネント別にしてあるのは、「issues タブを直す」ときに触る場所を 1 フォルダに閉じるため。ただし**キーの割り当てだけは `app/` に集約したまま**にしてある（下記）。
 
-- `app/` — 合成ルート。全ての状態を所有し、レーン/タブ遷移とキールーティングの優先順位を持つ。mod.rs(App 状態・on_tick・レーン/ワークスペース遷移・rescan/notice), keys.rs(キールーティングの優先順位とレーン/オーバーレイのキー処理), commit.rs(Mode::Commit の開閉・編集・実行), git_ops.rs(stage/discard/stash・fetch/pull/push の実行と後始末), branch_ops.rs(Mode::Branch のキー処理と切替/作成), github_keys.rs(Issues/PullRequests タブのキー処理と gh ジョブ起動), mouse.rs, mode.rs(Focus/Lane/Mode/Workspace/InputKind/ConfirmAction)
+- `app/` — 合成ルート。全ての状態を所有し、レーン/タブ遷移とキールーティングの優先順位を持つ。mod.rs(App 状態・on_tick・レーン/ワークスペース遷移・rescan/notice), keys.rs(キールーティングの優先順位とレーン/オーバーレイのキー処理), commit.rs(Mode::Commit の開閉・編集・実行), git_ops.rs(stage/discard/stash・fetch/pull/push の実行と後始末), file_ops.rs(ツリーのファイル操作: 新規作成・ディレクトリ作成・リネーム・削除・パスコピー), branch_ops.rs(Mode::Branch のキー処理と切替/作成), github_keys.rs(Issues/PullRequests タブのキー処理と gh ジョブ起動), mouse.rs, mode.rs(Focus/Lane/Mode/Workspace/InputKind/ConfirmAction)
   - keys.rs は**「どのキーを誰に渡すか」だけ**を持ち、操作の中身は上記 4 ファイルへ置く。keys.rs が肥大化して優先順位が読めなくなるのを避けるための分割なので、新しい操作を足す時もこの境界を守る（キーの追加は keys.rs、実行の中身は用途別ファイル）。モジュールを跨いで呼ぶメソッドだけ `pub(super)` にする
   - **キー処理をコンポーネント側へ移さないのはなぜか**: ハンドラはほぼ全て「複数のコンポーネントを跨いで App を書き換える」（GIT のキーが `App::rescan` を呼ぶ、issues のキーが `job::spawn` する等）。component 側へ持っていくと component → app の逆向き依存が生まれる。コンポーネント内で閉じる操作は既にその状態型のメソッド（`GitState::next_hunk` / `PrsState::set_open` 等）になっており、keys.rs はそれを呼ぶルータに徹している
   - 書き込み系操作の後の即時再取得は `App::rescan_now`（rescan + デバウンスのタイマー/保留フラグのリセット）に集約する。呼び出し側で 4 行を複製しない
@@ -226,6 +226,15 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 - **状態は `Mode::Grep`（unit）ではなく `App.grep` に常駐**させる。閉じても走査は続き、開き直せば前回の結果がそのまま見える（大きい repo で同じクエリを歩き直さない）。`file_index` と同じ「背景走査の持ち主は App」の側
 - **FS 変更は stale 扱い**: 走査中なら止めて起こし直し（前後が混ざるため）、完了済みなら印だけ付けて次に開いた時（`on_open`）に歩き直す。閉じている間に変更のたびに歩かないのは FileIndex と同じ理由（AI が書き換え続ける状況で全走査を連打しない）。stale（結果が古い）と trusted（一覧を使い回せる）は別の軸で、`touch` は stale にしつつ一覧は使い続ける
 - ヒットを開く時 GIT レーンに居たら `enter_lane(0)` で VIEW へ戻してから `open_selected`（GIT のままだと diff が開く）。一覧の描画はツリーと同じく `visible_window` で画面に映る行だけ `ListItem` を組む（最大 5000 行あるため）
+
+### ツリーのファイル操作（app/file_ops.rs、n/N/R/D/y）
+ファイルの新規作成 (`n`)・ディレクトリ作成 (`N`)・リネーム (`R`)・削除 (`D`)・相対パスのコピー (`y`) を Focus::Tree で拾う（keys.rs の `on_file_op_key`。VIEW/GIT のどちらのレーンでも同じキーで効く — ツリー自体が共用なので分けない）。git を経由せず `std::fs` で直接書くので tracked/untracked を問わず同じ挙動になり、git 側の追従は他の書き込み系操作と同じ `rescan_now` に相乗りさせる（専用の同期パスを作らない）。
+- 名前入力は `Mode::Input` に `InputKind::NewFile/NewDir/Rename` を足して乗せる。InputKind は Copy の識別子だけなので、パスを要する対象（作成先の親ディレクトリ・リネーム元）は `App.file_op: Option<FileOp>` が持ち、Input を開いた時に立て Esc/Enter で落とす。ステータスバーの接頭辞（`App::file_op_label`）には作成先ディレクトリを添える — 選択行がファイルの時どの階層へ入るのかが見えないため
+- 作成先は「選択行がディレクトリならそれ、ファイルならその親、空のツリーなら root」。`a/b/c.rs` のような入力は途中のディレクトリごと作る（`create_dir_all` + `create_new`。存在チェックと作成の間に外から作られても上書きしない）。作ったファイルはそのまま右ペインに開く
+- 入力は `validate_name` で root 配下に閉じる（`..`・絶対パスは拒否、末尾の `/` だけ黙って落とす）。既に存在する名前への作成・リネームは fs に触る前に notice で断る
+- 削除だけは `Mode::Confirm`（`ConfirmAction::Delete`）を経由する。git の discard と違い復元できないため。ディレクトリは `remove_dir_all` で配下ごと消す
+- 開いているファイルが消えた/動いた時は右ペインも追従させる（削除は `Viewer::close`、リネームは新しいパスで `open_selected`。配下のファイルはプレフィックスを付け替える）。横断検索の一覧は構造が変わるので `grep.invalidate`、Finder の候補は rescan 側で無効化される
+- 作成・リネーム後は `Tree::reveal` で祖先を開いてその行を選択する（再走査の後でないと新しいパスがツリーに無いので順序は固定）。GIT レーンの絞り込み中は untracked として git status に現れるぶんだけ見える
 
 ### ツリーペインの描画（component/tree/view.rs）
 - **`ListItem` の組み立ては画面に映る行数に比例させる**（以前は `tree.visible` 全体に比例していた。展開済みの巨大なツリーで `j` を押しっぱなしにすると 1 回の再描画あたり `visible` 全件ぶんの `format!`/`Vec` 確保が走り、キー入力への追従が目に見えて遅れていた）。`ListState` の scroll/offset 管理は ratatui の `List` に任せず自前に持ち替えた（下記 A 案）。B 案（組み立て済み `Vec<ListItem>` をキャッシュし内容が変わった時だけ作り直す）も検討したが、A 案の方が「常に O(画面行数)」を型で保証できて strictly 強く、`List::new` が `Vec<ListItem>` を所有として消費する ratatui の API 上、キャッシュを毎フレーム使い回すにも結局クローンが要って B 案の優位性が薄れるため見送った

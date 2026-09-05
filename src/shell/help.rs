@@ -474,6 +474,32 @@ fn sections() -> Vec<Section> {
                 ("Enter", t("開く / 展開切替", "open / toggle expansion")),
                 ("gg / G", t("先頭 / 末尾へ", "go to top / bottom")),
                 ("r", t("再走査", "rescan")),
+                (
+                    "n",
+                    t(
+                        "新規ファイル (選択行のディレクトリ配下。a/b.rs で途中のディレクトリも作る)",
+                        "new file (under the selected directory; a/b.rs creates intermediate dirs)",
+                    ),
+                ),
+                ("N", t("新規ディレクトリ", "new directory")),
+                (
+                    "R",
+                    t("リネーム (親は据え置き)", "rename (parent stays the same)"),
+                ),
+                (
+                    "D",
+                    t(
+                        "削除 (確認あり。ディレクトリは配下ごと)",
+                        "delete (with confirmation; a directory goes with its contents)",
+                    ),
+                ),
+                (
+                    "y",
+                    t(
+                        "相対パスをクリップボードへ",
+                        "copy the relative path to the clipboard",
+                    ),
+                ),
             ],
         },
         Section {
@@ -1101,7 +1127,10 @@ fn sections() -> Vec<Section> {
         },
         Section {
             id: SectionId::Input,
-            title: t("Search・Goto (/ と :N)", "Search / Goto (/ and :N)"),
+            title: t(
+                "Search・Goto・ファイル操作の入力 (/ と :N と n/N/R)",
+                "Search / Goto / file-op input (/ and :N and n/N/R)",
+            ),
             entries: vec![
                 (
                     t("文字入力", "typing"),

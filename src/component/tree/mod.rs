@@ -272,6 +272,21 @@ impl Tree {
         }
     }
 
+    /// path までの祖先ディレクトリを開いてその行を選択する (ファイル操作で作った/動かした
+    /// 直後に、どこへ入ったかを見せるため)。祖先は未走査でも expand_all が読み込む。
+    /// path がツリーに現れない (無視対象・絞り込み外) 場合は展開だけ残る
+    pub fn reveal(&mut self, path: &Path) {
+        let ancestors: HashSet<PathBuf> = path
+            .ancestors()
+            .skip(1)
+            .take_while(|p| p.starts_with(&self.root) && *p != self.root)
+            .map(Path::to_path_buf)
+            .collect();
+        scan::expand_all(&mut self.nodes, &ancestors, self.opts);
+        self.rebuild_visible();
+        self.restore_selection(Some(path.to_path_buf()));
+    }
+
     /// 隠し項目の表示設定を切り替え、展開状態と選択位置を保ったまま再走査する。
     pub fn toggle_hidden(&mut self) -> ScanOptions {
         self.opts.show_hidden = !self.opts.show_hidden;
