@@ -11,6 +11,7 @@ use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
 use crate::component::remotelist::ListMatch;
 use crate::component::viewer::Viewport;
+use crate::lang::t;
 
 use crate::widget::text_pane::{LineWindow, TextPane};
 use crate::widget::{center_text, pane_block};
@@ -34,14 +35,17 @@ pub(crate) fn draw_remote_list<R>(
     area: Rect,
 ) {
     if loading_initial {
-        let paragraph = Paragraph::new("読み込み中…")
+        let paragraph = Paragraph::new(t("読み込み中…", "loading…"))
             .block(pane_block(title, focused))
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }
     if let Some(err) = error {
-        let text = format!("取得に失敗しました:\n{err}\n\n(r で再取得)");
+        let text = crate::tr!(
+            "取得に失敗しました:\n{err}\n\n(r で再取得)",
+            "failed to fetch:\n{err}\n\n(r to retry)"
+        );
         let paragraph = Paragraph::new(text)
             .block(pane_block(title, focused))
             .style(Style::default().fg(Color::Red));
@@ -109,14 +113,17 @@ pub(crate) fn draw_text_detail(
         return;
     };
     if loading {
-        let paragraph = Paragraph::new("読み込み中…")
+        let paragraph = Paragraph::new(t("読み込み中…", "loading…"))
             .block(pane_block(title, focused))
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }
     if let Some(err) = error {
-        let text = format!("取得に失敗しました:\n{err}\n\n(再試行で開き直せます)");
+        let text = crate::tr!(
+            "取得に失敗しました:\n{err}\n\n(再試行で開き直せます)",
+            "failed to fetch:\n{err}\n\n(reopen to retry)"
+        );
         let paragraph = Paragraph::new(text)
             .block(pane_block(title, focused))
             .style(Style::default().fg(Color::Red));

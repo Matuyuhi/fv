@@ -24,7 +24,7 @@ Browse a directory tree, open files with syntax highlighting, search, see git ch
 - Auto-reload on file system changes
 - Mouse support (click to select/open/move cursor, press-and-drag to select text, wheel to scroll)
 - Wrap toggle, horizontal scroll, navigation history (`Ctrl+o`/`Ctrl+i`)
-- Settings popup (`s`) for hidden files / gitignored files / icons / wrap default / syntax theme, persisted to `~/.config/fv/config`
+- Settings popup (`s`) for hidden files / gitignored files / icons / wrap default / syntax theme / UI language (English or Japanese, auto-detected from the locale), persisted to `~/.config/fv/config`
 
 ## Install
 

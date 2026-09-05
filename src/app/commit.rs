@@ -5,6 +5,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::git;
+use crate::lang::t;
 
 use super::{App, ConfirmAction, Lane, Mode};
 
@@ -105,7 +106,11 @@ impl App {
             && state.buffer.dirty()
         {
             self.set_notice(
-                "未保存の変更があります。保存してからコミットしてください".to_string(),
+                t(
+                    "未保存の変更があります。保存してからコミットしてください",
+                    "unsaved changes — save before committing",
+                )
+                .to_string(),
                 true,
             );
             return;
@@ -130,7 +135,11 @@ impl App {
         }
         if !self.has_staged_changes() {
             self.set_notice(
-                "ステージされた変更がありません (Space でステージ)".to_string(),
+                t(
+                    "ステージされた変更がありません (Space でステージ)",
+                    "no staged changes (Space to stage)",
+                )
+                .to_string(),
                 true,
             );
             return;

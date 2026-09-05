@@ -31,13 +31,14 @@ pub enum InputKind {
 
 // 設定画面の行ラベル。行の並び・件数はこの配列が唯一の情報源で、
 // keys.rs (選択移動・selected の意味) と shell/settings.rs (表示) の両方がここを参照する
-pub const SETTINGS_ROWS: [&str; 6] = [
+pub const SETTINGS_ROWS: [&str; 7] = [
     "hidden files",
     "gitignored",
     "icons",
     "wrap (default)",
     "theme",
     "github tabs",
+    "language",
 ];
 
 #[derive(Default)]

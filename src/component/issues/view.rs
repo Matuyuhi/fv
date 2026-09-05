@@ -5,6 +5,7 @@ use ratatui::text::Span;
 
 use crate::component::issues::IssuesState;
 use crate::github::RemoteItem;
+use crate::lang::t;
 
 use crate::component::remotelist::view::{draw_remote_list, draw_text_detail};
 
@@ -137,7 +138,10 @@ pub(crate) fn draw_issues_detail(
     draw_text_detail(
         frame,
         title,
-        "Enter / l / クリック: 詳細を開く",
+        t(
+            "Enter / l / クリック: 詳細を開く",
+            "Enter / l / click: open detail",
+        ),
         false,
         None,
         issues.lines(),

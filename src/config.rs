@@ -3,6 +3,8 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+use crate::lang::Lang;
+
 // 設定画面 (s キー) で変更した値の永続化。toml/serde 等は依存に足さず、
 // `key = value` の独自最小フォーマットで自前パースする
 #[derive(Clone)]
@@ -19,6 +21,8 @@ pub struct Config {
     /// GitHub モード (ヘッダタブ) の有効化。CLI の `--github` はこの値を書き換えず、
     /// App 側でその起動限りの上乗せとして扱う (App::new / toggle_github 参照)
     pub github: bool,
+    /// UI 文言の言語。config に無ければロケールから決める (Lang::detect)
+    pub lang: Lang,
 }
 
 impl Default for Config {
@@ -31,6 +35,7 @@ impl Default for Config {
             theme: "base16-ocean.dark".to_string(),
             split_ratio: 0.30,
             github: false,
+            lang: Lang::detect(),
         }
     }
 }
@@ -62,6 +67,12 @@ impl Config {
                     }
                 }
                 "github" => config.github = value == "true",
+                // 未知の値は既定 (ロケール判定) のまま
+                "lang" => {
+                    if let Some(lang) = Lang::parse(value) {
+                        config.lang = lang;
+                    }
+                }
                 _ => {}
             }
         }
@@ -77,14 +88,15 @@ impl Config {
             fs::create_dir_all(dir)?;
         }
         let body = format!(
-            "show_hidden = {}\nshow_ignored = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\ngithub = {}\n",
+            "show_hidden = {}\nshow_ignored = {}\nicons = {}\nwrap_default = {}\ntheme = {}\nsplit_ratio = {:.3}\ngithub = {}\nlang = {}\n",
             self.show_hidden,
             self.show_ignored,
             self.icons,
             self.wrap_default,
             self.theme,
             self.split_ratio,
-            self.github
+            self.github,
+            self.lang.as_str()
         );
         fs::write(path, body)
     }

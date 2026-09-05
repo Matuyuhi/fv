@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::component::editor::EditOutcome;
 use crate::component::finder::Finder;
+use crate::lang::t;
 
 use super::{
     App, ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace,
@@ -482,6 +483,7 @@ impl App {
             3 => self.toggle_wrap(),
             4 => self.cycle_theme(delta),
             5 => self.toggle_github(),
+            6 => self.cycle_lang(delta),
             _ => {}
         }
     }
@@ -724,7 +726,10 @@ impl App {
             // 500ms デバウンス毎にスパムしないよう黙って再取得するだけにしてある (GitState::refresh)
             if truncated {
                 self.set_notice(
-                    "diff が大きいため表示を打ち切りました (20000 行 / 2MB)",
+                    t(
+                        "diff が大きいため表示を打ち切りました (20000 行 / 2MB)",
+                        "diff too large — truncated (20000 lines / 2MB)",
+                    ),
                     true,
                 );
             }
@@ -777,7 +782,10 @@ impl App {
         }
         if unsupported_line_selection {
             self.set_notice(
-                "この表示では行単位選択を使えません (A の解除 / v で inline に戻してください)",
+                t(
+                    "この表示では行単位選択を使えません (A の解除 / v で inline に戻してください)",
+                    "line-wise selection isn't available here (exit A / v to switch to inline)",
+                ),
                 true,
             );
         }

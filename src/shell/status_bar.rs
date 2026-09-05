@@ -7,6 +7,7 @@ use ratatui::widgets::Paragraph;
 use crate::app::{App, Focus, InputKind, Lane, Mode, Workspace};
 use crate::component::editor::EditState;
 use crate::component::log::LogState;
+use crate::lang::t;
 
 pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // レーンのセグメントは常に先頭に出す。Claude Code のモード表示と同じく
@@ -114,7 +115,10 @@ fn workspace_status_line(app: &App) -> Line<'static> {
     match app.workspace {
         Workspace::Issues => issues_status_line(app),
         Workspace::PullRequests => pr_status_line(app),
-        Workspace::Viewer => Line::from("Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help"),
+        Workspace::Viewer => Line::from(t(
+            "Ctrl+t / Alt+1..3: タブ切替  s: 設定  q: 終了  ?: help",
+            "Ctrl+t / Alt+1..3: switch tab  s: settings  q: quit  ?: help",
+        )),
     }
 }
 
@@ -123,11 +127,14 @@ fn issues_status_line(app: &App) -> Line<'static> {
         return Line::from("g");
     }
     if app.issues.list_loading() && !app.issues.fetched() {
-        return Line::from("issues 取得中…");
+        return Line::from(t("issues 取得中…", "loading issues…"));
     }
     if let Some(err) = app.issues.list_error() {
         return Line::from(Span::styled(
-            format!("issues 取得失敗: {err}  (r: 再取得)"),
+            crate::tr!(
+                "issues 取得失敗: {err}  (r: 再取得)",
+                "failed to fetch issues: {err}  (r: retry)"
+            ),
             Style::default().fg(Color::Red),
         ));
     }
@@ -150,11 +157,14 @@ fn pr_status_line(app: &App) -> Line<'static> {
         return Line::from("g");
     }
     if app.prs.list_loading() && !app.prs.fetched() {
-        return Line::from("pull requests 取得中…");
+        return Line::from(t("pull requests 取得中…", "loading pull requests…"));
     }
     if let Some(err) = app.prs.list_error() {
         return Line::from(Span::styled(
-            format!("pull requests 取得失敗: {err}  (r: 再取得)"),
+            crate::tr!(
+                "pull requests 取得失敗: {err}  (r: 再取得)",
+                "failed to fetch pull requests: {err}  (r: retry)"
+            ),
             Style::default().fg(Color::Red),
         ));
     }
@@ -175,7 +185,10 @@ fn pr_status_line(app: &App) -> Line<'static> {
 }
 
 fn confirm_line(prompt: &str) -> Line<'static> {
-    Line::from(format!("{prompt}  y/Enter: 実行  n/Esc: 中止"))
+    Line::from(crate::tr!(
+        "{prompt}  y/Enter: 実行  n/Esc: 中止",
+        "{prompt}  y/Enter: run  n/Esc: cancel"
+    ))
 }
 
 // エラー (pre-commit hook 失敗など) は本文中の同じオーバーレイにも出るが、
@@ -188,13 +201,19 @@ fn commit_line(amend: bool, error: Option<&str>) -> Line<'static> {
         ));
     }
     let title = if amend { "amend commit" } else { "commit" };
-    Line::from(format!("{title}  Enter: 改行  Ctrl+s: 確定  Esc: 閉じる"))
+    Line::from(crate::tr!(
+        "{title}  Enter: 改行  Ctrl+s: 確定  Esc: 閉じる",
+        "{title}  Enter: newline  Ctrl+s: confirm  Esc: close"
+    ))
 }
 
 // 実行中は他の操作 (スクロール等) を妨げない旨も添えて、固まったのではないと分かるようにする
 fn remote_job_line(job: &str) -> Line<'static> {
     Line::from(Span::styled(
-        format!("{job} 実行中… (他の操作は続けられます)"),
+        crate::tr!(
+            "{job} 実行中… (他の操作は続けられます)",
+            "{job} running… (other operations still work)"
+        ),
         Style::default().fg(Color::Yellow),
     ))
 }
@@ -224,8 +243,9 @@ fn edit_status_line(state: &EditState) -> Line<'static> {
     if let Some(notice) = &state.notice {
         return Line::from(notice.clone());
     }
-    Line::from(format!(
+    Line::from(crate::tr!(
         "{}:{}  Ctrl+s: save  Ctrl+z/y: undo/redo  Alt+←/→: 単語移動  Esc: exit",
+        "{}:{}  Ctrl+s: save  Ctrl+z/y: undo/redo  Alt+←/→: word move  Esc: exit",
         state.cursor.0 + 1,
         state.cursor.1 + 1
     ))
@@ -242,8 +262,9 @@ fn git_status_line(app: &App) -> Line<'static> {
     if let Some(search) = git.search()
         && let Some(current) = search.current
     {
-        return Line::from(format!(
+        return Line::from(crate::tr!(
             "「{}」 {}/{}  n: next  N: prev  Tab: focus  Shift+Tab: mode  ?: help",
+            "\"{}\" {}/{}  n: next  N: prev  Tab: focus  Shift+Tab: mode  ?: help",
             search.query,
             current + 1,
             search.matches.len()
@@ -262,7 +283,10 @@ fn git_status_line(app: &App) -> Line<'static> {
             // 何行掴んでいるかは帯の色だけでは画面外へ伸びた分まで追えない
             let mut hint = match git.selected_row_count() {
                 Some(rows) => {
-                    format!("{rows} lines selected  Enter: {verb} lines  j/k: 伸縮  Esc: 解除")
+                    crate::tr!(
+                        "{rows} lines selected  Enter: {verb} lines  j/k: 伸縮  Esc: 解除",
+                        "{rows} lines selected  Enter: {verb} lines  j/k: resize  Esc: clear"
+                    )
                 }
                 None => "j/k: cursor  ]/[: hunk".to_string(),
             };
@@ -325,8 +349,9 @@ fn normal_status_line(app: &App) -> Line<'static> {
     if let Some(search) = &app.viewer.search
         && let Some(current) = search.current
     {
-        return Line::from(format!(
+        return Line::from(crate::tr!(
             "「{}」 {}/{}  n: next  N: prev  Tab: focus  q: quit  ?: help",
+            "\"{}\" {}/{}  n: next  N: prev  Tab: focus  q: quit  ?: help",
             search.query,
             current + 1,
             search.matches.len()
