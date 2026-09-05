@@ -1,7 +1,7 @@
 // fetch / pull / push (#27)。認証プロンプトで裏のスレッドが無限に待つのが最悪の挙動なので、
 // 実行環境の潰し方 (run_git_remote) をこのモジュール 1 箇所に閉じる。
 
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
@@ -65,7 +65,7 @@ where
         },
         Err(_) => GitOutcome {
             ok: false,
-            message: t("git を実行できませんでした", "failed to run git").to_string(),
+            message: t(Msg::GitCannotRun).to_string(),
         },
     }
 }

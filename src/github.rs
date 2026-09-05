@@ -5,7 +5,7 @@
 // issues/PR タブ (#33/#34) の一覧・詳細取得もここに集約する。git.rs と同じ方針で
 // serde 等の新規依存は足さず、`--json` ではなく `--template` で `\0` 区切りのプレーン
 // テキストを出させ porcelain -z と同じ流儀で自前パースする。
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
@@ -20,18 +20,10 @@ pub fn check_available(root: &Path) -> Result<(), String> {
     {
         Ok(output) if output.status.success() => {}
         Ok(_) => {
-            return Err(t(
-                "GitHub モードを有効化できません: gh が未認証です (gh auth login)",
-                "GitHub mode unavailable: gh is not authenticated (gh auth login)",
-            )
-            .to_string());
+            return Err(t(Msg::GhGitHubModeUnavailableGhNot).to_string());
         }
         Err(_) => {
-            return Err(t(
-                "GitHub モードを有効化できません: gh コマンドが見つかりません",
-                "GitHub mode unavailable: gh command not found",
-            )
-            .to_string());
+            return Err(t(Msg::GhGitHubModeUnavailableGhCommand).to_string());
         }
     }
     let remote = Command::new("git")
@@ -46,11 +38,7 @@ pub fn check_available(root: &Path) -> Result<(), String> {
         _ => false,
     };
     if !is_github_remote {
-        return Err(t(
-            "GitHub モードを有効化できません: origin が GitHub リポジトリではありません",
-            "GitHub mode unavailable: origin is not a GitHub repository",
-        )
-        .to_string());
+        return Err(t(Msg::GhGitHubModeUnavailableOriginNot).to_string());
     }
     Ok(())
 }
@@ -288,7 +276,7 @@ pub fn pr_checks(root: &Path, number: u64) -> Result<Vec<String>, String> {
             .collect()),
         Ok(output) if output.status.success() => Ok(Vec::new()),
         Ok(output) => Err(first_line(&output.stderr)),
-        Err(_) => Err(t("gh コマンドが見つかりません", "gh command not found").to_string()),
+        Err(_) => Err(t(Msg::GhGhCommandNotFound).to_string()),
     }
 }
 
@@ -312,7 +300,7 @@ where
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         }
         Ok(output) => Err(first_line(&output.stderr)),
-        Err(_) => Err(t("gh コマンドが見つかりません", "gh command not found").to_string()),
+        Err(_) => Err(t(Msg::GhGhCommandNotFound).to_string()),
     }
 }
 
@@ -321,6 +309,6 @@ fn first_line(bytes: &[u8]) -> String {
     text.lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
-        .unwrap_or(t("gh の実行に失敗しました", "failed to run gh"))
+        .unwrap_or(t(Msg::GhFailedRunGh))
         .to_string()
 }

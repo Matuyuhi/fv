@@ -12,7 +12,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::component::prs::{DetailView, PrsState};
 use crate::github::PrRow;
-use crate::lang::t;
+use crate::lang::{Msg, t};
 
 use crate::component::issues::view::{highlight_span, short_date};
 use crate::component::remotelist::view::{draw_remote_list, draw_text_detail};
@@ -129,10 +129,7 @@ pub(crate) fn draw_pr_detail(
     draw_text_detail(
         frame,
         title,
-        t(
-            "Enter / l / クリック: 説明を開く (d: diff  S: CI)",
-            "Enter / l / click: open description (d: diff  S: CI)",
-        ),
+        t(Msg::PrsEnterLClickOpenDescription),
         prs.loading_current(),
         prs.error_current(),
         prs.lines(),
@@ -169,24 +166,21 @@ fn draw_pr_diff(
         return;
     };
     if prs.truncated_current() {
-        title.push_str(t("  (打ち切り)", "  (truncated)"));
+        title.push_str(t(Msg::PrsTruncated));
     }
     if !prs.diff_viewport.wrap && prs.diff_viewport.hscroll > 0 {
         title = format!("{title}  →{}", prs.diff_viewport.hscroll);
     }
 
     if prs.loading_current() {
-        let paragraph = Paragraph::new(t("読み込み中…", "loading…"))
+        let paragraph = Paragraph::new(t(Msg::PrsLoading))
             .block(pane_block(title, focused))
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }
     if let Some(err) = prs.error_current() {
-        let text = crate::tr!(
-            "取得に失敗しました:\n{err}\n\n(d で再試行)",
-            "failed to fetch:\n{err}\n\n(d to retry)"
-        );
+        let text = crate::tr!(Msg::PrsFetchFailed, err);
         let paragraph = Paragraph::new(text)
             .block(pane_block(title, focused))
             .style(Style::default().fg(Color::Red));

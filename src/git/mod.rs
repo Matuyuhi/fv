@@ -31,7 +31,7 @@ pub use write::{
     apply_cached, commit, discard_path, last_commit_message, stage_path, unstage_path,
 };
 
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -84,7 +84,7 @@ where
         },
         Err(_) => GitOutcome {
             ok: false,
-            message: t("git を実行できませんでした", "failed to run git").to_string(),
+            message: t(Msg::GitCannotRun).to_string(),
         },
     }
 }
