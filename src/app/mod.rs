@@ -469,13 +469,14 @@ impl App {
         if let Lane::Edit(state) = &mut self.lane
             && state.buffer.dirty()
         {
-            state.notice = Some(
+            state.notice = Some((
                 lang::t(
                     "未保存の変更があります (Ctrl+s: 保存 / Esc: 破棄)",
                     "unsaved changes (Ctrl+s: save / Esc: discard)",
                 )
                 .to_string(),
-            );
+                true,
+            ));
             return;
         }
         self.pending_g = false;

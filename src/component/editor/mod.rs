@@ -39,7 +39,7 @@ pub struct EditState {
     /// 実際に組み直すのは次の描画で画面に映る行だけ
     pub render: HighlightCache,
     /// 保存エラー・discard 確認などステータスバーに出す一時メッセージ
-    pub notice: Option<String>,
+    pub notice: Option<(String, bool)>,
     confirm_discard: bool,
     /// 直近の操作で保存が成功したか。App は EditState から借りられない (依存範囲の制約) ため、
     /// 「保存で差分が生まれた/消えた」を App へ伝える take フラグとして持つ
@@ -139,10 +139,11 @@ impl EditState {
             KeyCode::Esc => {
                 if self.buffer.dirty() {
                     self.confirm_discard = true;
-                    self.notice = Some(
+                    self.notice = Some((
                         "unsaved changes — Esc: discard / s: save & exit / Ctrl+s: save"
                             .to_string(),
-                    );
+                        true,
+                    ));
                     return EditOutcome::Continue;
                 }
                 return EditOutcome::Exit;
@@ -264,9 +265,9 @@ impl EditState {
                 viewer.reload(&self.path);
                 // reload は hscroll を 0 に戻すため、カーソル位置まで追従し直す
                 self.ensure_visible(&mut viewer.viewport);
-                self.notice = Some("saved".to_string());
+                self.notice = Some(("saved".to_string(), false));
             }
-            Err(e) => self.notice = Some(format!("save failed: {e}")),
+            Err(e) => self.notice = Some((format!("save failed: {e}"), true)),
         }
     }
 
