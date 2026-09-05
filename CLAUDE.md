@@ -231,7 +231,9 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 ファイルの新規作成 (`n`)・ディレクトリ作成 (`N`)・リネーム (`R`)・削除 (`D`)・相対パスのコピー (`y`) を Focus::Tree で拾う（keys.rs の `on_file_op_key`。VIEW/GIT のどちらのレーンでも同じキーで効く — ツリー自体が共用なので分けない）。git を経由せず `std::fs` で直接書くので tracked/untracked を問わず同じ挙動になり、git 側の追従は他の書き込み系操作と同じ `rescan_now` に相乗りさせる（専用の同期パスを作らない）。
 - 名前入力は `Mode::Input` に `InputKind::NewFile/NewDir/Rename` を足して乗せる。InputKind は Copy の識別子だけなので、パスを要する対象（作成先の親ディレクトリ・リネーム元）は `App.file_op: Option<FileOp>` が持ち、Input を開いた時に立て Esc/Enter で落とす。ステータスバーの接頭辞（`App::file_op_label`）には作成先ディレクトリを添える — 選択行がファイルの時どの階層へ入るのかが見えないため
 - 作成先は「選択行がディレクトリならそれ、ファイルならその親、空のツリーなら root」。`a/b/c.rs` のような入力は途中のディレクトリごと作る（`create_dir_all` + `create_new`。存在チェックと作成の間に外から作られても上書きしない）。作ったファイルはそのまま右ペインに開く
-- 入力は `validate_name` で root 配下に閉じる（`..`・絶対パスは拒否、末尾の `/` だけ黙って落とす）。既に存在する名前への作成・リネームは fs に触る前に notice で断る
+- 入力は `validate_name` で root 配下に閉じる（`..`・絶対パスは拒否、末尾の `/` だけ黙って落とす。リネームは 1 要素だけ = 別ディレクトリへの移動にはしない）。字面の join だけでは途中の symlink がツリーの外を指す `link/new` を通してしまうので、書く直前に `contained` が「存在する最も深い祖先」を canonicalize して root と突き合わせる（まだ無い末尾は自分が作る実体なので解決不要）。既に存在する名前への作成・リネームは fs に触る前に notice で断る
+- リネームは `rename_no_replace`: exists の確認と `fs::rename` の間に外から同名が作られると黙って置き換わるため、ファイルは `hard_link`（宛先があれば必ず失敗）+ 元の削除で原子的に移し、hard_link を持たない fs でだけ rename に落とす。ディレクトリは hard_link できないので rename のまま（空でないディレクトリへの rename は OS が拒否する）。UTF-8 でない名前は入力欄に出せず置換文字入りの別名に化けるので `R` の時点で断る
+- GIT レーンでは `open_selected` が diff 側にしか届かないので、作成・リネームで開き直す時は `viewer.open` も直接呼んで VIEW に戻った時の表示を揃える
 - 削除だけは `Mode::Confirm`（`ConfirmAction::Delete`）を経由する。git の discard と違い復元できないため。ディレクトリは `remove_dir_all` で配下ごと消す
 - 開いているファイルが消えた/動いた時は右ペインも追従させる（削除は `Viewer::close`、リネームは新しいパスで `open_selected`。配下のファイルはプレフィックスを付け替える）。横断検索の一覧は構造が変わるので `grep.invalidate`、Finder の候補は rescan 側で無効化される
 - 作成・リネーム後は `Tree::reveal` で祖先を開いてその行を選択する（再走査の後でないと新しいパスがツリーに無いので順序は固定）。GIT レーンの絞り込み中は untracked として git status に現れるぶんだけ見える

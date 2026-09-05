@@ -49,12 +49,21 @@ impl App {
             return;
         };
         let from = row.path.clone();
-        // 畳まれた行 (`api/v1`) は row.name が連鎖全体なので、path の末尾から名前を取る
-        let name = from
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
         self.pending_g = false;
+        // 畳まれた行 (`api/v1`) は row.name が連鎖全体なので、path の末尾から名前を取る。
+        // UTF-8 でない名前は入力欄に正確に出せず、そのまま Enter すると置換文字入りの別名に
+        // 化けてしまうので最初から断る
+        let Some(name) = from.file_name().and_then(|n| n.to_str()) else {
+            self.set_notice(
+                t(
+                    "UTF-8 でないファイル名はリネームできません",
+                    "cannot rename a non-UTF-8 file name",
+                ),
+                true,
+            );
+            return;
+        };
+        let name = name.to_string();
         self.file_op = Some(FileOp::Rename { from });
         self.mode = Mode::Input {
             kind: InputKind::Rename,
@@ -137,7 +146,10 @@ impl App {
         if input.is_empty() {
             return;
         }
-        let rel = match validate_name(&input) {
+        // リネームは「親を据え置いて名前だけ変える」操作なので 1 要素に限る (`a/b` を許すと
+        // 黙って移動になり、ヘルプの案内と食い違う)
+        let single = matches!(op, FileOp::Rename { .. });
+        let rel = match validate_name(&input, single) {
             Ok(rel) => rel,
             Err(message) => {
                 self.set_notice(message, true);
@@ -187,6 +199,10 @@ impl App {
 
     fn create_entry(&mut self, target: PathBuf, is_dir: bool) {
         let shown = self.relative_display(&target);
+        if let Err(message) = contained(&self.root, &target) {
+            self.set_notice(message, true);
+            return;
+        }
         if target.exists() {
             self.set_notice(
                 crate::tr!("既に存在します: {shown}", "already exists: {shown}"),
@@ -218,8 +234,11 @@ impl App {
                     false,
                 );
                 self.after_fs_write(Some(&target));
-                // 作ったファイルはそのまま読み書きしたいので右ペインにも開く
+                // 作ったファイルはそのまま読み書きしたいので右ペインにも開く。GIT レーンでは
+                // open_selected が diff 側にしか届かないので、VIEW に戻った時のために viewer にも
+                // 直接開いておく (VIEW では open_selected が同じ path を再度開いても no-op)
                 if !is_dir {
+                    self.viewer.open(&target, &self.root);
                     self.open_selected(&target);
                 }
             }
@@ -236,6 +255,10 @@ impl App {
         }
         let shown_from = self.relative_display(&from);
         let shown_to = self.relative_display(&to);
+        if let Err(message) = contained(&self.root, &to) {
+            self.set_notice(message, true);
+            return;
+        }
         if to.exists() {
             self.set_notice(
                 crate::tr!("既に存在します: {shown_to}", "already exists: {shown_to}"),
@@ -243,12 +266,7 @@ impl App {
             );
             return;
         }
-        let result = to
-            .parent()
-            .map(std::fs::create_dir_all)
-            .unwrap_or(Ok(()))
-            .and_then(|_| std::fs::rename(&from, &to));
-        match result {
+        match rename_no_replace(&from, &to) {
             Ok(()) => {
                 self.retarget_open(&from, &to);
                 self.set_notice(
@@ -304,6 +322,9 @@ impl App {
         };
         let moved = to.join(rest);
         self.viewer.close();
+        // GIT レーンでは open_selected が diff 側にしか届かない (create_entry と同じ理由で
+        // viewer にも直接開く)
+        self.viewer.open(&moved, &self.root);
         self.open_selected(&moved);
     }
 
@@ -315,8 +336,52 @@ impl App {
     }
 }
 
-// 入力を root 配下に閉じる。`..` や絶対パスを通すとツリーの外を書き換えてしまう
-fn validate_name(input: &str) -> Result<PathBuf, String> {
+/// 既に存在する宛先を上書きしない rename。exists の事前確認と rename の間に外から同名が
+/// 作られると `fs::rename` はそれを黙って置き換えるため、ファイルは hard_link (宛先があれば
+/// 必ず失敗する) + 元の削除で原子的に移す。hard_link を持たないファイルシステムでは
+/// (AlreadyExists 以外の失敗) 通常の rename に落とす。ディレクトリは hard_link できないので
+/// rename のまま — 空でないディレクトリへの rename は OS が拒否するため、置き換わりうるのは
+/// 空ディレクトリだけ
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        return std::fs::rename(from, to);
+    }
+    match std::fs::hard_link(from, to) {
+        Ok(()) => std::fs::remove_file(from),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+        Err(_) => std::fs::rename(from, to),
+    }
+}
+
+/// 書き込み先が実体として root の中にあるかを、symlink を解決した上で確かめる。
+/// `link/new` のように途中の symlink がツリーの外を指していると、字面の join では root 配下に
+/// 見えたまま外へ書いてしまう。まだ無い末尾は解決できないので、存在する最も深い祖先を
+/// canonicalize して root と突き合わせる (途中で作るディレクトリは自分が作る実体なので
+/// symlink になりえない)。確認と書き込みの間に symlink が差し替えられる競合までは防げない
+fn contained(root: &Path, target: &Path) -> Result<(), String> {
+    let outside = || {
+        t(
+            "symlink 越しにツリーの外へは書き込めません",
+            "refusing to write outside the tree through a symlink",
+        )
+        .to_string()
+    };
+    let canonical_root = std::fs::canonicalize(root).map_err(|_| outside())?;
+    let existing = target
+        .ancestors()
+        .find(|p| p.exists())
+        .ok_or_else(outside)?;
+    let resolved = std::fs::canonicalize(existing).map_err(|_| outside())?;
+    if resolved.starts_with(&canonical_root) {
+        Ok(())
+    } else {
+        Err(outside())
+    }
+}
+
+// 入力を root 配下に閉じる。`..` や絶対パスを通すとツリーの外を書き換えてしまう。
+// single は「1 要素だけ許す」(リネーム)
+fn validate_name(input: &str, single: bool) -> Result<PathBuf, String> {
     // 末尾の `/` は「ディレクトリのつもり」の癖として黙って落とす。先頭の `/` は絶対パスなので
     // 落とさず (root 配下に読み替えると意図と違う場所に作る) 下の判定で弾く
     let rel = Path::new(input.trim().trim_end_matches('/'));
@@ -335,29 +400,75 @@ fn validate_name(input: &str) -> Result<PathBuf, String> {
             }
         }
     }
+    if single && rel.components().count() > 1 {
+        return Err(t(
+            "リネームは名前だけです (別のディレクトリへは動かせません)",
+            "rename takes a bare name (it cannot move to another directory)",
+        )
+        .to_string());
+    }
     Ok(rel.to_path_buf())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::validate_name;
+    use super::{contained, rename_no_replace, validate_name};
 
     #[test]
     fn validate_rejects_escape() {
-        assert!(validate_name("../x").is_err());
-        assert!(validate_name("/etc/passwd").is_err());
-        assert!(validate_name("").is_err());
-        assert!(validate_name("   ").is_err());
+        assert!(validate_name("../x", false).is_err());
+        assert!(validate_name("/etc/passwd", false).is_err());
+        assert!(validate_name("", false).is_err());
+        assert!(validate_name("   ", false).is_err());
+    }
+
+    #[test]
+    fn validate_rename_is_single_component() {
+        assert!(validate_name("a/b", true).is_err());
+        assert!(validate_name("b", true).is_ok());
+    }
+
+    #[test]
+    fn contained_follows_symlinks() {
+        let tmp = std::env::temp_dir().join(format!("fv-contained-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("root");
+        let outside = tmp.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+            assert!(contained(&root, &root.join("link/new")).is_err());
+        }
+        assert!(contained(&root, &root.join("a/b/new")).is_ok());
+        assert!(contained(&root, &root.join("new")).is_ok());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn rename_no_replace_refuses_existing() {
+        let tmp = std::env::temp_dir().join(format!("fv-rename-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("a"), "a").unwrap();
+        std::fs::write(tmp.join("b"), "b").unwrap();
+        assert!(rename_no_replace(&tmp.join("a"), &tmp.join("b")).is_err());
+        assert_eq!(std::fs::read_to_string(tmp.join("b")).unwrap(), "b");
+        assert!(rename_no_replace(&tmp.join("a"), &tmp.join("c")).is_ok());
+        assert!(!tmp.join("a").exists());
+        assert_eq!(std::fs::read_to_string(tmp.join("c")).unwrap(), "a");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn validate_accepts_nested() {
         assert_eq!(
-            validate_name("a/b/c.rs").unwrap(),
+            validate_name("a/b/c.rs", false).unwrap(),
             std::path::PathBuf::from("a/b/c.rs")
         );
         assert_eq!(
-            validate_name("trailing/").unwrap(),
+            validate_name("trailing/", true).unwrap(),
             std::path::PathBuf::from("trailing")
         );
     }

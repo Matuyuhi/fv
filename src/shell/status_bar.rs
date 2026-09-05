@@ -363,8 +363,12 @@ fn normal_status_line(app: &App) -> Line<'static> {
     }
     // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {
-        Focus::Tree | Focus::Log => {
-            "j/k: move  h/l: collapse/expand  n/N: new  R: rename  D: delete  a: hidden  L: log  Shift+Tab: mode  ?: help"
+        // ファイル操作 (n/N/R/D) はツリーだけに効くので、コミット一覧のフォーカスでは出さない
+        Focus::Tree => {
+            "j/k: move  h/l: fold  n/N/R/D: file ops  a: hidden  L: log  Shift+Tab: mode  ?: help"
+        }
+        Focus::Log => {
+            "j/k: move  h/l: collapse/expand  a: hidden  L: log  s: settings  Shift+Tab: mode  ?: help"
         }
         Focus::Viewer => {
             "j/k: cursor  w: wrap  /: search  v: select  y: copy  e: edit  L: log  Shift+Tab: mode  ?: help"
