@@ -132,76 +132,10 @@ Ignored files (`.gitignore`, `.ignore`, `.git/info/exclude`) are left out of the
 
 ## Development
 
-### UI previews
-
-Like Jetpack Compose `@Preview` or SwiftUI previews, you can render a single frame of any
-screen straight to stdout — no need to launch the TUI and click your way to the state you
-are working on:
-
-```sh
-cargo preview                      # list the available scenes
-cargo preview git                  # render one scene
-cargo preview git log commit       # render several, stacked
-cargo preview all --size 140x40    # everything, at a specific terminal size
-```
-
-`cargo preview` is an alias for `cargo run --features preview -- --preview`. The preview is a
-dev-only feature: it is off by default, so released binaries contain no preview code and do not
-accept `--preview`.
-
-Every scene runs against a throwaway sample repository (created under `$TMPDIR`) that always
-has staged, unstaged, untracked and deleted files plus a few commits, so the output does not
-depend on the state of your working tree. Scenes are built by feeding real key presses to the
-app, and rendered by the same `ui::draw` the real terminal uses — there is no preview-only
-drawing path.
-
-For the edit-and-look loop, re-render on every save:
-
-```sh
-scripts/preview-watch.sh git      # rebuilds and redraws whenever src/ changes
-```
-
-Add a scene in `src/preview/scene.rs`; a scene is a name, a description and a key script.
-
-See [`docs/preview/README.md`](docs/preview/README.md) for a screenshot of every scene.
-
-### UI screenshot tests
-
-Every scene is also committed as an image under `docs/preview/`, and CI re-renders all of them on
-every PR. The images *are* the snapshots — there is no separate text form. Since they are SVG,
-GitHub renders them: the diff shows up as a before/after picture in Files changed, and a bot
-comment lays each changed scene out as **before | diff | after**, so an unintended UI regression
-is something you can actually see.
-
-The middle panel comes from [shotdiff](https://github.com/Matuyuhi/shotdiff) (`--diff-only`),
-which paints every changed pixel pink — you spot the change without comparing two full screens by
-eye. Its `diff` and `after` are rendered by that CI run rather than read from the commit, so the
-comment shows the current drawing even when the committed images have not been refreshed yet.
-Neither file exists in the repository, so they are published to a history-less orphan branch
-(`ci-ui-diff`) and referenced by commit SHA — a branch name would let GitHub's image proxy serve
-a stale picture forever.
-
-```sh
-cargo preview --update-snapshots        # re-render every scene into docs/preview/
-cargo preview view --update-snapshots   # just one
-```
-
-Volatile values (commit SHAs, absolute dates) are masked while keeping their column width, so the
-images stay byte-identical between runs and still read as screenshots. Masking happens on the
-rendered buffer rather than on text, because the image carries per-cell colour too: the style
-boundary left by a shorter date would otherwise move even after the text was padded back to a
-fixed width.
-
-SVG rather than PNG because it needs no rasteriser (and therefore no new dependency), it carries
-no fonts of its own — so the Japanese text in the sample repository renders with the reader's
-fonts rather than as tofu — and it is text, so it lives in git history like any other file.
-Columns are held by giving every glyph its own `x`, the way a terminal puts characters on a grid;
-relying on the viewer's font advance would drift across a 110-column line.
-
-A stale image never fails a PR: the committed files are refreshed automatically by a bot commit
-once the change lands on `main`. Refresh them yourself if you want the UI change to show up in
-your own PR — and the screenshot at the top of this README, which is `docs/preview/view.svg`, to
-match your branch.
+Screens can be rendered to stdout without launching the TUI (`cargo preview <scene>`), and every
+scene is committed as an SVG under `docs/preview/` that CI re-renders on each PR, so a UI change
+shows up as a before/after picture. See [`docs/preview/README.md`](docs/preview/README.md) for
+the scene gallery and how the preview and screenshot tests work.
 
 ## License
 

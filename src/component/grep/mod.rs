@@ -6,7 +6,7 @@
 //! root を歩き直す (stat で変わっていないファイルは cache から読む)。オーバーレイ側は
 //! 「クエリを渡すと (path, line, col) が流れてくる」以上のことを知らない形に閉じてある。
 //!
-//! 設計メモは docs/design/workspace-grep.md、恒久的な要約は CLAUDE.md「ワークスペース横断検索」節。
+//! 設計メモは docs/design/workspace-grep.md、恒久的な要約は docs/design/grep.md。
 
 pub mod search;
 pub mod view;

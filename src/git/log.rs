@@ -57,7 +57,7 @@ pub fn log(root: &Path, skip: usize, limit: usize) -> Vec<CommitSummary> {
 
 /// 選択コミットの表示用テキスト (`git show` 相当) を生行で返す。マージコミットは既定の
 /// `git show` が差分を出さないため、親が複数あるときは最初の親との diff を明示的に組み立てて
-/// 見せる (全親の差分 (-m) は本文が膨らみすぎるため採用しない。判断は CLAUDE.md 参照)。
+/// 見せる (全親の差分 (-m) は本文が膨らみすぎるため採用しない。判断は docs/design/git.md「コミット一覧パネル」参照)。
 /// 親 0/1 のコミットは通常の `git show` の既定動作 (空 tree / 唯一の親との diff) をそのまま使う
 pub fn show_commit(root: &Path, sha: &str) -> Option<Vec<String>> {
     let parents = parent_count(root, sha).unwrap_or(0);

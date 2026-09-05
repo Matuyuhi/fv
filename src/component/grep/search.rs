@@ -10,7 +10,7 @@
 //!     (walk も stat も read もしない。FS 監視が生きていて変更が無い間だけ許される)
 //! の 2 経路に分けた。どちらを使うかは GrepState (mod.rs) が決める。
 //!
-//! 設計メモは docs/design/workspace-grep.md、恒久的な要約は CLAUDE.md「ワークスペース横断検索」節。
+//! 設計メモは docs/design/workspace-grep.md、恒久的な要約は docs/design/grep.md。
 
 use std::collections::HashMap;
 use std::fs::File;
