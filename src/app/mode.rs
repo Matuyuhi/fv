@@ -27,6 +27,11 @@ pub enum InputKind {
     Search,
     Goto,
     Filter,
+    /// ツリーのファイル操作 (app/file_ops.rs)。入力欄は Search と同じ 1 行だが、確定先が
+    /// viewer ではなく fs になる。対象 (親ディレクトリ・リネーム元) は App.file_op が持つ
+    NewFile,
+    NewDir,
+    Rename,
 }
 
 // 設定画面の行ラベル。行の並び・件数はこの配列が唯一の情報源で、
@@ -139,6 +144,12 @@ pub enum ConfirmAction {
     StashPop,
     /// `P`: push (#27)。fetch/pull と違いリモートの履歴・ブランチ構成を変えるので確認必須にする
     Push,
+    /// `D`: ツリーの選択ファイル/ディレクトリを fs から削除する (app/file_ops.rs)。
+    /// git を経由しない (discard と違い tracked かどうかを問わない) ので復元できない
+    Delete {
+        path: PathBuf,
+        is_dir: bool,
+    },
 }
 
 /// トップレベルのタブ ("Workspace")。Lane / Mode に続く 3 本目の軸で、GitHub モード

@@ -134,5 +134,5 @@
 <text x="23 32 41 50" y="369" fill="#eff1f5">VIEW</text>
 <text x="77 86 95 104 131 140 149" y="369" fill="#eff1f5">EDITGIT</text>
 <text x="185 194 203 212" y="369" fill="#b48ead">main</text>
-<text x="239 248 257 266 284 293 302 311 338 347 356 365 383 392 401 410 419 428 437 446 455 464 473 482 491 500 509 536 545 563 572 581" y="369" fill="#eff1f5">j/k:moveh/l:collapse/expanda:hid</text>
+<text x="239 248 257 266 284 293 302 311 338 347 356 365 383 392 401 410 437 446 455 464 473 482 491 500 518 527 536 545 563 572 581" y="369" fill="#eff1f5">j/k:moveh/l:foldn/N/R/D:fileops</text>
 </svg>
