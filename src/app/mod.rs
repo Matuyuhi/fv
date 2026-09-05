@@ -1,5 +1,6 @@
 mod branch_ops;
 mod commit;
+mod file_ops;
 mod git_ops;
 mod github_keys;
 mod keys;
@@ -33,6 +34,7 @@ use crate::git::{self, GitStatus, StatusKind};
 use crate::github;
 use crate::job;
 use crate::lang;
+use crate::lang::Msg;
 use crate::watch::FsWatcher;
 
 // イベント嵐 (git checkout やビルド等) でツリーを毎回フル再走査しないための間引き間隔
@@ -68,6 +70,8 @@ pub struct App {
     /// issues タブ (#33) の状態。GitHub モードが無効でも構築コスト自体はゼロ (フィールドが
     /// 空のまま) なので、常に持たせて Workspace::Issues に切り替わった時だけ取得を始める
     pub issues: IssuesState,
+    /// ツリーのファイル操作 (n/N/R) で Mode::Input を開いている間の対象 (app/file_ops.rs)
+    file_op: Option<file_ops::FileOp>,
     /// pull requests タブ (#34) の状態。issues と同じ理由で常に持たせる
     pub prs: PrsState,
     pub tree: Tree,
@@ -194,6 +198,7 @@ impl App {
             mode: Mode::Normal,
             workspace: Workspace::Viewer,
             issues: IssuesState::new(),
+            file_op: None,
             prs: PrsState::new(config.wrap_default),
             tree,
             viewer,
@@ -469,14 +474,7 @@ impl App {
         if let Lane::Edit(state) = &mut self.lane
             && state.buffer.dirty()
         {
-            state.notice = Some((
-                lang::t(
-                    "未保存の変更があります (Ctrl+s: 保存 / Esc: 破棄)",
-                    "unsaved changes (Ctrl+s: save / Esc: discard)",
-                )
-                .to_string(),
-                true,
-            ));
+            state.notice = Some((lang::t(Msg::AppUnsavedChangesCtrlSSave).to_string(), true));
             return;
         }
         self.pending_g = false;
@@ -573,10 +571,7 @@ impl App {
             return;
         }
         if !self.log_available() {
-            self.set_notice(
-                lang::t("git リポジトリではありません", "not a git repository"),
-                true,
-            );
+            self.set_notice(lang::t(Msg::AppNotGitRepository), true);
             return;
         }
         // Viewport の実測値は右ペイン (diff を出す場所) のもの。GitState::new と同じ理由で、
@@ -853,13 +848,7 @@ impl App {
     pub(super) fn copy_selection(&mut self) {
         match self.viewer.selection_text() {
             Some(text) => self.copy_to_clipboard(text),
-            None => self.set_notice(
-                lang::t(
-                    "選択がありません (ドラッグ または v で選択)",
-                    "no selection (drag or v to select)",
-                ),
-                true,
-            ),
+            None => self.set_notice(lang::t(Msg::AppNoSelectionDragVSelect), true),
         }
     }
 
@@ -868,10 +857,7 @@ impl App {
     pub(super) fn copy_open_file(&mut self) {
         match self.viewer.all_text() {
             Some(text) => self.copy_to_clipboard(text),
-            None => self.set_notice(
-                lang::t("コピーできるテキストがありません", "no text to copy"),
-                true,
-            ),
+            None => self.set_notice(lang::t(Msg::AppNoTextCopy), true),
         }
     }
 
@@ -933,7 +919,7 @@ impl App {
             self.set_notice(summarize_remote_job(&pending, &outcome), false);
         } else {
             let message = if outcome.message.is_empty() {
-                crate::tr!("{} に失敗しました", "failed to {}", pending.kind.label())
+                crate::tr!(Msg::AppRemoteJobFailed, job = pending.kind.label())
             } else {
                 outcome.message
             };
@@ -986,9 +972,9 @@ fn summarize_remote_job(pending: &PendingRemoteJob, outcome: &git::GitOutcome) -
     match pending.kind {
         git::RemoteJobKind::Fetch => {
             if outcome.message.is_empty() {
-                lang::t("fetch 完了", "fetch done").to_string()
+                lang::t(Msg::AppFetchDone).to_string()
             } else {
-                crate::tr!("fetch 完了: {}", "fetch done: {}", outcome.message)
+                crate::tr!(Msg::AppFetchDoneWith, message = outcome.message)
             }
         }
         git::RemoteJobKind::Pull => {

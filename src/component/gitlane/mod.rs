@@ -38,7 +38,7 @@ use ratatui::text::Line;
 
 use crate::component::viewer::{Match, SearchState, Viewport, rowcursor, search_matches};
 use crate::git::{self, DiffBase};
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use crate::text;
 use crate::widget::text_pane::line_body;
 
@@ -306,7 +306,7 @@ impl GitState {
         let (lines, hunks, gutter_width, max_width, boundaries) = render_commit(&raw);
         let mut title = format!("all changes ({} files)", boundaries.len());
         if truncated {
-            title.push_str(t("  (打ち切り)", "  (truncated)"));
+            title.push_str(t(Msg::GitTruncated));
         }
         self.all = Some(Box::new(AllDiff {
             title,

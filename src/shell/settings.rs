@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Mode, SETTINGS_ROWS};
+use crate::lang::{self, Msg};
 
 pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let Mode::Settings(state) = &app.mode else {
@@ -50,11 +51,8 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let mut list_state = ListState::default().with_selected(Some(state.selected));
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
-    let hint = Paragraph::new(crate::lang::t(
-        "j/k 選択  h/l/Enter 変更  s/Esc 閉じる",
-        "j/k select  h/l/Enter change  s/Esc close",
-    ))
-    .style(Style::default().fg(Color::DarkGray));
+    let hint = Paragraph::new(lang::t(Msg::SettingsJKSelectHL))
+        .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(hint, hint_area);
 }
 

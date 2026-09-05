@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::component::editor::EditOutcome;
 use crate::component::finder::Finder;
-use crate::lang::t;
+use crate::lang::{Msg, t};
 
 use super::{
     App, ConfirmAction, Focus, InputKind, Lane, Mode, SETTINGS_ROWS, SettingsState, Workspace,
@@ -222,6 +222,10 @@ impl App {
                 _ => {}
             }
         }
+        // ツリーのファイル操作 (n/N/R/D/y) はレーンを問わず Focus::Tree で拾う
+        if self.focus == Focus::Tree && self.on_file_op_key(key) {
+            return;
+        }
         match self.focus {
             // ツリーのキー操作は VIEW / GIT で共通。開く先だけレーンで振り分ける
             Focus::Tree => match &self.lane {
@@ -264,6 +268,20 @@ impl App {
             Focus::Log => Focus::Viewer,
             Focus::Viewer => Focus::Tree,
         };
+    }
+
+    /// ツリーのファイル操作 (app/file_ops.rs)。VIEW/GIT どちらのレーンでも同じキーで効く
+    /// (ツリー自体が共用なので分けない)。拾ったら true を返し、on_tree_key へは流さない
+    fn on_file_op_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Char('n') => self.open_new_entry(false),
+            KeyCode::Char('N') => self.open_new_entry(true),
+            KeyCode::Char('R') => self.open_rename(),
+            KeyCode::Char('D') => self.confirm_delete(),
+            KeyCode::Char('y') => self.copy_selected_path(),
+            _ => return false,
+        }
+        true
     }
 
     // Input モード中は q も含め全ての印字キーを buffer に積む。Esc でキャンセル、Enter で確定
@@ -314,6 +332,7 @@ impl App {
                 Workspace::PullRequests => self.prs.cancel_filter_edit(),
                 Workspace::Viewer => {}
             },
+            InputKind::NewFile | InputKind::NewDir | InputKind::Rename => self.cancel_file_input(),
         }
     }
 
@@ -336,6 +355,9 @@ impl App {
                 Workspace::PullRequests => self.prs.confirm_filter_edit(),
                 Workspace::Viewer => {}
             },
+            InputKind::NewFile | InputKind::NewDir | InputKind::Rename => {
+                self.confirm_file_input(kind)
+            }
         }
     }
 
@@ -351,8 +373,8 @@ impl App {
                     }
                 }
             }
-            // Goto はステータスバーが buffer をそのまま表示するのでライブ更新は不要
-            InputKind::Goto => {}
+            // Goto・ファイル操作はステータスバーが buffer をそのまま表示するのでライブ更新は不要
+            InputKind::Goto | InputKind::NewFile | InputKind::NewDir | InputKind::Rename => {}
             InputKind::Filter => {
                 let Mode::Input { buffer, .. } = &self.mode else {
                     return;
@@ -414,6 +436,7 @@ impl App {
             ConfirmAction::StashPush => self.execute_stash_push(),
             ConfirmAction::StashPop => self.execute_stash_pop(),
             ConfirmAction::Push => self.execute_push(),
+            ConfirmAction::Delete { path, is_dir } => self.execute_delete(path, is_dir),
         }
     }
 
@@ -725,13 +748,7 @@ impl App {
             // 打ち切りは明示操作 (A/t) の直後だけ notice で知らせる。rescan 経由の背景更新は
             // 500ms デバウンス毎にスパムしないよう黙って再取得するだけにしてある (GitState::refresh)
             if truncated {
-                self.set_notice(
-                    t(
-                        "diff が大きいため表示を打ち切りました (20000 行 / 2MB)",
-                        "diff too large — truncated (20000 lines / 2MB)",
-                    ),
-                    true,
-                );
+                self.set_notice(t(Msg::AppDiffTruncated), true);
             }
             return;
         }
@@ -781,13 +798,7 @@ impl App {
             _ => {}
         }
         if unsupported_line_selection {
-            self.set_notice(
-                t(
-                    "この表示では行単位選択を使えません (A の解除 / v で inline に戻してください)",
-                    "line-wise selection isn't available here (exit A / v to switch to inline)",
-                ),
-                true,
-            );
+            self.set_notice(t(Msg::AppLineWiseSelectionIsnT), true);
         }
     }
 

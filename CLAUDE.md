@@ -57,7 +57,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 ### モジュール構成（コンポーネント単位 + 1 型 1 責務 1 ファイル）
 **画面上の 1 つの部品 = 1 フォルダ**で、その状態（mod.rs 以下）と描画（view.rs）を同じ場所に置く。レイヤ別（全ての UI を `component/*/view.rs` に集める）ではなくコンポーネント別にしてあるのは、「issues タブを直す」ときに触る場所を 1 フォルダに閉じるため。ただし**キーの割り当てだけは `app/` に集約したまま**にしてある（下記）。
 
-- `app/` — 合成ルート。全ての状態を所有し、レーン/タブ遷移とキールーティングの優先順位を持つ。mod.rs(App 状態・on_tick・レーン/ワークスペース遷移・rescan/notice), keys.rs(キールーティングの優先順位とレーン/オーバーレイのキー処理), commit.rs(Mode::Commit の開閉・編集・実行), git_ops.rs(stage/discard/stash・fetch/pull/push の実行と後始末), branch_ops.rs(Mode::Branch のキー処理と切替/作成), github_keys.rs(Issues/PullRequests タブのキー処理と gh ジョブ起動), mouse.rs, mode.rs(Focus/Lane/Mode/Workspace/InputKind/ConfirmAction)
+- `app/` — 合成ルート。全ての状態を所有し、レーン/タブ遷移とキールーティングの優先順位を持つ。mod.rs(App 状態・on_tick・レーン/ワークスペース遷移・rescan/notice), keys.rs(キールーティングの優先順位とレーン/オーバーレイのキー処理), commit.rs(Mode::Commit の開閉・編集・実行), git_ops.rs(stage/discard/stash・fetch/pull/push の実行と後始末), file_ops.rs(ツリーのファイル操作: 新規作成・ディレクトリ作成・リネーム・削除・パスコピー), branch_ops.rs(Mode::Branch のキー処理と切替/作成), github_keys.rs(Issues/PullRequests タブのキー処理と gh ジョブ起動), mouse.rs, mode.rs(Focus/Lane/Mode/Workspace/InputKind/ConfirmAction)
   - keys.rs は**「どのキーを誰に渡すか」だけ**を持ち、操作の中身は上記 4 ファイルへ置く。keys.rs が肥大化して優先順位が読めなくなるのを避けるための分割なので、新しい操作を足す時もこの境界を守る（キーの追加は keys.rs、実行の中身は用途別ファイル）。モジュールを跨いで呼ぶメソッドだけ `pub(super)` にする
   - **キー処理をコンポーネント側へ移さないのはなぜか**: ハンドラはほぼ全て「複数のコンポーネントを跨いで App を書き換える」（GIT のキーが `App::rescan` を呼ぶ、issues のキーが `job::spawn` する等）。component 側へ持っていくと component → app の逆向き依存が生まれる。コンポーネント内で閉じる操作は既にその状態型のメソッド（`GitState::next_hunk` / `PrsState::set_open` 等）になっており、keys.rs はそれを呼ぶルータに徹している
   - 書き込み系操作の後の即時再取得は `App::rescan_now`（rescan + デバウンスのタイマー/保留フラグのリセット）に集約する。呼び出し側で 4 行を複製しない
@@ -75,7 +75,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `shell/` — 画面全体の骨格と、App 全体を横断して見せる画面。mod.rs(draw・レイアウト・各 View への値の取り出し), status_bar.rs, tab_bar.rs(Workspace タブバー), help.rs, settings.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)。ここに置くか component に置くかの境界は「専用の状態型を持つか」（「描画の依存範囲」節）
 - `widget/` — 複数のコンポーネントが使う描画部品。text_pane.rs(閲覧・編集・diff 共通の描画コア + 行カーソル/行選択の帯 + `line_body`), diff_boundary.rs(sticky header の帯)。**帯の幅は必ずセル幅で測る**（`Line::width` / `text::cells`）— char 数で数えると全角のパスやコードで帯がペイン幅を超えて罫線を押し出し、ZWJ 絵文字では逆に右端が空く（「桁位置の整合インバリアント」の帯版）, icons.rs, mod.rs(pane_block / centered_rect)。**どの状態を描くかは持たせない**（渡された Line 列をどう見せるかだけ）
 - `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列。手元で見る stdout 用), svg.rs(Buffer → SVG。スナップショット兼 README の画面写真), snapshot.rs(マスクとファイル書き出し), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（「UI プレビュー」節）
-- インフラ（どのコンポーネントにも属さない）: `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `lang.rs`(UI 文言の言語。「UI 言語」節) / `clipboard.rs`(クリップボードへの書き出し。外部コマンド → OSC 52 のフォールバックと自前 base64) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・component/branch/mod.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify) / `config.rs`
+- インフラ（どのコンポーネントにも属さない）: `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `lang/`(UI 文言の言語とキー別の翻訳表。「UI 言語」節) / `clipboard.rs`(クリップボードへの書き出し。外部コマンド → OSC 52 のフォールバックと自前 base64) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・component/branch/mod.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify) / `config.rs`
 - **可視性**: component/widget は別のモジュールツリーから呼ばれるので、跨いで使うものは `pub(crate)` になる（レイヤ別構成なら `component/*/view.rs` 内で `pub(super)` に閉じられていた分の代償）。フォルダ内に閉じるものは `pub(super)` のままにする
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
@@ -227,6 +227,17 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 - **FS 変更は stale 扱い**: 走査中なら止めて起こし直し（前後が混ざるため）、完了済みなら印だけ付けて次に開いた時（`on_open`）に歩き直す。閉じている間に変更のたびに歩かないのは FileIndex と同じ理由（AI が書き換え続ける状況で全走査を連打しない）。stale（結果が古い）と trusted（一覧を使い回せる）は別の軸で、`touch` は stale にしつつ一覧は使い続ける
 - ヒットを開く時 GIT レーンに居たら `enter_lane(0)` で VIEW へ戻してから `open_selected`（GIT のままだと diff が開く）。一覧の描画はツリーと同じく `visible_window` で画面に映る行だけ `ListItem` を組む（最大 5000 行あるため）
 
+### ツリーのファイル操作（app/file_ops.rs、n/N/R/D/y）
+ファイルの新規作成 (`n`)・ディレクトリ作成 (`N`)・リネーム (`R`)・削除 (`D`)・相対パスのコピー (`y`) を Focus::Tree で拾う（keys.rs の `on_file_op_key`。VIEW/GIT のどちらのレーンでも同じキーで効く — ツリー自体が共用なので分けない）。git を経由せず `std::fs` で直接書くので tracked/untracked を問わず同じ挙動になり、git 側の追従は他の書き込み系操作と同じ `rescan_now` に相乗りさせる（専用の同期パスを作らない）。
+- 名前入力は `Mode::Input` に `InputKind::NewFile/NewDir/Rename` を足して乗せる。InputKind は Copy の識別子だけなので、パスを要する対象（作成先の親ディレクトリ・リネーム元）は `App.file_op: Option<FileOp>` が持ち、Input を開いた時に立て Esc/Enter で落とす。ステータスバーの接頭辞（`App::file_op_label`）には作成先ディレクトリを添える — 選択行がファイルの時どの階層へ入るのかが見えないため
+- 作成先は「選択行がディレクトリならそれ、ファイルならその親、空のツリーなら root」。`a/b/c.rs` のような入力は途中のディレクトリごと作る（`create_dir_all` + `create_new`。存在チェックと作成の間に外から作られても上書きしない）。作ったファイルはそのまま右ペインに開く
+- 入力は `validate_name` で root 配下に閉じる（`..`・絶対パスは拒否、末尾の `/` だけ黙って落とす。リネームは 1 要素だけ = 別ディレクトリへの移動にはしない）。字面の join だけでは途中の symlink がツリーの外を指す `link/new` を通してしまうので、書く直前に `contained` が「存在する最も深い祖先」を canonicalize して root と突き合わせる（まだ無い末尾は自分が作る実体なので解決不要）。既に存在する名前への作成・リネームは fs に触る前に notice で断る
+- リネームは `rename_no_replace`: exists の確認と `fs::rename` の間に外から同名が作られると黙って置き換わるため、ファイルは `hard_link`（宛先があれば必ず失敗）+ 元の削除で原子的に移し、hard_link を持たない fs でだけ rename に落とす。ディレクトリは hard_link できないので rename のまま（空でないディレクトリへの rename は OS が拒否する）。UTF-8 でない名前は入力欄に出せず置換文字入りの別名に化けるので `R` の時点で断る
+- GIT レーンでは `open_selected` が diff 側にしか届かないので、作成・リネームで開き直す時は `viewer.open` も直接呼んで VIEW に戻った時の表示を揃える
+- 削除だけは `Mode::Confirm`（`ConfirmAction::Delete`）を経由する。git の discard と違い復元できないため。ディレクトリは `remove_dir_all` で配下ごと消す
+- 開いているファイルが消えた/動いた時は右ペインも追従させる（削除は `Viewer::close`、リネームは新しいパスで `open_selected`。配下のファイルはプレフィックスを付け替える）。横断検索の一覧は構造が変わるので `grep.invalidate`、Finder の候補は rescan 側で無効化される
+- 作成・リネーム後は `Tree::reveal` で祖先を開いてその行を選択する（再走査の後でないと新しいパスがツリーに無いので順序は固定）。GIT レーンの絞り込み中は untracked として git status に現れるぶんだけ見える
+
 ### ツリーペインの描画（component/tree/view.rs）
 - **`ListItem` の組み立ては画面に映る行数に比例させる**（以前は `tree.visible` 全体に比例していた。展開済みの巨大なツリーで `j` を押しっぱなしにすると 1 回の再描画あたり `visible` 全件ぶんの `format!`/`Vec` 確保が走り、キー入力への追従が目に見えて遅れていた）。`ListState` の scroll/offset 管理は ratatui の `List` に任せず自前に持ち替えた（下記 A 案）。B 案（組み立て済み `Vec<ListItem>` をキャッシュし内容が変わった時だけ作り直す）も検討したが、A 案の方が「常に O(画面行数)」を型で保証できて strictly 強く、`List::new` が `Vec<ListItem>` を所有として消費する ratatui の API 上、キャッシュを毎フレーム使い回すにも結局クローンが要って B 案の優位性が薄れるため見送った
 - ツリーの行は高さが常に 1 (`row.name` に改行は入らない) という前提があるので、ratatui `List` が内部でやる「選択行を含む最小限のウィンドウを保つ」スクロール計算 (`get_items_bounds`、非公開 API) は、offset を起点に selected が入るまで前後にスライドさせるだけの O(1) の式に厳密に置き換えられる（`component/tree/view.rs::visible_window`）。この式は ratatui 側のテストケース (`selected_item_ensures_selected_item_is_visible_when_offset_is_*`) の期待値と突き合わせて導出した。可変高さ行 (`repeat_highlight_symbol`・複数行アイテム等) は使っていないので、この前提が崩れる変更 (行を複数行にする等) をする時はこの等価性も一緒に見直すこと
@@ -353,8 +364,10 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 - **DP を諦める大きさ（`MAX_LCS_CELLS`）に達したら、中間領域を丸ごと変更扱いにはせず同じ位置の行同士を突き合わせる**（`positional_matched`）。前置き・後置きを剥がしても**離れた 2 箇所に差分があると間に挟まれた行が全て中間領域に入る**ので、ここには普通に届く（真ん中を書き直したファイルの先頭で 1 文字打つと、変更行が 800 → 2400 行に増えて触っていない 1600 行の gutter が光っていた）。行の増減が無ければ位置合わせは LCS と同じ答えになり、あっても「全部変更」より悪くはならない
 - 既知の制約: 外部変更との競合は last-write-wins（保存が上書きする）。非 UTF-8・10MB 超は編集不可（`e` が no-op）
 
-### UI 言語（lang.rs、設定画面の `language`）
-- 文言は**翻訳表を持たず、呼び出し側に対で書く**: 固定文言は `lang::t("日本語", "English")`、埋め込みがあるものは `tr!("書式 ja", "書式 en", 引数...)`（選ばれた側だけ `format!` する）。対で書く以上、片方だけ書き忘れた文言は型上作れない。ヘルプ（`shell/help.rs`）の entries も `(キー, ja, en)` の 3 つ組
+### UI 言語（lang/、設定画面の `language`）
+- 文言は**キーで引く**: 固定文言は `lang::t(Msg::HelpQuit)`、埋め込みがあるものは `tr!(Msg::GitStagedLines, lines, verb = "stage")`（`名前 = 式`、または同名の変数があれば名前だけ。`format!` の暗黙キャプチャと同じ書き味）。翻訳表は**言語ごとに 1 ファイル**で、`src/lang/msg.rs` がキー一覧（`Msg` enum）、`src/lang/ja.rs` / `src/lang/en.rs` がそれぞれ `Msg` に対する match。**match を網羅させる**ことで「片方の言語だけ書き忘れた文言」がコンパイルエラーになる（以前の「呼び出し側に ja/en の対で書く」設計と同じ保証を、文言を 1 箇所へ集めた形で保つ）
+- 文言を足す手順は 3 箇所: `msg.rs` に variant を足す → `ja.rs` と `en.rs` に文言を足す（片方を忘れると match の網羅性エラーで止まる）。variant 名は「置き場所の接頭辞（Help/Git/Status/Prs/…）+ 英語文言の要約」
+- 埋め込みは `{name}` のプレースホルダ。表の文字列は `&'static str` なので `format!` には渡せず、`lang::fmt` が名前で置き換える。位置引数（`{}`）は持たない。両言語で同じ名前が揃っていることは `placeholders_match_between_languages` テストが `Msg::ALL` を舐めて担保する
 - **値はプロセス全体の static**（`lang::set` / `lang::current`）。描画関数は「自分の状態しか受け取らない」設計で、gh/git の失敗メッセージは背景スレッドで組み立てられるため、引数で配って回ると全ての `draw_*` と notice の組み立てにシグネチャ変更が波及する。`App::new` が config の値で最初に `set` し、設定画面の切替（`App::cycle_lang`）は `set` + `persist_config` するだけで App にはフィールドを持たない
 - config に無い時の既定は `Lang::detect`（`LC_ALL` > `LC_MESSAGES` > `LANG`、`ja` 始まりなら日本語、それ以外は英語）
 - **プレビューは日本語固定**（`preview::preview_lang`）。`isolate_env` が `LC_ALL=C` にするので detect に任せると英語になり、既存のスナップショットが全部変わる。英語の絵は `FV_PREVIEW_LANG=en cargo preview <scene>` で見る

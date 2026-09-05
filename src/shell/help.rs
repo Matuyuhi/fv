@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::{App, Focus, Lane, Workspace};
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use crate::tr;
 use crate::widget::centered_rect;
 
@@ -36,10 +36,9 @@ pub(super) fn draw_help(frame: &mut Frame, app: &App, scroll: usize, area: Rect)
     // 「まだ先がある」ことを枠に出す。出さないと、切れているのか終わりなのかが区別できない
     let title = if total > height {
         tr!(
-            " help  {}-{}/{}  j/k: スクロール  ?: 閉じる ",
-            " help  {}-{}/{}  j/k: scroll  ?: close ",
-            (scroll + 1).min(total),
-            (scroll + height).min(total),
+            Msg::HelpTitleScroll,
+            from = (scroll + 1).min(total),
+            to = (scroll + height).min(total),
             total
         )
     } else {
@@ -161,7 +160,7 @@ fn help_lines(screen: Screen) -> Vec<Line<'static>> {
             .expect("hoisted した節は sections() に必ず在る");
         // 並びが画面によって変わるので、なぜ先頭に来ているのかを見出しに書いておく
         let title = if first.contains(&id) {
-            tr!("{} ← 今の画面", "{} ← current screen", section.title)
+            tr!(Msg::HelpCurrentScreen, title = section.title)
         } else {
             section.title.to_string()
         };
@@ -176,68 +175,23 @@ fn sections() -> Vec<Section> {
             id: SectionId::Global,
             title: "Global",
             entries: vec![
-                ("Ctrl+c", t("終了", "quit")),
-                ("q", t("終了", "quit")),
+                ("Ctrl+c", t(Msg::HelpQuit)),
+                ("q", t(Msg::HelpQuit)),
+                ("Shift+Tab", t(Msg::HelpSwitchLaneVIEWEDITGIT)),
+                ("Tab", t(Msg::HelpSwitchFocusTreeViewerLog)),
+                ("L", t(Msg::HelpToggleCommitListPanelVIEW)),
+                ("Ctrl+p", t(Msg::HelpOpenFinder)),
+                ("Ctrl+f", t(Msg::HelpOpenWorkspaceWideSearch)),
+                ("b", t(Msg::HelpOpenBranchListOverlayGit)),
+                ("?", t(Msg::HelpOpenHelp)),
+                ("s", t(Msg::HelpOpenSettings)),
+                ("a", t(Msg::HelpToggleHiddenItems)),
+                ("i", t(Msg::HelpToggleIgnoredFilesGitignoreIgnore)),
+                ("-a, --hidden", t(Msg::HelpShowHiddenItemsOnStartup)),
+                ("-i, --ignored", t(Msg::HelpShowIgnoredFilesOnStartup)),
                 (
-                    "Shift+Tab",
-                    t(
-                        "モード切替 (VIEW → EDIT → GIT)",
-                        "switch lane (VIEW → EDIT → GIT)",
-                    ),
-                ),
-                (
-                    "Tab",
-                    t(
-                        "フォーカス切替 (Tree → Viewer。コミット一覧を出している間だけ Log を挟む)",
-                        "switch focus (Tree → Viewer; Log is inserted only while the commit list is shown)",
-                    ),
-                ),
-                (
-                    "L",
-                    t(
-                        "コミット一覧パネルの表示切替 (VIEW のみ・左ペイン下半分)",
-                        "toggle the commit list panel (VIEW only, lower half of the left pane)",
-                    ),
-                ),
-                ("Ctrl+p", t("ファインダーを開く", "open the finder")),
-                (
-                    "Ctrl+f",
-                    t("ワークスペース横断検索を開く", "open workspace-wide search"),
-                ),
-                (
-                    "b",
-                    t(
-                        "ブランチ一覧オーバーレイを開く (git repo でのみ)",
-                        "open the branch list overlay (git repos only)",
-                    ),
-                ),
-                ("?", t("このヘルプを開く", "open this help")),
-                ("s", t("設定画面を開く", "open settings")),
-                ("a", t("隠し項目の表示を切替", "toggle hidden items")),
-                (
-                    "i",
-                    t(
-                        "無視ファイル (.gitignore/.ignore/exclude) の表示を切替",
-                        "toggle ignored files (.gitignore/.ignore/exclude)",
-                    ),
-                ),
-                (
-                    "-a, --hidden",
-                    t("起動時に隠し項目を表示", "show hidden items on startup"),
-                ),
-                (
-                    "-i, --ignored",
-                    t(
-                        "起動時に無視ファイルも表示",
-                        "show ignored files on startup",
-                    ),
-                ),
-                (
-                    t("ステータスバー", "status bar"),
-                    t(
-                        "現在ブランチ + ahead/behind を常時表示 (git repo のみ)",
-                        "always shows the current branch + ahead/behind (git repos only)",
-                    ),
+                    t(Msg::HelpStatusBar),
+                    t(Msg::HelpAlwaysShowsCurrentBranchAhead),
                 ),
             ],
         },
@@ -245,582 +199,185 @@ fn sections() -> Vec<Section> {
             id: SectionId::Help,
             title: "Help (?)",
             entries: vec![
-                ("j/k ↑/↓", t("1 行スクロール", "scroll one line")),
-                ("Ctrl+d/u", t("半ページスクロール", "scroll half a page")),
-                ("gg / G", t("先頭 / 末尾へ", "go to top / bottom")),
-                ("? / Esc / q", t("閉じる", "close")),
+                ("j/k ↑/↓", t(Msg::HelpScrollOneLine)),
+                ("Ctrl+d/u", t(Msg::HelpScrollHalfPage)),
+                ("gg / G", t(Msg::HelpGoTopBottom)),
+                ("? / Esc / q", t(Msg::HelpClose)),
                 (
-                    t("節の並び", "section order"),
-                    t(
-                        "今開いている画面の節が先頭に来る (残りは定義順)",
-                        "the section for the current screen comes first (the rest keep their defined order)",
-                    ),
+                    t(Msg::HelpSectionOrder),
+                    t(Msg::HelpSectionForCurrentScreenComes),
                 ),
             ],
         },
         Section {
             id: SectionId::Workspace,
-            title: t(
-                "Workspace (GitHub モード、既定は無効)",
-                "Workspace (GitHub mode, off by default)",
-            ),
+            title: t(Msg::HelpWorkspaceSection),
             entries: vec![
+                ("Ctrl+t", t(Msg::HelpGoNextTabViewerIssues)),
+                ("Alt+1/2/3", t(Msg::HelpJumpStraightViewerIssuesPull)),
+                (t(Msg::HelpClickTab), t(Msg::HelpSwitchTab)),
+                ("--github", t(Msg::HelpEnableForRunOnlyNot)),
                 (
-                    "Ctrl+t",
-                    t(
-                        "次のタブへ (viewer → issues → pull requests)",
-                        "go to the next tab (viewer → issues → pull requests)",
-                    ),
-                ),
-                (
-                    "Alt+1/2/3",
-                    t(
-                        "viewer / issues / pull requests へ直接切替",
-                        "jump straight to viewer / issues / pull requests",
-                    ),
-                ),
-                (
-                    t("タブをクリック", "click a tab"),
-                    t("そのタブへ切替", "switch to that tab"),
-                ),
-                (
-                    "--github",
-                    t(
-                        "起動時だけ有効化 (config には保存しない)",
-                        "enable for this run only (not saved to the config)",
-                    ),
-                ),
-                (
-                    t("設定画面の github tabs", "github tabs in settings"),
-                    t(
-                        "トグルで有効化・config に永続化",
-                        "toggle to enable and persist it to the config",
-                    ),
+                    t(Msg::HelpGithubTabsInSettings),
+                    t(Msg::HelpToggleEnablePersistConfig),
                 ),
             ],
         },
         Section {
             id: SectionId::Issues,
-            title: t(
-                "Issues (Ctrl+t / Alt+2、GitHub モード有効時)",
-                "Issues (Ctrl+t / Alt+2, when GitHub mode is on)",
-            ),
+            title: t(Msg::HelpIssuesSection),
             entries: vec![
-                ("j/k ↑/↓ gg/G", t("一覧を移動", "move through the list")),
+                ("j/k ↑/↓ gg/G", t(Msg::HelpMoveThroughList)),
+                ("Ctrl+d/u", t(Msg::HelpMoveHalfPageInList)),
+                ("Tab", t(Msg::HelpSwitchFocusBetweenListDetail)),
                 (
-                    "Ctrl+d/u",
-                    t(
-                        "一覧を半ページ移動 / 詳細を半ページスクロール",
-                        "move half a page in the list / scroll the detail half a page",
-                    ),
+                    t(Msg::HelpEnterLClick),
+                    t(Msg::HelpLoadSelectedIssueSDetail),
                 ),
-                (
-                    "Tab",
-                    t(
-                        "一覧 ⇄ 詳細のフォーカス切替",
-                        "switch focus between list and detail",
-                    ),
-                ),
-                (
-                    t("Enter / l / クリック", "Enter / l / click"),
-                    t(
-                        "選択 issue の詳細を右に読み込む",
-                        "load the selected issue's detail on the right",
-                    ),
-                ),
-                (
-                    "o",
-                    t(
-                        "ブラウザで開く (gh issue view --web)",
-                        "open in the browser (gh issue view --web)",
-                    ),
-                ),
-                (
-                    "r",
-                    t(
-                        "一覧を再取得 (タブ往復では自動取得しない)",
-                        "refetch the list (switching tabs does not refetch)",
-                    ),
-                ),
-                (
-                    "/",
-                    t(
-                        "一覧をファジー絞り込み (一覧側フォーカス時のみ)",
-                        "fuzzy filter the list (only while the list has focus)",
-                    ),
-                ),
-                (
-                    "t",
-                    t(
-                        "state 絞り込みを循環 (open → closed → all)",
-                        "cycle the state filter (open → closed → all)",
-                    ),
-                ),
+                ("o", t(Msg::HelpOpenInBrowserGhIssue)),
+                ("r", t(Msg::HelpRefetchListSwitchingTabsDoes)),
+                ("/", t(Msg::HelpFuzzyFilterListOnlyWhile)),
+                ("t", t(Msg::HelpCycleStateFilterOpenClosed)),
             ],
         },
         Section {
             id: SectionId::Prs,
-            title: t(
-                "Pull Requests (Ctrl+t / Alt+3、GitHub モード有効時)",
-                "Pull Requests (Ctrl+t / Alt+3, when GitHub mode is on)",
-            ),
+            title: t(Msg::HelpPrsSection),
             entries: vec![
-                ("j/k ↑/↓ gg/G", t("一覧を移動", "move through the list")),
+                ("j/k ↑/↓ gg/G", t(Msg::HelpMoveThroughList)),
+                ("Ctrl+d/u", t(Msg::HelpMoveHalfPageInListScrollRight)),
+                ("Tab", t(Msg::HelpSwitchFocusBetweenListDetail)),
                 (
-                    "Ctrl+d/u",
-                    t(
-                        "一覧を半ページ移動 / 右ペインを半ページスクロール",
-                        "move half a page in the list / scroll the right pane half a page",
-                    ),
+                    t(Msg::HelpEnterLClick),
+                    t(Msg::HelpOpenSelectedPRInDescription),
                 ),
-                (
-                    "Tab",
-                    t(
-                        "一覧 ⇄ 詳細のフォーカス切替",
-                        "switch focus between list and detail",
-                    ),
-                ),
-                (
-                    t("Enter / l / クリック", "Enter / l / click"),
-                    t(
-                        "選択 PR を説明表示で開く",
-                        "open the selected PR in the description view",
-                    ),
-                ),
-                (
-                    "d",
-                    t(
-                        "差分を表示 (GIT/LOG レーンと同じ見え方)",
-                        "show the diff (rendered like the GIT/LOG lanes)",
-                    ),
-                ),
-                (
-                    "S",
-                    t(
-                        "CI ステータスを表示 (s は設定に割り当て済みのため大文字)",
-                        "show CI status (uppercase because s is taken by settings)",
-                    ),
-                ),
-                (
-                    t("j/k ↑/↓ (diff 表示中)", "j/k ↑/↓ (diff)"),
-                    t("行カーソルを移動", "move the line cursor"),
-                ),
-                (
-                    t("]/[ (diff 表示中)", "]/[ (diff)"),
-                    t("次 / 前の hunk へ", "go to the next / previous hunk"),
-                ),
-                (
-                    t("w (diff 表示中)", "w (diff)"),
-                    t(
-                        "折り返し切替 (設定には保存しない)",
-                        "toggle wrap (not saved to the config)",
-                    ),
-                ),
-                (
-                    t("h/l ←/→ (diff 表示中)", "h/l ←/→ (diff)"),
-                    t("水平スクロール", "scroll horizontally"),
-                ),
-                (
-                    "o",
-                    t(
-                        "ブラウザで開く (gh pr view --web)",
-                        "open in the browser (gh pr view --web)",
-                    ),
-                ),
-                (
-                    "r",
-                    t(
-                        "一覧を再取得 (タブ往復では自動取得しない)",
-                        "refetch the list (switching tabs does not refetch)",
-                    ),
-                ),
-                (
-                    "/",
-                    t(
-                        "一覧をファジー絞り込み (一覧側フォーカス時のみ)",
-                        "fuzzy filter the list (only while the list has focus)",
-                    ),
-                ),
-                (
-                    "t",
-                    t(
-                        "state 絞り込みを循環 (open → closed → merged → all)",
-                        "cycle the state filter (open → closed → merged → all)",
-                    ),
-                ),
-                (
-                    t("巨大な diff", "huge diffs"),
-                    t(
-                        "行数/バイト数の上限で打ち切り、notice で通知",
-                        "truncated at the line/byte limit, reported with a notice",
-                    ),
-                ),
+                ("d", t(Msg::HelpShowDiffRenderedLikeGIT)),
+                ("S", t(Msg::HelpShowCIStatusUppercaseBecause)),
+                (t(Msg::HelpJKDiff), t(Msg::HelpMoveLineCursor)),
+                (t(Msg::HelpDiff), t(Msg::HelpGoNextPreviousHunk)),
+                (t(Msg::HelpWDiff), t(Msg::HelpToggleWrapNotSavedConfig)),
+                (t(Msg::HelpHLDiff), t(Msg::HelpScrollHorizontally)),
+                ("o", t(Msg::HelpOpenInBrowserGhPr)),
+                ("r", t(Msg::HelpRefetchListSwitchingTabsDoes)),
+                ("/", t(Msg::HelpFuzzyFilterListOnlyWhile)),
+                ("t", t(Msg::HelpCycleStateFilterOpenClosedMergedAll)),
+                (t(Msg::HelpHugeDiffs), t(Msg::HelpTruncatedAtLineByteLimit)),
             ],
         },
         Section {
             id: SectionId::Tree,
             title: "Tree",
             entries: vec![
-                ("j/k ↑/↓", t("上下移動", "move up / down")),
-                ("l →", t("展開 / 開く", "expand / open")),
-                ("h ←", t("折りたたみ / 親へ", "collapse / go to parent")),
-                (
-                    "H",
-                    t(
-                        "親を選択して折りたたむ",
-                        "select the parent and collapse it",
-                    ),
-                ),
-                ("Enter", t("開く / 展開切替", "open / toggle expansion")),
-                ("gg / G", t("先頭 / 末尾へ", "go to top / bottom")),
-                ("r", t("再走査", "rescan")),
+                ("j/k ↑/↓", t(Msg::HelpMoveUpDown)),
+                ("l →", t(Msg::HelpExpandOpen)),
+                ("h ←", t(Msg::HelpCollapseGoParent)),
+                ("H", t(Msg::HelpSelectParentCollapse)),
+                ("Enter", t(Msg::HelpOpenToggleExpansion)),
+                ("gg / G", t(Msg::HelpGoTopBottom)),
+                ("r", t(Msg::HelpRescan)),
+                ("n", t(Msg::HelpNewFileUnderSelectedDirectory)),
+                ("N", t(Msg::HelpNewDirectory)),
+                ("R", t(Msg::HelpRenameParentStaysSame)),
+                ("D", t(Msg::HelpDeleteWithConfirmationDirectoryGoes)),
+                ("y", t(Msg::HelpCopyRelativePathClipboard)),
             ],
         },
         Section {
             id: SectionId::Viewer,
             title: "Viewer",
             entries: vec![
+                ("j/k ↑/↓", t(Msg::HelpMoveLineCursorViewFollows)),
+                ("Ctrl+d/u", t(Msg::HelpScrollHalfPage)),
+                ("gg / G", t(Msg::HelpGoTopBottom)),
+                ("w", t(Msg::HelpToggleWrap)),
+                ("h/l ←/→", t(Msg::HelpScrollHorizontally)),
+                ("0", t(Msg::HelpResetHorizontalScroll)),
+                ("Ctrl+o", t(Msg::HelpGoBackInHistoryBackspace)),
+                ("Ctrl+i", t(Msg::HelpGoForwardInHistory)),
+                (":N Enter", t(Msg::HelpJumpLineN)),
+                ("/", t(Msg::HelpSearch)),
+                ("n / N", t(Msg::HelpGoNextPreviousMatch)),
+                ("e", t(Msg::HelpEnterEditMode)),
                 (
-                    "j/k ↑/↓",
-                    t(
-                        "行カーソルを移動 (画面はカーソルに追従する。v/e の起点もこの行)",
-                        "move the line cursor (the view follows it; v/e start from this line)",
-                    ),
+                    t(Msg::HelpMouseDrag),
+                    t(Msg::HelpCharacterWiseSelectionDraggingPast),
                 ),
-                ("Ctrl+d/u", t("半ページスクロール", "scroll half a page")),
-                ("gg / G", t("先頭 / 末尾へ", "go to top / bottom")),
-                ("w", t("折り返し切替", "toggle wrap")),
-                ("h/l ←/→", t("水平スクロール", "scroll horizontally")),
-                (
-                    "0",
-                    t("水平スクロールをリセット", "reset horizontal scroll"),
-                ),
-                (
-                    "Ctrl+o",
-                    t(
-                        "履歴を戻る (Backspace も同様)",
-                        "go back in history (Backspace does the same)",
-                    ),
-                ),
-                ("Ctrl+i", t("履歴を進む", "go forward in history")),
-                (":N Enter", t("N 行目へジャンプ", "jump to line N")),
-                ("/", t("検索", "search")),
-                (
-                    "n / N",
-                    t("次 / 前のマッチへ", "go to the next / previous match"),
-                ),
-                ("e", t("編集モードに入る", "enter edit mode")),
-                (
-                    t("マウス長押し + 移動", "mouse drag"),
-                    t(
-                        "文字単位の範囲選択 (端まで引っ張ると 1 行ずつ送る)",
-                        "character-wise selection (dragging past an edge scrolls a line at a time)",
-                    ),
-                ),
-                (
-                    "v",
-                    t(
-                        "行単位の選択を開始 / 解除 (j/k・Ctrl+d/u・gg/G で伸縮)",
-                        "start / cancel a line-wise selection (grow it with j/k, Ctrl+d/u, gg/G)",
-                    ),
-                ),
-                (
-                    "y",
-                    t(
-                        "選択範囲をクリップボードへコピー",
-                        "copy the selection to the clipboard",
-                    ),
-                ),
-                (
-                    "Y",
-                    t("開いているファイル全体をコピー", "copy the whole open file"),
-                ),
-                ("Esc", t("選択を解除", "clear the selection")),
-                (
-                    t("コピー手段", "copy backend"),
-                    t(
-                        "pbcopy/wl-copy/xclip/xsel/clip.exe → 無ければ OSC 52 (ssh 越しも可)",
-                        "pbcopy/wl-copy/xclip/xsel/clip.exe, falling back to OSC 52 (works over ssh)",
-                    ),
-                ),
+                ("v", t(Msg::HelpStartCancelLineWiseSelection)),
+                ("y", t(Msg::HelpCopySelectionClipboard)),
+                ("Y", t(Msg::HelpCopyWholeOpenFile)),
+                ("Esc", t(Msg::HelpClearSelection)),
+                (t(Msg::HelpCopyBackend), t(Msg::HelpPbcopyWlCopyXclipXsel)),
             ],
         },
         Section {
             id: SectionId::Git,
             title: "Git (Shift+Tab)",
             entries: vec![
+                (t(Msg::HelpLeftPane), t(Msg::HelpShowsOnlyChangedFilesWith)),
+                ("j/k ↑/↓", t(Msg::HelpMoveBetweenChangedFiles)),
+                ("l →", t(Msg::HelpExpandShowDiff)),
+                ("h ←", t(Msg::HelpCollapseGoParent)),
+                ("H", t(Msg::HelpSelectParentCollapse)),
+                ("Enter", t(Msg::HelpShowDiffToggleExpansion)),
                 (
-                    t("左ペイン", "left pane"),
-                    t(
-                        "変更ファイルのみを階層付きで表示 (入った時点で全展開)",
-                        "shows only changed files with their hierarchy (fully expanded on entry)",
-                    ),
+                    t(Msg::HelpSpaceLeftPane),
+                    t(Msg::HelpStageUnstageSelectedFileDirectory),
+                ),
+                (t(Msg::HelpJKDiffPane), t(Msg::HelpMoveLineCursorSpaceEnter)),
+                (
+                    t(Msg::HelpSpaceDiffPane),
+                    t(Msg::HelpStageHunkCursorInUnstage),
                 ),
                 (
-                    "j/k ↑/↓",
-                    t("変更ファイル間を移動", "move between changed files"),
-                ),
-                ("l →", t("展開 / diff を表示", "expand / show the diff")),
-                ("h ←", t("折りたたみ / 親へ", "collapse / go to parent")),
-                (
-                    "H",
-                    t(
-                        "親を選択して折りたたむ",
-                        "select the parent and collapse it",
-                    ),
+                    t(Msg::HelpEnterDiffPane),
+                    t(Msg::HelpStageUnstageOnlyChangedLines),
                 ),
                 (
-                    "Enter",
-                    t("diff を表示 / 展開切替", "show the diff / toggle expansion"),
+                    t(Msg::HelpVDiffPane),
+                    t(Msg::HelpStartCancelLineWiseSelectionGrowWith),
                 ),
-                (
-                    t("Space (左ペイン)", "Space (left pane)"),
-                    t(
-                        "選択中のファイル/ディレクトリを stage/unstage トグル",
-                        "stage/unstage the selected file or directory",
-                    ),
-                ),
-                (
-                    t("j/k ↑/↓ (diff ペイン)", "j/k ↑/↓ (diff pane)"),
-                    t(
-                        "行カーソルを移動 (Space/Enter の対象は常にこのカーソル行)",
-                        "move the line cursor (Space/Enter always act on this line)",
-                    ),
-                ),
-                (
-                    t("Space (diff ペイン)", "Space (diff pane)"),
-                    t(
-                        "カーソル行が属する hunk を stage (基準が staged のときは unstage)",
-                        "stage the hunk the cursor is in (unstage when the base is staged)",
-                    ),
-                ),
-                (
-                    t("Enter (diff ペイン)", "Enter (diff pane)"),
-                    t(
-                        "カーソル行 (V の選択中はその範囲) の変更行だけを stage/unstage",
-                        "stage/unstage only the changed lines under the cursor (or the V selection)",
-                    ),
-                ),
-                (
-                    t("V (diff ペイン)", "V (diff pane)"),
-                    t(
-                        "行単位選択の開始/解除 (j/k で伸縮・Esc で解除)",
-                        "start / cancel a line-wise selection (grow it with j/k, cancel with Esc)",
-                    ),
-                ),
-                (
-                    t("クリック (diff ペイン)", "click (diff pane)"),
-                    t("その行へカーソルを移動", "move the cursor to that line"),
-                ),
-                (
-                    "X",
-                    t(
-                        "選択中のファイル/ディレクトリの変更を破棄 (確認あり・untracked は削除)",
-                        "discard changes in the selected file or directory (confirmed; untracked files are deleted)",
-                    ),
-                ),
-                (
-                    "z",
-                    t(
-                        "変更を stash へ退避 (確認あり・untracked も含む)",
-                        "stash the changes (confirmed; untracked files included)",
-                    ),
-                ),
-                (
-                    "Z",
-                    t(
-                        "直近の stash を pop (確認あり・GIT レーン以外からも可)",
-                        "pop the latest stash (confirmed; works outside the GIT lane too)",
-                    ),
-                ),
-                (
-                    "/",
-                    t(
-                        "diff 内検索 (side-by-side 表示中は無効)",
-                        "search within the diff (disabled in side-by-side view)",
-                    ),
-                ),
-                (
-                    "n / N",
-                    t(
-                        "次 / 前の検索マッチへ (検索確定後)",
-                        "go to the next / previous match (after a search is committed)",
-                    ),
-                ),
-                (
-                    "] / [",
-                    t("次 / 前の hunk へ", "go to the next / previous hunk"),
-                ),
-                (
-                    "A",
-                    t(
-                        "全変更ファイルをまとめた diff を表示 (トグル)",
-                        "show a combined diff of all changed files (toggle)",
-                    ),
-                ),
-                (
-                    "} / {",
-                    t(
-                        "まとめ diff 内で次 / 前のファイルへ",
-                        "go to the next / previous file in the combined diff",
-                    ),
-                ),
-                (
-                    "t",
-                    t(
-                        "diff 基準を切替 (HEAD → staged → unstaged)",
-                        "switch the diff base (HEAD → staged → unstaged)",
-                    ),
-                ),
-                (
-                    "c",
-                    t(
-                        "コミット (staged が空だと開かない)",
-                        "commit (does not open when nothing is staged)",
-                    ),
-                ),
-                (
-                    "C",
-                    t(
-                        "amend コミット (既存メッセージをプリフィル・確認あり)",
-                        "amend the last commit (prefills the existing message, confirmed)",
-                    ),
-                ),
-                (
-                    "v",
-                    t(
-                        "inline ⇔ side-by-side 切替 (設定には保存しない・まとめ diff 表示中は無効)",
-                        "switch inline ⇔ side-by-side (not saved to the config; disabled in the combined diff)",
-                    ),
-                ),
-                ("Ctrl+d/u", t("半ページスクロール", "scroll half a page")),
-                ("gg / G", t("先頭 / 末尾へ", "go to top / bottom")),
-                (
-                    "w",
-                    t(
-                        "折り返し切替 (diff のみ・設定には保存しない)",
-                        "toggle wrap (diff only, not saved to the config)",
-                    ),
-                ),
-                (
-                    "h/l ←/→",
-                    t(
-                        "水平スクロール (diff ペイン)",
-                        "scroll horizontally (diff pane)",
-                    ),
-                ),
-                (
-                    "0",
-                    t(
-                        "水平スクロールをリセット (diff ペイン)",
-                        "reset horizontal scroll (diff pane)",
-                    ),
-                ),
-                (
-                    "f / p / P",
-                    t(
-                        "fetch / pull / push (下の Remote セクション参照)",
-                        "fetch / pull / push (see the Remote section below)",
-                    ),
-                ),
-                (
-                    "r",
-                    t(
-                        "再走査 (git status も取り直す)",
-                        "rescan (also refetches git status)",
-                    ),
-                ),
+                (t(Msg::HelpClickDiffPane), t(Msg::HelpMoveCursorLine)),
+                ("X", t(Msg::HelpDiscardChangesInSelectedFile)),
+                ("z", t(Msg::HelpStashChangesConfirmedUntrackedFiles)),
+                ("Z", t(Msg::HelpPopLatestStashConfirmedWorks)),
+                ("/", t(Msg::HelpSearchWithinDiffDisabledIn)),
+                ("n / N", t(Msg::HelpGoNextPreviousMatchAfter)),
+                ("] / [", t(Msg::HelpGoNextPreviousHunk)),
+                ("A", t(Msg::HelpShowCombinedDiffAllChanged)),
+                ("} / {", t(Msg::HelpGoNextPreviousFileIn)),
+                ("t", t(Msg::HelpSwitchDiffBaseHEADStaged)),
+                ("c", t(Msg::HelpCommitDoesNotOpenWhen)),
+                ("C", t(Msg::HelpAmendLastCommitPrefillsExisting)),
+                ("v", t(Msg::HelpSwitchInlineSideBySide)),
+                ("Ctrl+d/u", t(Msg::HelpScrollHalfPage)),
+                ("gg / G", t(Msg::HelpGoTopBottom)),
+                ("w", t(Msg::HelpToggleWrapDiffOnlyNot)),
+                ("h/l ←/→", t(Msg::HelpScrollHorizontallyDiffPane)),
+                ("0", t(Msg::HelpResetHorizontalScrollDiffPane)),
+                ("f / p / P", t(Msg::HelpFetchPullPushSeeRemote)),
+                ("r", t(Msg::HelpRescanAlsoRefetchesGitStatus)),
             ],
         },
         Section {
             id: SectionId::LogPanel,
             title: "Log panel (L)",
             entries: vec![
+                ("L", t(Msg::HelpTogglePanelLowerHalfVIEW)),
+                (t(Msg::HelpListRows), t(Msg::HelpCommitListShortSHARelative)),
+                ("j/k ↑/↓", t(Msg::HelpMoveBetweenCommitsDiffDoes)),
+                ("Enter / l →", t(Msg::HelpShowSelectedCommitSDiff)),
+                ("gg / G", t(Msg::HelpGoTopEndWhatLoaded)),
+                (t(Msg::HelpEscList), t(Msg::HelpClosePanelSameAsL)),
+                (t(Msg::HelpLogJKDiff), t(Msg::HelpMoveLineCursor)),
+                ("n / N", t(Msg::HelpGoNextPreviousHunkDo)),
+                ("Ctrl+d/u", t(Msg::HelpScrollHalfPage)),
+                ("w", t(Msg::HelpToggleWrapDiffOnlyNot)),
+                ("h/l ←/→", t(Msg::HelpScrollHorizontallyDiffPane)),
+                ("0", t(Msg::HelpResetHorizontalScrollDiffPane)),
+                (t(Msg::HelpEscDiff), t(Msg::HelpCloseDiffGoBackFile)),
                 (
-                    "L",
-                    t(
-                        "表示切替 (VIEW の左ペイン下半分。ツリーと同時に見える)",
-                        "toggle the panel (lower half of VIEW's left pane, shown alongside the tree)",
-                    ),
-                ),
-                (
-                    t("一覧の行", "list rows"),
-                    t(
-                        "コミット一覧 (短縮 SHA / 相対日時 / 作者 / 件名。狭い幅では右の列から落とす)",
-                        "commit list (short SHA / relative date / author / subject; narrow widths drop the right columns first)",
-                    ),
-                ),
-                (
-                    "j/k ↑/↓",
-                    t(
-                        "コミット間を移動 (diff は追従しない)",
-                        "move between commits (the diff does not follow)",
-                    ),
-                ),
-                (
-                    "Enter / l →",
-                    t(
-                        "選択コミットの diff を右ペインに表示 (フォーカスも移る)",
-                        "show the selected commit's diff in the right pane (focus moves too)",
-                    ),
-                ),
-                (
-                    "gg / G",
-                    t(
-                        "先頭 / 読み込み済み末尾へ (末尾で追加取得)",
-                        "go to the top / end of what is loaded (fetches more at the end)",
-                    ),
-                ),
-                (
-                    t("Esc (一覧)", "Esc (list)"),
-                    t("パネルを閉じる (L と同じ)", "close the panel (same as L)"),
-                ),
-                (
-                    t("j/k ↑/↓ (diff)", "j/k ↑/↓ (diff)"),
-                    t("行カーソルを移動", "move the line cursor"),
-                ),
-                (
-                    "n / N",
-                    t(
-                        "次 / 前の hunk へ (] / [ も同様)",
-                        "go to the next / previous hunk (] / [ do the same)",
-                    ),
-                ),
-                ("Ctrl+d/u", t("半ページスクロール", "scroll half a page")),
-                (
-                    "w",
-                    t(
-                        "折り返し切替 (diff のみ・設定には保存しない)",
-                        "toggle wrap (diff only, not saved to the config)",
-                    ),
-                ),
-                (
-                    "h/l ←/→",
-                    t(
-                        "水平スクロール (diff ペイン)",
-                        "scroll horizontally (diff pane)",
-                    ),
-                ),
-                (
-                    "0",
-                    t(
-                        "水平スクロールをリセット (diff ペイン)",
-                        "reset horizontal scroll (diff pane)",
-                    ),
-                ),
-                (
-                    t("Esc (diff)", "Esc (diff)"),
-                    t(
-                        "diff を閉じてファイル表示へ戻す",
-                        "close the diff and go back to the file view",
-                    ),
-                ),
-                (
-                    t("マージコミット", "merge commits"),
-                    t(
-                        "最初の親との diff を表示 (git show の既定は差分なし)",
-                        "shows the diff against the first parent (git show shows none by default)",
-                    ),
+                    t(Msg::HelpMergeCommits),
+                    t(Msg::HelpShowsDiffAgainstFirstParent),
                 ),
             ],
         },
@@ -828,221 +385,74 @@ fn sections() -> Vec<Section> {
             id: SectionId::Edit,
             title: "Edit (e / Shift+Tab)",
             entries: vec![
-                (
-                    t("文字入力", "typing"),
-                    t(
-                        "挿入 (クリックでカーソル移動)",
-                        "insert text (click to move the cursor)",
-                    ),
-                ),
-                ("↑/↓/←/→", t("カーソル移動", "move the cursor")),
-                (
-                    "Alt+←/→",
-                    t(
-                        "単語単位で移動 (Option+←/→ / Ctrl+←/→ / Alt+b・f も可)",
-                        "move by word (Option+←/→, Ctrl+←/→, Alt+b/f also work)",
-                    ),
-                ),
-                (
-                    "Home/End",
-                    t(
-                        "行頭 (インデント直後 ⇄ 桁 0) / 行末へ (Cmd+←/→・Ctrl+a/e も可)",
-                        "go to line start (after the indent ⇄ column 0) / line end (Cmd+←/→, Ctrl+a/e also work)",
-                    ),
-                ),
-                (
-                    "Ctrl+Home/End",
-                    t(
-                        "文書の先頭 / 末尾へ (Cmd+↑/↓ も可)",
-                        "go to the start / end of the document (Cmd+↑/↓ also works)",
-                    ),
-                ),
-                (
-                    "Alt+↑/↓",
-                    t(
-                        "カーソル行を上 / 下の行と入れ替える",
-                        "swap the cursor line with the line above / below",
-                    ),
-                ),
-                (
-                    "Alt+Backspace",
-                    t(
-                        "手前の 1 単語を削除 (Ctrl+Backspace / Ctrl+w も可)",
-                        "delete the previous word (Ctrl+Backspace, Ctrl+w also work)",
-                    ),
-                ),
-                (
-                    "Alt+Delete",
-                    t(
-                        "先の 1 単語を削除 (Ctrl+Delete も可)",
-                        "delete the next word (Ctrl+Delete also works)",
-                    ),
-                ),
-                (
-                    "Cmd+Backspace",
-                    t(
-                        "行頭まで削除 (Ctrl+u も可) / Cmd+Delete: 行末まで削除",
-                        "delete to the line start (Ctrl+u also works) / Cmd+Delete: delete to the line end",
-                    ),
-                ),
-                ("Ctrl+s / Cmd+s", t("保存", "save")),
-                (
-                    "Ctrl+z / Ctrl+y",
-                    t(
-                        "undo / redo (Cmd+z / Cmd+Shift+z)",
-                        "undo / redo (Cmd+z / Cmd+Shift+z)",
-                    ),
-                ),
-                ("Ctrl+k", t("行削除", "delete the line")),
-                (
-                    "Esc",
-                    t(
-                        "終了 (未保存なら確認。確認中の s で保存して終了)",
-                        "leave edit mode (confirms when unsaved; s in the confirmation saves and leaves)",
-                    ),
-                ),
+                (t(Msg::HelpTyping), t(Msg::HelpInsertTextClickMoveCursor)),
+                ("↑/↓/←/→", t(Msg::HelpMoveCursor)),
+                ("Alt+←/→", t(Msg::HelpMoveByWordOptionCtrl)),
+                ("Home/End", t(Msg::HelpGoLineStartAfterIndent)),
+                ("Ctrl+Home/End", t(Msg::HelpGoStartEndDocumentCmd)),
+                ("Alt+↑/↓", t(Msg::HelpSwapCursorLineWithLine)),
+                ("Alt+Backspace", t(Msg::HelpDeletePreviousWordCtrlBackspace)),
+                ("Alt+Delete", t(Msg::HelpDeleteNextWordCtrlDelete)),
+                ("Cmd+Backspace", t(Msg::HelpDeleteLineStartCtrlU)),
+                ("Ctrl+s / Cmd+s", t(Msg::HelpSave)),
+                ("Ctrl+z / Ctrl+y", t(Msg::HelpUndoRedoCmdZCmd)),
+                ("Ctrl+k", t(Msg::HelpDeleteLine)),
+                ("Esc", t(Msg::HelpLeaveEditModeConfirmsWhen)),
             ],
         },
         Section {
             id: SectionId::Mouse,
             title: "Mouse",
             entries: vec![
+                (t(Msg::HelpClick), t(Msg::HelpSelectOpenTreeRowFocus)),
+                (t(Msg::HelpWheel), t(Msg::HelpMoveInTreeScroll)),
                 (
-                    t("クリック", "click"),
-                    t(
-                        "ツリーの行を選択して開く / ペインをフォーカス",
-                        "select and open a tree row / focus a pane",
-                    ),
-                ),
-                (
-                    t("ホイール", "wheel"),
-                    t("ツリー移動 / スクロール", "move in the tree / scroll"),
-                ),
-                (
-                    t("境界をドラッグ", "drag the divider"),
-                    t(
-                        "左右ペインの幅を変更 (離した時点で保存)",
-                        "resize the left/right panes (saved on release)",
-                    ),
+                    t(Msg::HelpDragDivider),
+                    t(Msg::HelpResizeLeftRightPanesSaved),
                 ),
             ],
         },
         Section {
             id: SectionId::Confirm,
-            title: t(
-                "Confirm (破壊的・書き込み系操作の確認)",
-                "Confirm (for destructive and write operations)",
-            ),
+            title: t(Msg::HelpConfirmForDestructiveWriteOperations),
             entries: vec![
-                ("y / Enter", t("実行", "run it")),
-                (
-                    t("n / Esc / それ以外", "n / Esc / other"),
-                    t("中止", "cancel"),
-                ),
+                ("y / Enter", t(Msg::HelpRun)),
+                (t(Msg::HelpNEscOther), t(Msg::HelpCancel)),
             ],
         },
         Section {
             id: SectionId::Commit,
-            title: t(
-                "Commit (c / C、GIT レーンに限らず開ける)",
-                "Commit (c / C, opens from any lane)",
-            ),
+            title: t(Msg::HelpCommitCCOpensFrom),
             entries: vec![
-                (t("文字入力", "typing"), t("挿入", "insert text")),
-                ("Enter", t("改行", "new line")),
-                ("↑/↓/←/→ Home/End", t("カーソル移動", "move the cursor")),
-                (
-                    "Ctrl+s",
-                    t(
-                        "確定 (amend は確認オーバーレイを経由)",
-                        "commit (amend goes through the confirmation overlay)",
-                    ),
-                ),
-                (
-                    "Esc",
-                    t(
-                        "閉じる (書きかけは下書きとして残り、再度 c/C で復元)",
-                        "close (what you typed is kept as a draft and restored on the next c/C)",
-                    ),
-                ),
+                (t(Msg::HelpTyping), t(Msg::HelpInsertText)),
+                ("Enter", t(Msg::HelpNewLine)),
+                ("↑/↓/←/→ Home/End", t(Msg::HelpMoveCursor)),
+                ("Ctrl+s", t(Msg::HelpCommitAmendGoesThroughConfirmation)),
+                ("Esc", t(Msg::HelpCloseWhatYouTypedKept)),
             ],
         },
         Section {
             id: SectionId::Branch,
-            title: t(
-                "Branch (b、レーンを問わず開ける)",
-                "Branch (b, opens from any lane)",
-            ),
+            title: t(Msg::HelpBranchBOpensFromAny),
             entries: vec![
-                (
-                    t("文字入力", "typing"),
-                    t("ブランチ名をファジー絞り込み", "fuzzy filter branch names"),
-                ),
-                (
-                    "↑/↓ Ctrl+p",
-                    t(
-                        "候補選択 (Ctrl+n は新規作成に予約)",
-                        "select a candidate (Ctrl+n is reserved for creating one)",
-                    ),
-                ),
-                (
-                    "Enter",
-                    t(
-                        "選択中のブランチへ切替 (リモートは追跡ブランチを作成)",
-                        "switch to the selected branch (remotes create a tracking branch)",
-                    ),
-                ),
-                (
-                    "Ctrl+n",
-                    t(
-                        "入力文字列が既存ブランチと不一致なら新規作成して切替",
-                        "create and switch to a branch when the query matches no existing one",
-                    ),
-                ),
-                ("Esc", t("閉じる", "close")),
+                (t(Msg::HelpTyping), t(Msg::HelpFuzzyFilterBranchNames)),
+                ("↑/↓ Ctrl+p", t(Msg::HelpSelectCandidateCtrlNReserved)),
+                ("Enter", t(Msg::HelpSwitchSelectedBranchRemotesCreate)),
+                ("Ctrl+n", t(Msg::HelpCreateSwitchBranchWhenQuery)),
+                ("Esc", t(Msg::HelpClose)),
             ],
         },
         Section {
             id: SectionId::Remote,
-            title: t(
-                "Remote (f / p / P、レーンを問わず開ける)",
-                "Remote (f / p / P, opens from any lane)",
-            ),
+            title: t(Msg::HelpRemoteFPPOpens),
             entries: vec![
+                ("f", t(Msg::HelpFetchPruneNoConfirmation)),
+                ("p", t(Msg::HelpPullFfOnlyNoConfirmation)),
+                ("P", t(Msg::HelpPushConfirmedUsesSetUpstream)),
+                (t(Msg::HelpWhileRunning), t(Msg::HelpStatusBarShowsJobName)),
                 (
-                    "f",
-                    t(
-                        "fetch --prune (確認不要)",
-                        "fetch --prune (no confirmation)",
-                    ),
-                ),
-                (
-                    "p",
-                    t(
-                        "pull --ff-only (確認不要・ff できないと git のエラーを表示)",
-                        "pull --ff-only (no confirmation; shows git's error when it cannot fast-forward)",
-                    ),
-                ),
-                (
-                    "P",
-                    t(
-                        "push (確認あり。upstream が無ければ --set-upstream origin <branch>)",
-                        "push (confirmed; uses --set-upstream origin <branch> when there is no upstream)",
-                    ),
-                ),
-                (
-                    t("実行中", "while running"),
-                    t(
-                        "ステータスバーにジョブ名を表示。他の操作は継続可能・同じ/別ジョブの多重起動は不可",
-                        "the status bar shows the job name; you can keep working, but no second job can start",
-                    ),
-                ),
-                (
-                    t("完了後", "on completion"),
-                    t(
-                        "status / ahead-behind / 表示中 diff を再取得",
-                        "refetches status, ahead/behind and the diff on screen",
-                    ),
+                    t(Msg::HelpOnCompletion),
+                    t(Msg::HelpRefetchesStatusAheadBehindDiff),
                 ),
             ],
         },
@@ -1050,69 +460,36 @@ fn sections() -> Vec<Section> {
             id: SectionId::Finder,
             title: "Finder (Ctrl+p)",
             entries: vec![
-                (
-                    t("文字入力", "typing"),
-                    t("クエリを絞り込み", "filter by query"),
-                ),
-                ("↑/↓ Ctrl+n/p", t("候補選択", "select a candidate")),
-                ("Backspace", t("一文字削除", "delete one character")),
-                ("Enter", t("開く", "open")),
-                ("Esc", t("閉じる", "close")),
+                (t(Msg::HelpTyping), t(Msg::HelpFilterByQuery)),
+                ("↑/↓ Ctrl+n/p", t(Msg::HelpSelectCandidate)),
+                ("Backspace", t(Msg::HelpDeleteOneCharacter)),
+                ("Enter", t(Msg::HelpOpen)),
+                ("Esc", t(Msg::HelpClose)),
             ],
         },
         Section {
             id: SectionId::Grep,
             title: "Grep (Ctrl+f)",
             entries: vec![
+                (t(Msg::HelpTyping), t(Msg::HelpGrepQuery)),
+                ("↑/↓ Ctrl+n/p", t(Msg::HelpSelectHit)),
+                ("Backspace / Ctrl+u", t(Msg::HelpDeleteOneCharacterClearAll)),
+                ("Enter", t(Msg::HelpOpenAtLineSameQuery)),
+                ("Esc", t(Msg::HelpCloseResultsStayAreStill)),
                 (
-                    t("文字入力", "typing"),
-                    t(
-                        "クエリ (部分一致・smart-case・2 文字以上。打鍵が止まると repo 全体を歩き直す)",
-                        "the query (substring, smart-case, 2+ characters; walks the repo again once you stop typing)",
-                    ),
-                ),
-                ("↑/↓ Ctrl+n/p", t("ヒット選択", "select a hit")),
-                (
-                    "Backspace / Ctrl+u",
-                    t("一文字削除 / 全消去", "delete one character / clear all"),
-                ),
-                (
-                    "Enter",
-                    t(
-                        "開いてその行へ (同じクエリで / を立てるので n/N が続けて効く)",
-                        "open at that line (the same query is set for /, so n/N keep working)",
-                    ),
-                ),
-                (
-                    "Esc",
-                    t(
-                        "閉じる (結果は残り、次に開いた時にそのまま見える)",
-                        "close (the results stay and are still there next time you open it)",
-                    ),
-                ),
-                (
-                    t("タイトル", "title"),
-                    t(
-                        "searching... / N files scanned / truncated (5000 件で打ち切り) / stale (変更あり)",
-                        "searching... / N files scanned / truncated (cut off at 5000 hits) / stale (files changed)",
-                    ),
+                    t(Msg::HelpTitle),
+                    t(Msg::HelpSearchingNFilesScannedTruncated),
                 ),
             ],
         },
         Section {
             id: SectionId::Input,
-            title: t("Search・Goto (/ と :N)", "Search / Goto (/ and :N)"),
+            title: t(Msg::HelpSearchGotoFileOpInput),
             entries: vec![
-                (
-                    t("文字入力", "typing"),
-                    t(
-                        "入力 (Goto は数字のみ)",
-                        "type the input (Goto takes digits only)",
-                    ),
-                ),
-                ("Backspace", t("一文字削除", "delete one character")),
-                ("Enter", t("確定", "confirm")),
-                ("Esc", t("キャンセル", "cancel")),
+                (t(Msg::HelpTyping), t(Msg::HelpTypeInputGotoTakesDigits)),
+                ("Backspace", t(Msg::HelpDeleteOneCharacter)),
+                ("Enter", t(Msg::HelpConfirm)),
+                ("Esc", t(Msg::HelpCancelInput)),
             ],
         },
     ]
