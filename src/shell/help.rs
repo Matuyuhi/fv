@@ -275,6 +275,11 @@ fn sections() -> Vec<Section> {
                 ("Enter", t(Msg::HelpOpenToggleExpansion)),
                 ("gg / G", t(Msg::HelpGoTopBottom)),
                 ("r", t(Msg::HelpRescan)),
+                ("n", t(Msg::HelpNewFileUnderSelectedDirectory)),
+                ("N", t(Msg::HelpNewDirectory)),
+                ("R", t(Msg::HelpRenameParentStaysSame)),
+                ("D", t(Msg::HelpDeleteWithConfirmationDirectoryGoes)),
+                ("y", t(Msg::HelpCopyRelativePathClipboard)),
             ],
         },
         Section {
@@ -479,7 +484,7 @@ fn sections() -> Vec<Section> {
         },
         Section {
             id: SectionId::Input,
-            title: t(Msg::HelpSearchGotoN),
+            title: t(Msg::HelpSearchGotoFileOpInput),
             entries: vec![
                 (t(Msg::HelpTyping), t(Msg::HelpTypeInputGotoTakesDigits)),
                 ("Backspace", t(Msg::HelpDeleteOneCharacter)),

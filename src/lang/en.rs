@@ -401,7 +401,6 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::HelpSearchingNFilesScannedTruncated => {
             "searching... / N files scanned / truncated (cut off at 5000 hits) / stale (files changed)"
         }
-        Msg::HelpSearchGotoN => "Search / Goto (/ and :N)",
         Msg::HelpTypeInputGotoTakesDigits => "type the input (Goto takes digits only)",
         Msg::HelpConfirm => "confirm",
         Msg::HelpCancelInput => "cancel",
@@ -430,5 +429,38 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::StatusViewSearch => {
             "\"{query}\" {current}/{total}  n: next  N: prev  Tab: focus  q: quit  ?: help"
         }
+        // File ops
+        Msg::FileCannotRenameNonUTF8 => "cannot rename a non-UTF-8 file name",
+        Msg::FileRename => "rename: ",
+        Msg::FileRefusingSymlinkEscape => "refusing to write outside the tree through a symlink",
+        Msg::FileEmptyName => "empty name",
+        Msg::FileOnlyRelativeName => "only a relative name is allowed (no .. or absolute paths)",
+        Msg::FileRenameBareNameOnly => {
+            "rename takes a bare name (it cannot move to another directory)"
+        }
+        Msg::FileDeleteDirPrompt => {
+            "delete this directory? (everything inside is removed)\n{shown}\n(this cannot be undone)"
+        }
+        Msg::FileDeleteFilePrompt => "delete this file?\n{shown}\n(this cannot be undone)",
+        Msg::FileDeleted => "deleted: {shown}",
+        Msg::FileDeleteFailed => "delete failed: {shown}: {e}",
+        Msg::FileNewFilePrompt => "new file {dir}",
+        Msg::FileNewDirPrompt => "new dir {dir}",
+        Msg::FileAlreadyExists => "already exists: {shown}",
+        Msg::FileCreated => "created: {shown}",
+        Msg::FileCreateFailed => "create failed: {shown}: {e}",
+        Msg::FileAlreadyExistsTo => "already exists: {shown_to}",
+        Msg::FileRenamed => "renamed: {shown_from} → {shown_to}",
+        Msg::FileRenameFailed => "rename failed: {shown_from}: {e}",
+        Msg::HelpNewFileUnderSelectedDirectory => {
+            "new file (under the selected directory; a/b.rs creates intermediate dirs)"
+        }
+        Msg::HelpNewDirectory => "new directory",
+        Msg::HelpRenameParentStaysSame => "rename (parent stays the same)",
+        Msg::HelpDeleteWithConfirmationDirectoryGoes => {
+            "delete (with confirmation; a directory goes with its contents)"
+        }
+        Msg::HelpCopyRelativePathClipboard => "copy the relative path to the clipboard",
+        Msg::HelpSearchGotoFileOpInput => "Search / Goto / file-op input (/ and :N and n/N/R)",
     }
 }

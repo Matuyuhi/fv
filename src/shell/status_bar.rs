@@ -73,11 +73,15 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Input {
             kind: InputKind::Search | InputKind::Filter,
             buffer,
-        } => input_line('/', buffer),
+        } => input_line("/", buffer),
         Mode::Input {
             kind: InputKind::Goto,
             buffer,
-        } => input_line(':', buffer),
+        } => input_line(":", buffer),
+        Mode::Input {
+            kind: kind @ (InputKind::NewFile | InputKind::NewDir | InputKind::Rename),
+            buffer,
+        } => input_line(&app.file_op_label(*kind), buffer),
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Grep => Line::from("Enter: open  ↑/↓: select  Ctrl+u: clear  Esc: close"),
         Mode::Branch(_) => Line::from("Enter: switch  Ctrl+n: new branch  Esc: close"),
@@ -212,7 +216,7 @@ fn notice_line(message: &str, is_error: bool) -> Line<'static> {
     ))
 }
 
-fn input_line(prefix: char, buffer: &str) -> Line<'static> {
+fn input_line(prefix: &str, buffer: &str) -> Line<'static> {
     Line::from(vec![
         Span::raw(format!("{prefix}{buffer}")),
         // 常に末尾に立つ簡易カーソル (このアプリの入力は末尾への追記のみ)
@@ -335,7 +339,11 @@ fn normal_status_line(app: &App) -> Line<'static> {
     }
     // 狭い端末でも収まるよう常用キーのみに絞る。全キーは ? のヘルプに任せる
     let hint = match app.focus {
-        Focus::Tree | Focus::Log => {
+        // ファイル操作 (n/N/R/D) はツリーだけに効くので、コミット一覧のフォーカスでは出さない
+        Focus::Tree => {
+            "j/k: move  h/l: fold  n/N/R/D: file ops  a: hidden  L: log  Shift+Tab: mode  ?: help"
+        }
+        Focus::Log => {
             "j/k: move  h/l: collapse/expand  a: hidden  L: log  s: settings  Shift+Tab: mode  ?: help"
         }
         Focus::Viewer => {

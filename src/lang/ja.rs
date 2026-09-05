@@ -374,7 +374,6 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::HelpSearchingNFilesScannedTruncated => {
             "searching... / N files scanned / truncated (5000 件で打ち切り) / stale (変更あり)"
         }
-        Msg::HelpSearchGotoN => "Search・Goto (/ と :N)",
         Msg::HelpTypeInputGotoTakesDigits => "入力 (Goto は数字のみ)",
         Msg::HelpConfirm => "確定",
         Msg::HelpCancelInput => "キャンセル",
@@ -403,5 +402,34 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::StatusViewSearch => {
             "「{query}」 {current}/{total}  n: next  N: prev  Tab: focus  q: quit  ?: help"
         }
+        // File ops
+        Msg::FileCannotRenameNonUTF8 => "UTF-8 でないファイル名はリネームできません",
+        Msg::FileRename => "リネーム: ",
+        Msg::FileRefusingSymlinkEscape => "symlink 越しにツリーの外へは書き込めません",
+        Msg::FileEmptyName => "名前が空です",
+        Msg::FileOnlyRelativeName => "相対パスの名前だけ使えます (.. や絶対パスは不可)",
+        Msg::FileRenameBareNameOnly => "リネームは名前だけです (別のディレクトリへは動かせません)",
+        Msg::FileDeleteDirPrompt => {
+            "ディレクトリを削除しますか？ (配下も全て消えます)\n{shown}\n(復元できません)"
+        }
+        Msg::FileDeleteFilePrompt => "ファイルを削除しますか？\n{shown}\n(復元できません)",
+        Msg::FileDeleted => "削除しました: {shown}",
+        Msg::FileDeleteFailed => "削除に失敗: {shown}: {e}",
+        Msg::FileNewFilePrompt => "新規ファイル {dir}",
+        Msg::FileNewDirPrompt => "新規ディレクトリ {dir}",
+        Msg::FileAlreadyExists => "既に存在します: {shown}",
+        Msg::FileCreated => "作成しました: {shown}",
+        Msg::FileCreateFailed => "作成に失敗: {shown}: {e}",
+        Msg::FileAlreadyExistsTo => "既に存在します: {shown_to}",
+        Msg::FileRenamed => "リネームしました: {shown_from} → {shown_to}",
+        Msg::FileRenameFailed => "リネームに失敗: {shown_from}: {e}",
+        Msg::HelpNewFileUnderSelectedDirectory => {
+            "新規ファイル (選択行のディレクトリ配下。a/b.rs で途中のディレクトリも作る)"
+        }
+        Msg::HelpNewDirectory => "新規ディレクトリ",
+        Msg::HelpRenameParentStaysSame => "リネーム (親は据え置き)",
+        Msg::HelpDeleteWithConfirmationDirectoryGoes => "削除 (確認あり。ディレクトリは配下ごと)",
+        Msg::HelpCopyRelativePathClipboard => "相対パスをクリップボードへ",
+        Msg::HelpSearchGotoFileOpInput => "Search・Goto・ファイル操作の入力 (/ と :N と n/N/R)",
     }
 }

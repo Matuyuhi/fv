@@ -1,5 +1,6 @@
 mod branch_ops;
 mod commit;
+mod file_ops;
 mod git_ops;
 mod github_keys;
 mod keys;
@@ -69,6 +70,8 @@ pub struct App {
     /// issues タブ (#33) の状態。GitHub モードが無効でも構築コスト自体はゼロ (フィールドが
     /// 空のまま) なので、常に持たせて Workspace::Issues に切り替わった時だけ取得を始める
     pub issues: IssuesState,
+    /// ツリーのファイル操作 (n/N/R) で Mode::Input を開いている間の対象 (app/file_ops.rs)
+    file_op: Option<file_ops::FileOp>,
     /// pull requests タブ (#34) の状態。issues と同じ理由で常に持たせる
     pub prs: PrsState,
     pub tree: Tree,
@@ -195,6 +198,7 @@ impl App {
             mode: Mode::Normal,
             workspace: Workspace::Viewer,
             issues: IssuesState::new(),
+            file_op: None,
             prs: PrsState::new(config.wrap_default),
             tree,
             viewer,

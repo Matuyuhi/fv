@@ -69,6 +69,10 @@ Press `?` inside fv for the full list.
 | `y` / `Y` | Copy the selection / the whole file to the clipboard |
 | `Ctrl+o`/`Ctrl+i` | History back / forward |
 | `r` | Rescan tree |
+| `n` / `N` (tree) | New file / new directory under the selected directory (`a/b.rs` creates intermediate directories) |
+| `R` (tree) | Rename the selected file or directory |
+| `D` (tree) | Delete the selected file or directory (asks for confirmation; not undoable) |
+| `y` (tree) | Copy the relative path to the clipboard |
 | `a` | Toggle hidden files (`-a`, `--hidden` at startup) |
 | `i` | Toggle ignored files — `.gitignore` / `.ignore` / `.git/info/exclude` (`-i`, `--ignored` at startup) |
 | `s` | Settings |
