@@ -6,7 +6,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::clipboard;
-use crate::lang::t;
+use crate::lang::{Msg, t};
 
 use super::{App, ConfirmAction, InputKind, Mode};
 
@@ -54,13 +54,7 @@ impl App {
         // UTF-8 でない名前は入力欄に正確に出せず、そのまま Enter すると置換文字入りの別名に
         // 化けてしまうので最初から断る
         let Some(name) = from.file_name().and_then(|n| n.to_str()) else {
-            self.set_notice(
-                t(
-                    "UTF-8 でないファイル名はリネームできません",
-                    "cannot rename a non-UTF-8 file name",
-                ),
-                true,
-            );
+            self.set_notice(t(Msg::FileCannotRenameNonUTF8), true);
             return;
         };
         let name = name.to_string();
@@ -80,15 +74,9 @@ impl App {
         let is_dir = row.is_dir;
         let shown = self.relative_display(&path);
         let prompt = if is_dir {
-            crate::tr!(
-                "ディレクトリを削除しますか？ (配下も全て消えます)\n{shown}\n(復元できません)",
-                "delete this directory? (everything inside is removed)\n{shown}\n(this cannot be undone)"
-            )
+            crate::tr!(Msg::FileDeleteDirPrompt, shown)
         } else {
-            crate::tr!(
-                "ファイルを削除しますか？\n{shown}\n(復元できません)",
-                "delete this file?\n{shown}\n(this cannot be undone)"
-            )
+            crate::tr!(Msg::FileDeleteFilePrompt, shown)
         };
         self.pending_g = false;
         self.mode = Mode::Confirm {
@@ -107,16 +95,10 @@ impl App {
         match result {
             Ok(()) => {
                 self.forget_open_under(&path);
-                self.set_notice(
-                    crate::tr!("削除しました: {shown}", "deleted: {shown}"),
-                    false,
-                );
+                self.set_notice(crate::tr!(Msg::FileDeleted, shown), false);
                 self.after_fs_write(None);
             }
-            Err(e) => self.set_notice(
-                crate::tr!("削除に失敗: {shown}: {e}", "delete failed: {shown}: {e}"),
-                true,
-            ),
+            Err(e) => self.set_notice(crate::tr!(Msg::FileDeleteFailed, shown, e), true),
         }
     }
 
@@ -190,9 +172,9 @@ impl App {
             _ => String::new(),
         };
         match kind {
-            InputKind::NewFile => crate::tr!("新規ファイル {dir}", "new file {dir}"),
-            InputKind::NewDir => crate::tr!("新規ディレクトリ {dir}", "new dir {dir}"),
-            InputKind::Rename => t("リネーム: ", "rename: ").to_string(),
+            InputKind::NewFile => crate::tr!(Msg::FileNewFilePrompt, dir),
+            InputKind::NewDir => crate::tr!(Msg::FileNewDirPrompt, dir),
+            InputKind::Rename => t(Msg::FileRename).to_string(),
             _ => String::new(),
         }
     }
@@ -204,10 +186,7 @@ impl App {
             return;
         }
         if target.exists() {
-            self.set_notice(
-                crate::tr!("既に存在します: {shown}", "already exists: {shown}"),
-                true,
-            );
+            self.set_notice(crate::tr!(Msg::FileAlreadyExists, shown), true);
             return;
         }
         let result = if is_dir {
@@ -229,10 +208,7 @@ impl App {
         };
         match result {
             Ok(()) => {
-                self.set_notice(
-                    crate::tr!("作成しました: {shown}", "created: {shown}"),
-                    false,
-                );
+                self.set_notice(crate::tr!(Msg::FileCreated, shown), false);
                 self.after_fs_write(Some(&target));
                 // 作ったファイルはそのまま読み書きしたいので右ペインにも開く。GIT レーンでは
                 // open_selected が diff 側にしか届かないので、VIEW に戻った時のために viewer にも
@@ -242,10 +218,7 @@ impl App {
                     self.open_selected(&target);
                 }
             }
-            Err(e) => self.set_notice(
-                crate::tr!("作成に失敗: {shown}: {e}", "create failed: {shown}: {e}"),
-                true,
-            ),
+            Err(e) => self.set_notice(crate::tr!(Msg::FileCreateFailed, shown, e), true),
         }
     }
 
@@ -260,31 +233,16 @@ impl App {
             return;
         }
         if to.exists() {
-            self.set_notice(
-                crate::tr!("既に存在します: {shown_to}", "already exists: {shown_to}"),
-                true,
-            );
+            self.set_notice(crate::tr!(Msg::FileAlreadyExistsTo, shown_to), true);
             return;
         }
         match rename_no_replace(&from, &to) {
             Ok(()) => {
                 self.retarget_open(&from, &to);
-                self.set_notice(
-                    crate::tr!(
-                        "リネームしました: {shown_from} → {shown_to}",
-                        "renamed: {shown_from} → {shown_to}"
-                    ),
-                    false,
-                );
+                self.set_notice(crate::tr!(Msg::FileRenamed, shown_from, shown_to), false);
                 self.after_fs_write(Some(&to));
             }
-            Err(e) => self.set_notice(
-                crate::tr!(
-                    "リネームに失敗: {shown_from}: {e}",
-                    "rename failed: {shown_from}: {e}"
-                ),
-                true,
-            ),
+            Err(e) => self.set_notice(crate::tr!(Msg::FileRenameFailed, shown_from, e), true),
         }
     }
 
@@ -359,13 +317,7 @@ fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
 /// canonicalize して root と突き合わせる (途中で作るディレクトリは自分が作る実体なので
 /// symlink になりえない)。確認と書き込みの間に symlink が差し替えられる競合までは防げない
 fn contained(root: &Path, target: &Path) -> Result<(), String> {
-    let outside = || {
-        t(
-            "symlink 越しにツリーの外へは書き込めません",
-            "refusing to write outside the tree through a symlink",
-        )
-        .to_string()
-    };
+    let outside = || t(Msg::FileRefusingSymlinkEscape).to_string();
     let canonical_root = std::fs::canonicalize(root).map_err(|_| outside())?;
     let existing = target
         .ancestors()
@@ -386,26 +338,18 @@ fn validate_name(input: &str, single: bool) -> Result<PathBuf, String> {
     // 落とさず (root 配下に読み替えると意図と違う場所に作る) 下の判定で弾く
     let rel = Path::new(input.trim().trim_end_matches('/'));
     if rel.as_os_str().is_empty() {
-        return Err(t("名前が空です", "empty name").to_string());
+        return Err(t(Msg::FileEmptyName).to_string());
     }
     for component in rel.components() {
         match component {
             Component::Normal(_) => {}
             _ => {
-                return Err(t(
-                    "相対パスの名前だけ使えます (.. や絶対パスは不可)",
-                    "only a relative name is allowed (no .. or absolute paths)",
-                )
-                .to_string());
+                return Err(t(Msg::FileOnlyRelativeName).to_string());
             }
         }
     }
     if single && rel.components().count() > 1 {
-        return Err(t(
-            "リネームは名前だけです (別のディレクトリへは動かせません)",
-            "rename takes a bare name (it cannot move to another directory)",
-        )
-        .to_string());
+        return Err(t(Msg::FileRenameBareNameOnly).to_string());
     }
     Ok(rel.to_path_buf())
 }

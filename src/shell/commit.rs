@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::{App, CommitField, Mode};
-use crate::lang::t;
+use crate::lang::{Msg, t};
 
 // コミットメッセージ入力オーバーレイ。件名 (1 行) と本文 (複数行) を別の欄として描く。
 // カーソルは REVERSED スタイルの重ね書きで表現する (editor と同じ発想: 全角文字幅の計算を
@@ -68,15 +68,9 @@ pub(super) fn draw_commit(frame: &mut Frame, app: &App, area: Rect) {
     );
     frame.render_widget(Paragraph::new(body_lines), chunks[2]);
     let hint = if on_subject {
-        t(
-            "Tab/Enter: 本文へ  Ctrl/Cmd+s: 確定  Esc: 閉じる (下書きを保持)",
-            "Tab/Enter: to body  Ctrl/Cmd+s: confirm  Esc: close (keeps draft)",
-        )
+        t(Msg::CommitTabEnterBodyCtrlCmd)
     } else {
-        t(
-            "Tab: 件名へ  Enter: 改行  Ctrl/Cmd+s: 確定  Esc: 閉じる (下書きを保持)",
-            "Tab: to subject  Enter: newline  Ctrl/Cmd+s: confirm  Esc: close (keeps draft)",
-        )
+        t(Msg::CommitTabSubjectEnterNewlineCtrl)
     };
     frame.render_widget(
         Paragraph::new(hint).style(Style::default().fg(Color::DarkGray)),

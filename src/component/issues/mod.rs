@@ -27,7 +27,7 @@ use ratatui::widgets::ListState;
 use crate::component::remotelist::{DetailSlot, ListMatch, PollOutcome, filter_rows};
 use crate::component::viewer::Viewport;
 use crate::github::RemoteItem;
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use crate::text;
 
 /// `t` で循環する state 絞り込み。一覧そのものは常に `--state all` で 1 回だけ取得し、
@@ -427,15 +427,12 @@ pub(crate) fn build_detail_display(
         }
     } else if loading {
         lines.push(detail_line(
-            t("コメント読み込み中…", "loading comments…").to_string(),
+            t(Msg::IssuesLoadingComments).to_string(),
             Style::default().fg(Color::DarkGray),
         ));
     } else if let Some(err) = error {
         lines.push(detail_line(
-            crate::tr!(
-                "コメント取得に失敗しました: {err}",
-                "failed to fetch comments: {err}"
-            ),
+            crate::tr!(Msg::IssuesCommentsFetchFailed, err),
             Style::default().fg(Color::Red),
         ));
     }

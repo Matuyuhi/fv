@@ -3,7 +3,7 @@
 // だけを持つ。stdin からデータを渡すコマンド (commit -F - / apply -) だけは run_git_write の
 // Command::output() では表現できないため run_git_stdin を通す。
 
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
@@ -128,7 +128,7 @@ pub fn commit(root: &Path, message: &str, amend: bool) -> GitOutcome {
     let Some(output) = run_git_stdin(root, args, message.as_bytes()) else {
         return GitOutcome {
             ok: false,
-            message: t("git を実行できませんでした", "failed to run git").to_string(),
+            message: t(Msg::GitCannotRun).to_string(),
         };
     };
     if !output.status.success() {
@@ -173,7 +173,7 @@ pub fn apply_cached(root: &Path, patch: &str, reverse: bool) -> GitOutcome {
     let Some(output) = run_git_stdin(root, args, patch.as_bytes()) else {
         return GitOutcome {
             ok: false,
-            message: t("git を実行できませんでした", "failed to run git").to_string(),
+            message: t(Msg::GitCannotRun).to_string(),
         };
     };
     if !output.status.success() {

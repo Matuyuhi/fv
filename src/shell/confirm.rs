@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::app::{App, Mode};
-use crate::lang::t;
+use crate::lang::{Msg, t};
 
 // 破壊的・書き込み系操作の確認オーバーレイ。Lane と直交するので、どのレーンの上にも
 // 同じ見た目で重ねる (Help/Settings と同じ centered popup パターン)
@@ -29,11 +29,11 @@ pub(super) fn draw_confirm(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled("y", Style::default().fg(Color::Green)),
         Span::raw("/"),
         Span::styled("Enter", Style::default().fg(Color::Green)),
-        Span::raw(t(": 実行    ", ": run    ")),
+        Span::raw(t(Msg::ConfirmRun)),
         Span::styled("n", Style::default().fg(Color::Red)),
         Span::raw("/"),
         Span::styled("Esc", Style::default().fg(Color::Red)),
-        Span::raw(t(": 中止", ": cancel")),
+        Span::raw(t(Msg::ConfirmCancel)),
     ]));
     // 高さは端末に対する割合ではなく中身から決める。割合固定だと低い端末で
     // 「復元できません」の警告や y/n の操作行が黙って切れてしまい、確認の意味が消えるため。

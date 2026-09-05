@@ -24,7 +24,7 @@ use crate::component::remotelist::{DetailSlot, ListMatch, ListRow, PollOutcome, 
 use crate::component::viewer::{Viewport, rowcursor};
 use crate::git;
 use crate::github::{self, PrRow};
-use crate::lang::t;
+use crate::lang::{Msg, t};
 use crate::text;
 use crate::widget::text_pane::line_body;
 
@@ -387,14 +387,7 @@ impl PrsState {
         if !self.notified_truncation.insert(number) {
             return None;
         }
-        Some((
-            t(
-                "diff が大きいため表示を打ち切りました (20000 行 / 2MB)",
-                "diff too large — truncated (20000 lines / 2MB)",
-            )
-            .to_string(),
-            true,
-        ))
+        Some((t(Msg::PrsDiffTruncated).to_string(), true))
     }
 
     /// App::switch_pr_view (d) が dispatch_pr_fetch の直後に呼ぶ。先読みで既にキャッシュ済み
