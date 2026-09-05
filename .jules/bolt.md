@@ -1,3 +1,6 @@
 ## 2024-05-18 - Avoid unnecessary .replace() allocations
 **Learning:** `str::replace()` always allocates or at least performs slower search even if the string doesn't contain the pattern being replaced. While replacing `String` with `Cow` requires a larger refactor in ratatui `Span` usage, in hot loops pre-checking with `str::contains()` before calling `replace()` provides measurable speedups vs blind replacement.
 **Action:** When performing `str::replace` in rendering paths (like `text::normalize` called on every visible string segment), check for presence with `.contains()` first if the pattern is rarely expected (e.g. tab characters in typical code lines).
+## 2024-05-19 - str::replace vs clone
+**Learning:** `str::replace()` overhead is significant compared to `contains() + clone()` when there is no match (e.g. 27ms vs 12ms for 100k strings). However, when there IS a match, the `contains()` check adds a small overhead (71ms vs 73ms).
+**Action:** Use `.contains()` before `.replace()` only when the pattern is highly unlikely to be found (e.g., `\r` in pasted text, or `\t` in source files that primarily use spaces). It provides a worthwhile speedup for the common case (no match) at the cost of a tiny regression in the rare case (match).
