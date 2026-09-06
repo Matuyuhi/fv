@@ -327,3 +327,32 @@ impl Tree {
         self.selected = self.selected.min(self.visible.len().saturating_sub(1));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts() -> ScanOptions {
+        ScanOptions {
+            show_hidden: false,
+            show_ignored: false,
+        }
+    }
+
+    // 未走査ディレクトリに削除ファイルの合成ノードだけが入った状態 (起動直後の GIT 状態
+    // 反映) で、その 1 本を「子がディレクトリ 1 つだけ」と誤認して畳んではいけない。
+    // 実際には走査すれば他の子がいる
+    #[test]
+    fn synthetic_deleted_child_does_not_compact_unloaded_dir() {
+        let root = std::env::temp_dir().join(format!("fv-tree-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::fs::write(root.join("a/c.txt"), "").unwrap();
+        let mut tree = Tree::new(&root, opts());
+        let deleted: HashSet<PathBuf> = [root.join("a/b/gone.txt")].into_iter().collect();
+        tree.sync_deleted(&deleted);
+        let names: Vec<&str> = tree.visible.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["a"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+}
