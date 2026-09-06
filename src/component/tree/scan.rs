@@ -69,7 +69,16 @@ pub(super) fn flatten(
                 let mut name = node.name.clone();
                 let mut ignored = node.ignored;
                 let pushed = prefix.len();
-                while let NodeKind::Dir { children, .. } = &leaf.kind {
+                // 未走査 (loaded=false) のディレクトリは畳まない。子が 1 つに見えても
+                // それは sync_deleted が足した削除ファイルの合成ノードだけで、走査すれば
+                // 他の子がいる。起動直後に `composeApp/src/commonMain/...` の 1 行へ
+                // 畳まれ、GIT レーンの絞り込みで読み込まれてから直る形で表面化していた
+                while let NodeKind::Dir {
+                    children,
+                    loaded: true,
+                    ..
+                } = &leaf.kind
+                {
                     let [only] = children.as_slice() else { break };
                     if !matches!(only.kind, NodeKind::Dir { .. })
                         || filter.is_some_and(|f| !f.contains(&only.path))
