@@ -90,7 +90,13 @@ pub(super) fn load(path: &Path) -> Content {
     }
     let plain = raw
         .iter()
-        .map(|line| line.replace('\t', TAB_EXPANDED))
+        .map(|line| {
+            if line.contains('\t') {
+                line.replace('\t', TAB_EXPANDED)
+            } else {
+                line.clone()
+            }
+        })
         .collect();
     Content::Text(TextDoc {
         trailing_newline: text.ends_with('\n'),

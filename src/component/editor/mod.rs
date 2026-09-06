@@ -234,7 +234,11 @@ impl EditState {
 
     /// bracketed paste の一括挿入。undo 1 単位に畳む
     pub fn paste(&mut self, text: &str, viewport: &mut Viewport) {
-        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        let text = if text.contains('\r') {
+            text.replace("\r\n", "\n").replace('\r', "\n")
+        } else {
+            text.to_string()
+        };
         self.cursor = self.buffer.insert_block(self.cursor, &text);
         self.after_edit(viewport);
     }
