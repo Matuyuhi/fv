@@ -227,7 +227,16 @@ fn input_line(prefix: &str, buffer: &str) -> Line<'static> {
 fn edit_status_line(state: &EditState) -> Line<'static> {
     // 保存エラー・discard 確認は通常のキーヒントより優先して見せる
     if let Some(notice) = &state.notice {
-        return Line::from(notice.clone());
+        let (icon, color) =
+            if notice.starts_with("save failed:") || notice.starts_with("unsaved changes") {
+                ("⚠ ", Color::Red)
+            } else {
+                ("✓ ", Color::Green)
+            };
+        return Line::from(Span::styled(
+            format!("{icon}{notice}"),
+            Style::default().fg(color),
+        ));
     }
     Line::from(crate::tr!(
         Msg::StatusEdit,
