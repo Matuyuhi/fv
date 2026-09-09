@@ -226,8 +226,8 @@ fn input_line(prefix: &str, buffer: &str) -> Line<'static> {
 
 fn edit_status_line(state: &EditState) -> Line<'static> {
     // 保存エラー・discard 確認は通常のキーヒントより優先して見せる
-    if let Some(notice) = &state.notice {
-        return Line::from(notice.clone());
+    if let Some((notice, is_error)) = &state.notice {
+        return notice_line(notice, *is_error);
     }
     Line::from(crate::tr!(
         Msg::StatusEdit,

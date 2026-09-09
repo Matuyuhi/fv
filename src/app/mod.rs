@@ -474,7 +474,7 @@ impl App {
         if let Lane::Edit(state) = &mut self.lane
             && state.buffer.dirty()
         {
-            state.notice = Some(lang::t(Msg::AppUnsavedChangesCtrlSSave).to_string());
+            state.notice = Some((lang::t(Msg::AppUnsavedChangesCtrlSSave).to_string(), true));
             return;
         }
         self.pending_g = false;
