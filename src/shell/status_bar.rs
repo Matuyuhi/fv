@@ -180,7 +180,8 @@ fn pr_status_line(app: &App) -> Line<'static> {
 }
 
 fn confirm_line(prompt: &str) -> Line<'static> {
-    Line::from(crate::tr!(Msg::StatusConfirm, prompt))
+    let single_line = prompt.replace('\n', " ");
+    Line::from(crate::tr!(Msg::StatusConfirm, prompt = single_line))
 }
 
 // エラー (pre-commit hook 失敗など) は本文中の同じオーバーレイにも出るが、
