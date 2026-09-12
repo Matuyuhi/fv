@@ -298,8 +298,7 @@ impl App {
 /// 作られると `fs::rename` はそれを黙って置き換えるため、ファイルは hard_link (宛先があれば
 /// 必ず失敗する) + 元の削除で原子的に移す。hard_link を持たないファイルシステムでは
 /// (AlreadyExists 以外の失敗) 通常の rename に落とす。ディレクトリは hard_link できないので
-/// rename のまま — 空でないディレクトリへの rename は OS が拒否するため、置き換わりうるのは
-/// 空ディレクトリだけ
+/// rename のまま
 fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     if from.is_dir() {
         return std::fs::rename(from, to);

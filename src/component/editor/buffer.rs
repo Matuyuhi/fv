@@ -171,9 +171,9 @@ impl EditBuffer {
 
     /// 範囲を別のテキストへ差し替える。undo は常に独立した 1 単位になる
     pub fn replace(&mut self, from: (usize, usize), to: (usize, usize), text: &str) {
-        // 行数が変わらない差し替え (行の入れ替え) では以降の行番号がずれない。
-        // 途中経過の delete/insert が立てた shifted をここで元へ戻さないと、
-        // 中身も位置も変わっていない後続の行まで組み立て直すことになる
+        // 行数が変わらない差し替えなら以降の行番号はずれない。途中経過の delete/insert が
+        // 立てた shifted をここで元へ戻さないと、中身も位置も変わっていない後続の行まで
+        // 組み立て直すことになる
         let was_shifted = self.touched.is_some_and(|pending| pending.shifted);
         let removed = self.apply_delete(from, to);
         self.apply_insert(from, text);

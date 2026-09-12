@@ -23,7 +23,7 @@ struct CommitDiff {
     hunks: Vec<usize>,
     gutter_width: usize,
     max_width: usize,
-    /// ファイル境界: 見出し行の index → 表示ラベル (#40 sticky header)。
+    /// ファイル境界: 見出し行の index → 表示ラベル (sticky header 用)。
     /// index 昇順で入っている前提 (render_commit がファイル出現順に push するため)
     boundaries: Vec<(usize, String)>,
 }
@@ -176,7 +176,7 @@ impl LogState {
         self.lines().len()
     }
 
-    /// #40: sticky header 用のファイル境界一覧。空ならコミットに複数ファイル diff が無い
+    /// sticky header 用のファイル境界一覧。空ならコミットに複数ファイル diff が無い
     /// (diff 未オープン・0 ファイルの空コミットなど)
     pub fn boundaries(&self) -> &[(usize, String)] {
         self.current.as_ref().map_or(&[], |d| &d.boundaries)
@@ -189,8 +189,7 @@ impl LogState {
     }
 
     /// scroll がまだ最初のファイルに届いていない (コミットメッセージ部分) 場合は None。
-    /// 探索ロジックは GIT レーンのまとめ diff (GitState::sticky_label) と共有する
-    /// (gitlane::sticky_label、#31 で複数ファイル diff の sticky header を GIT にも広げた際に切り出した)
+    /// 探索ロジックは GIT レーンのまとめ diff (gitlane::sticky_label) と共有する
     pub fn sticky_label(&self) -> Option<&str> {
         gitlane::sticky_label(self.boundaries(), self.viewport.scroll)
     }

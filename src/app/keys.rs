@@ -157,7 +157,7 @@ impl App {
                 self.open_commit(true);
                 return;
             }
-            // b もレーンを問わない (issue #26: どのレーンからでも開ける独立オーバーレイ)。
+            // b もレーンを問わない (どのレーンからでも開ける独立オーバーレイ)。
             // c/C と同じく Lane::Edit は印字キーを全て文字入力にするためここまで届かないが、
             // それ以外の View/Git からは常に開ける
             KeyCode::Char('b') => {
@@ -165,7 +165,7 @@ impl App {
                 self.open_branch();
                 return;
             }
-            // f/p/P (#27) もレーンを問わない。使えない文脈 (非 git repo・実行中の別ジョブ) は
+            // f/p/P もレーンを問わない。使えない文脈 (非 git repo・実行中の別ジョブ) は
             // 各関数側 (branch_available / start_remote_job のガード) で no-op に倒す
             KeyCode::Char('f') => {
                 self.pending_g = false;
@@ -198,7 +198,7 @@ impl App {
             }
             _ => {}
         }
-        // stash pop (#25) だけは GIT レーンに縛らない。z (push) は変更を全部退避すると
+        // stash pop だけは GIT レーンに縛らない。z (push) は変更を全部退避すると
         // git_available が false になり GIT レーンへ再入場できなくなるため、「push した直後に
         // pop で戻れない」事故を避ける必要がある。git repo でありさえすれば (コミット一覧
         // パネルと同じ log_available 基準) どのレーンからでも呼べるようにする
@@ -206,7 +206,7 @@ impl App {
             self.confirm_stash_pop();
             return;
         }
-        // discard/stash push (#25) は GIT レーン限定。対象は Focus に関わらず tree.selected
+        // discard/stash push は GIT レーン限定。対象は Focus に関わらず tree.selected
         // (Space のトグルと同じ考え方) なので、Focus::Tree/Viewer どちらでも同じ挙動にするため
         // focus 別ディスパッチより前で拾う
         if let Lane::Git(_) = &self.lane {
@@ -316,7 +316,7 @@ impl App {
         }
     }
 
-    // Search の確定先は Lane で振り分ける (#31: GIT レーンの diff 内検索は GitState 側に持つ)。
+    // Search の確定先は Lane で振り分ける (GIT レーンの diff 内検索は GitState 側に持つ)。
     // Goto は View レーンの `:` からしか届かないので lane 分岐は要らない。Filter は Workspace
     // (issues/PR タブ) 側の状態なので Lane ではなく workspace で振り分ける
     fn cancel_input(&mut self, kind: InputKind) {
@@ -709,7 +709,7 @@ impl App {
         true
     }
 
-    // GIT レーンの diff ペイン。hunk ジャンプは ]/[ に一本化し (#31)、n/N は検索の
+    // GIT レーンの diff ペイン。hunk ジャンプは ]/[ に一本化し、n/N は検索の
     // 次候補/前候補に譲る (現状 VIEW の検索と同じキー配置)
     fn on_git_key(&mut self, key: KeyEvent, ctrl: bool) {
         if self.pending_g {
@@ -723,9 +723,7 @@ impl App {
         }
         // Space: カーソル行が属する hunk を index へ適用/取り消し (hunk 単位ステージ)。
         // Enter: カーソル行 (V の選択中はその範囲) だけを適用/取り消し (行単位ステージ)。
-        // どちらも git の実行と rescan を伴うので A/t と同じく Lane::Git の可変借用より前で
-        // 拾う。ツリー側 (Focus::Tree) の Space がファイル単位のトグルなのと対になっていて、
-        // 粒度だけがフォーカス・キーで変わる
+        // どちらも git の実行と rescan を伴うので A/t と同じく Lane::Git の可変借用より前で拾う
         if key.code == KeyCode::Char(' ') {
             self.stage_current_hunk();
             return;
@@ -780,7 +778,7 @@ impl App {
             KeyCode::Char('0') => git.hscroll_reset(),
             KeyCode::Char('g') => self.pending_g = true,
             KeyCode::Char('G') => git.jump_to_bottom(),
-            // hunk ジャンプは ]/[ に一本化 (#31)
+            // hunk ジャンプは ]/[ に一本化
             KeyCode::Char(']') => git.next_hunk(),
             KeyCode::Char('[') => git.prev_hunk(),
             // 未確定 (Enter していない) 状態では no-op。next_match/prev_match が保証する
@@ -796,7 +794,7 @@ impl App {
                     buffer: String::new(),
                 };
             }
-            // inline ⇔ side-by-side (#30)。w と同じく config には保存しない
+            // inline ⇔ side-by-side。w と同じく config には保存しない
             KeyCode::Char('v') => git.toggle_side_by_side(),
             _ => {}
         }

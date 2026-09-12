@@ -1,21 +1,17 @@
-//! GitHub issues タブ (#33) の状態。左ペインは一覧 (フィルタ + キャッシュ)、右ペインは
-//! 選択 issue の詳細で、VIEW/EDIT/GIT/LOG のいずれとも独立した Viewport を持つ
-//! (別ドキュメントなので位置を共有する意味がなく、Viewer タブへ戻った時の読み位置も壊さない)。
-//! 一覧・コメント取得・ブラウザで開く、の 3 操作はすべて job.rs (#27 の非同期基盤) に乗せ、
-//! イベントループをブロックしない。フィルタは component/finder/mod.rs の fuzzy_match を再利用し、
-//! 新しいマッチャは書かない (component/branch/mod.rs::BranchState と同じ方針)。
+//! GitHub issues タブの状態。左ペインは一覧 (フィルタ + キャッシュ)、右ペインは選択 issue の
+//! 詳細で、VIEW/EDIT/GIT/LOG のいずれとも独立した Viewport を持つ (別ドキュメントなので
+//! 位置を共有する意味がなく、Viewer タブへ戻った時の読み位置も壊さない)。一覧・コメント取得・
+//! ブラウザで開く、の 3 操作はすべて job.rs の非同期基盤に乗せ、イベントループをブロックしない。
+//! フィルタは component/finder/mod.rs の fuzzy_match を再利用し、新しいマッチャは書かない。
 //!
-//! #34 (pull requests タブ) が一覧まわりをそのまま再利用できるよう、フィルタ・スコアリング
+//! pull requests タブが一覧まわりをそのまま再利用できるよう、フィルタ・スコアリング
 //! (`remotelist::filter_rows`) と詳細の非同期キャッシュ (`remotelist::DetailSlot`) を
 //! 共有モジュールへ切り出してある。issue 固有なのは詳細の組み立てと state 絞り込みの
 //! カーディナリティ (open/closed/all) だけ。
 //!
-//! **体感速度改善**: 詳細を開くのに以前は `gh issue view` (本文) + `gh issue view --comments`
-//! (コメント) の 2 往復が要った。本文は一覧取得 (`gh issue list`) の時点で `RemoteItem::body`
-//! に受け取っておき、Enter を押した瞬間は rows から即座に組み立てて描画する (ネットワーク
-//! 往復ゼロ)。コメントだけを非同期の 1 往復で取りに行き、届くまでは「コメント読み込み中…」を
-//! 本文の下に添える (`build_detail_display`)。DetailSlot の役割はコメントキャッシュに変わった
-//! だけで、キャッシュ・二重起動防止・poll の仕組みはそのまま使う
+//! 本文は一覧取得時点で `RemoteItem::body` に受け取っておき、Enter を押した瞬間は rows から
+//! 即座に組み立てて描画する (ネットワーク往復ゼロ)。コメントだけを非同期の 1 往復で取りに行く
+//! (`build_detail_display`)。
 pub mod view;
 
 use std::sync::mpsc::Receiver;
@@ -87,9 +83,8 @@ pub struct IssuesState {
     pub list_area_height: usize,
 
     /// 番号ごとのコメントキャッシュ (`gh issue view --comments` のプレーン出力を Line 化したもの)。
-    /// 本文は一覧取得時点で RemoteItem::body に入っているため、ここはコメントだけを持つ
-    /// (以前は本文込みの detail をここに持っていたが、体感速度改善で本文は即座に組み立てる側へ
-    /// 移した)。PR タブの説明/diff/CI と同じ形なので remotelist::DetailSlot を共有する
+    /// 本文は一覧取得時点で RemoteItem::body に入っているため、ここはコメントだけを持つ。
+    /// PR タブの説明/diff/CI と同じ形なので remotelist::DetailSlot を共有する
     comments: DetailSlot<Vec<Line<'static>>>,
     /// 右ペインに表示中の issue 番号。selected (一覧側カーソル) とは別に持ち、
     /// j/k では追従させない (Enter/l/クリックでのみ開く。GIT ツリー・LOG 一覧と同じ理由)
@@ -196,7 +191,7 @@ impl IssuesState {
         self.filter_snapshot = None;
     }
 
-    // フィルタ・スコアリングの実アルゴリズムは remotelist::filter_rows (#34 と共有)。
+    // フィルタ・スコアリングの実アルゴリズムは remotelist::filter_rows (PR タブと共有)。
     // ここでは state_filter の意味 (open/closed/all) を accepts 述語として渡すだけ
     fn rescan(&mut self) {
         let state_filter = self.state_filter;
@@ -350,7 +345,7 @@ impl Default for IssuesState {
 
 // gh の出力をそのまま Line 化する。gutter (span[0]) は行番号を持たないので空のままにするが、
 // 「span[0] = gutter 固定」というインバリアント自体は崩さない (TextPane が前提にするため)。
-// PR タブ (#34) の説明/CI ステータス表示もプレーンテキストという点で同じなので共有する
+// PR タブの説明/CI ステータス表示もプレーンテキストという点で同じなので共有する
 pub(crate) fn build_detail_lines(raw: &[String]) -> Vec<Line<'static>> {
     raw.iter()
         .map(|line| {
@@ -366,7 +361,7 @@ fn detail_line(content: String, style: Style) -> Line<'static> {
 
 // RemoteItem (一覧取得済みの行データ) からヘッダー + 本文を組み立てる。ネットワークを
 // 一切使わない (gh を待たない) ので Enter を押した瞬間にそのまま描ける。issues の詳細と
-// PR タブ (#34) の説明表示のどちらもこれを使う (row の実体はどちらも RemoteItem)
+// PR タブの説明表示のどちらもこれを使う (row の実体はどちらも RemoteItem)
 pub(crate) fn build_body_lines(row: &RemoteItem) -> Vec<Line<'static>> {
     let mut lines = vec![
         detail_line(

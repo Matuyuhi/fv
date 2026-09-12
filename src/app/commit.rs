@@ -369,9 +369,6 @@ impl App {
     }
 }
 
-// commit オーバーレイの入力欄は char インデックスで扱う (バイトインデックスだと
-// 日本語等の複数バイト文字でカーソル位置がずれるため)
-
 fn char_byte_index(s: &str, char_idx: usize) -> usize {
     s.char_indices()
         .nth(char_idx)

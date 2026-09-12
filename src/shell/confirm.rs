@@ -18,8 +18,8 @@ pub(super) fn draw_confirm(frame: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(Color::Yellow))
         .title("confirm");
 
-    // 対象パス・件数・untracked の有無を複数行で出す呼び出し元 (#25 discard/stash) があるため、
-    // prompt 内の改行はそのまま複数行に割る (単一行の呼び出しは従来どおり 1 行のまま)
+    // 対象パス・件数・untracked の有無を複数行で出す呼び出し元 (discard/stash) があるため、
+    // prompt 内の改行はそのまま複数行に割る
     let mut lines: Vec<Line> = prompt
         .lines()
         .map(|line| Line::from(line.to_string()))

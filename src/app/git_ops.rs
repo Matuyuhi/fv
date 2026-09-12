@@ -13,8 +13,8 @@ use super::{App, ConfirmAction, Lane, Mode};
 
 impl App {
     /// Space: 選択中のファイル/ディレクトリを stage/unstage トグルする。判定は
-    /// 「worktree 側に未ステージ変更が残っているか」で、残っていれば stage、無ければ unstage
-    /// (issue #23 の要求通り)。ディレクトリは配下の files を集約して同じ判定に使う
+    /// 「worktree 側に未ステージ変更が残っているか」で、残っていれば stage、無ければ unstage。
+    /// ディレクトリは配下の files を集約して同じ判定に使う
     pub(super) fn toggle_stage_selected(&mut self) {
         // キーリピート対策。debounce 中の呼び出しは git プロセスを起動せずに捨てる
         if self.last_stage_toggle.elapsed() < super::STAGE_DEBOUNCE {
@@ -198,9 +198,7 @@ impl App {
     }
 
     // 未保存の編集バッファがある間は破棄・stash を実行させない (ディスクを書き換えると
-    // 編集内容と食い違うため)。X/z/Z は Lane::Git 限定でしか到達せず、Lane は同時に
-    // 一つしか無いため現行のキー経路では実質 true にならないが、issue #25 の安全側の
-    // 作法として明示的に防御しておく (belt and suspenders)
+    // 編集内容と食い違うため)
     fn refuse_if_edit_dirty(&mut self) -> bool {
         if let Lane::Edit(state) = &self.lane
             && state.buffer.dirty()
@@ -409,12 +407,10 @@ impl App {
     }
 
     // GIT レーンの diff は「開いていたファイルの内容そのものが変わった」ケース (discard/stash)
-    // では自動追従しない設計のままだと古い内容を映してしまう (通常の j/k 移動時に diff を
-    // 追従させない設計とは理由が異なる: あちらはキーリピートで git を連打しないためで、
-    // こちらはファイルが破棄され `changed_paths()` から外れた後も GitState::refresh が
-    // 同じ path で再取得を試み、その結果を `file_diff` の untracked フォールバックが
-    // 「新規ファイルの全行追加」として誤表示してしまうため)。rescan 後にツリー側の新しい
-    // 選択へ diff を明示的に向け直す
+    // では自動追従しないと古い内容を映してしまう。ファイルが破棄され `changed_paths()` から
+    // 外れた後も GitState::refresh が同じ path で再取得を試み、その結果を `file_diff` の
+    // untracked フォールバックが「新規ファイルの全行追加」として誤表示するため、rescan 後に
+    // ツリー側の新しい選択へ diff を明示的に向け直す
     fn refresh_git_diff_selection(&mut self) {
         let Some(path) = self.tree.selected_or_first_file() else {
             return;
@@ -468,14 +464,10 @@ impl App {
         self.start_remote_job(git::RemoteJobKind::Pull, move || git::pull(&root));
     }
 
-    /// P: push は確認オーバーレイを必須にする (issue の要求。fetch/pull と違いリモートの
-    /// 履歴・ブランチ構成を変えるため)。未保存の EDIT バッファは拒否まではせず、
-    /// prompt に警告を足すだけに留める (issue の要求通り)。既にジョブが実行中なら
-    /// 確認オーバーレイ自体を開かない (開いても実行時に start_remote_job が無視するだけで
-    /// ユーザーには何も起きなかったように見えてしまうため、ここで先に弾く)。
-    /// dirty チェックは open_commit/open_branch と同じ理由で型上ここへは実際には来ない
-    /// (Lane::Edit は印字キーを全て文字入力にするため 'P' はここまで届かない) が、
-    /// issue の要求通り明示的にガードしておく (belt and suspenders)
+    /// P: push は確認オーバーレイを必須にする (fetch/pull と違いリモートの履歴・ブランチ
+    /// 構成を変えるため)。未保存の EDIT バッファは拒否まではせず、prompt に警告を足すだけに
+    /// 留める。既にジョブが実行中なら確認オーバーレイ自体を開かない (開いても実行時に
+    /// start_remote_job が無視するだけで、ユーザーには何も起きなかったように見えるため)
     pub(super) fn confirm_push(&mut self) {
         if !self.branch_available() || self.pending_remote_job.is_some() {
             return;

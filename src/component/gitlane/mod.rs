@@ -1,22 +1,14 @@
-//! GIT レーン (Shift+Tab で入る変更レビュー) の表示状態。
-//! git CLI の unified diff を TextPane が描ける Line 列に組み替えるところまでを持ち、
-//! Viewer の cache・履歴・検索には触らない (EditState が Highlighter と Viewport だけを
-//! 借りるのと同じ、依存範囲を広げないための制限)。
+//! GIT レーン (Shift+Tab で入る変更レビュー) の表示状態。git CLI の unified diff を
+//! TextPane が描ける Line 列に組み替えるところまでを持ち、Viewer の cache・履歴・検索には
+//! 触らない (依存範囲を広げないための制限)。
 //!
-//! `render_commit` は LOG レーン (component/log/mod.rs) の複数ファイル diff (`git show`) 用。
-//! 1 行単位の組み立てヘルパー (classify/build_body 等) を GitState の単一ファイル diff と
-//! 共有しつつ、ファイル境界ヘッダの挿入だけを上乗せする形にしてある。
-//! GIT レーンの「全ファイルまとめ diff」(`A`、#31) もこの `render_commit` をそのまま呼び、
-//! 複数ファイル diff のレンダラを 2 箇所に複製しない。
+//! `render_commit` は LOG レーンの複数ファイル diff 用のレンダラで、GitState の単一ファイル
+//! diff と組み立てヘルパーを共有する。side-by-side は GIT レーンの単一ファイル diff のみ
+//! 対応し、複数ファイル diff は inline 専用のまま残している。
 //!
-//! side-by-side (#30) は GIT レーンの単一ファイル diff のみ対応。LOG レーンの複数ファイル
-//! diff (render_commit) は既存のまま inline 専用で残した (issue #30 が GIT レーンだけでも可、
-//! としているスコープに合わせた)。「全ファイルまとめ diff」も同じ理由で inline 専用にする
-//! (showing_all 中は side_by_side_active が常に false を返す)。
-//!
-//! 分割方針: このファイルは「今どの diff をどう見ているか」という状態 (GitState) だけを持ち、
-//! 生の unified diff を Line 列へ組み替えるレンダラは用途ごとのサブモジュールへ分ける。
-//! 定数・Kind・各 *Diff 構造体をここに残すのは、レンダラ 3 種が同じ形を組み立てるため。
+//! このファイルは「今どの diff をどう見ているか」という状態 (GitState) だけを持ち、
+//! レンダラは用途ごとのサブモジュールへ分ける。定数・Kind・各 *Diff 構造体はレンダラ 3 種が
+//! 共有するためここに置く。
 pub mod view;
 
 mod patch;
@@ -45,7 +37,7 @@ use crate::widget::text_pane::line_body;
 const ADDED: Color = Color::Green;
 const DELETED: Color = Color::Red;
 const HUNK: Color = Color::Cyan;
-// word-level ハイライト (#29) の背景色。前景の赤/緑はそのまま、背景だけ濃くして
+// word-level ハイライトの背景色。前景の赤/緑はそのまま、背景だけ濃くして
 // 変更範囲を示す (検索ハイライトの MATCH_BG と同じく端末テーマに依存しない固定色)
 const ADDED_WORD_BG: Color = Color::Rgb(20, 90, 20);
 const DELETED_WORD_BG: Color = Color::Rgb(110, 25, 25);
@@ -176,7 +168,7 @@ struct AllDiff {
     hunks: Vec<usize>,
     gutter_width: usize,
     max_width: usize,
-    /// ファイル境界: #40 と同じ sticky header 用 (見出し行の index → ラベル)
+    /// ファイル境界: sticky header 用 (見出し行の index → ラベル)
     boundaries: Vec<(usize, String)>,
 }
 
@@ -195,7 +187,7 @@ pub struct GitState {
     /// コストが画面ではなく diff 全体の大きさに比例してしまう (CLAUDE.md「再描画のコストを
     /// 画面の大きさより上に持ち上げない」)。行数・hunk 位置は scroll のクランプと ]/[ が読む
     side_wrap: Option<SideWrap>,
-    /// diff 内検索 (#31)。単一ファイル/まとめ diff のどちらでも同じ 1 つの状態を使い回す
+    /// diff 内検索。単一ファイル/まとめ diff のどちらでも同じ 1 つの状態を使い回す
     /// (対象は常に「今表示している inline 行」で、切替のたびに recompute_search で追従する)
     search: Option<SearchState>,
     /// `A`: 全ファイルまとめ diff の取得結果。`showing_all` が true の間だけ表示に使う。
@@ -275,7 +267,7 @@ impl GitState {
         self.recompute_search();
     }
 
-    /// ツリーでファイルを選び直した (#31: まとめ表示は解除して単一ファイル表示に戻る)
+    /// ツリーでファイルを選び直した (まとめ表示は解除して単一ファイル表示に戻る)
     pub fn exit_all(&mut self) {
         self.showing_all = false;
     }
@@ -299,8 +291,8 @@ impl GitState {
         truncated
     }
 
-    // render_commit をそのまま再利用する (LOG レーンの複数ファイル diff とレンダラを共有する
-    // という #31 の要求そのもの)。ヘッダ (コミットメッセージ相当) が無いだけで組み立ては同じ
+    // render_commit をそのまま再利用する (LOG レーンの複数ファイル diff とレンダラを共有する)。
+    // ヘッダ (コミットメッセージ相当) が無いだけで組み立ては同じ
     fn load_all(&mut self, root: &Path, untracked: &[PathBuf]) -> bool {
         let (raw, truncated) = git::diff_all(root, self.base, untracked);
         let (lines, hunks, gutter_width, max_width, boundaries) = render_commit(&raw);
@@ -431,8 +423,7 @@ impl GitState {
     /// 掴めても Enter が必ず断るので、ステータスバーのヒントと実際の可否が食い違う。
     /// **判定に使うのは `side_by_side_active` ではなく `side_by_side` (要求状態)**。
     /// active は今の幅に依存するので、幅不足で inline に落ちている間に選択を掴めてしまい、
-    /// ペインを広げた瞬間に side-by-side が有効化されて「選択は残っているのに Enter は
-    /// 必ず断る」状態になる (帯も別の行に出る)
+    /// ペインを広げた瞬間に「選択は残っているのに Enter は必ず断る」状態になる
     pub fn line_selection_available(&self) -> bool {
         !self.showing_all() && !self.side_by_side
     }
@@ -582,9 +573,8 @@ impl GitState {
             .map_or(&[] as &[usize], |d| d.inline.hunks.as_slice())
     }
 
-    /// カーソル行が属する hunk の序数 (0-origin)。以前は「上端に見えている行」を基準に
-    /// していたが、それだと画面を送るだけで Space の対象が黙って変わる (どの hunk を
-    /// 掴んでいるのか画面から読み取れない) ため、カーソルへ寄せてある。
+    /// カーソル行が属する hunk の序数 (0-origin)。カーソル基準にするのは、上端に見えている
+    /// 行を基準にすると画面を送るだけで Space の対象が黙って変わるため。
     /// hunks() を使うので inline / side-by-side / wrap のどの表示でも同じ序数が出る
     /// (どの表示でも hunk の並び順は生 diff と同じで、変わるのは行 index だけ)
     fn current_hunk_ordinal(&self) -> Option<usize> {
@@ -709,7 +699,7 @@ impl GitState {
         }
     }
 
-    /// #40 と同じ sticky header 用のファイル境界一覧。単一ファイル表示中は常に空
+    /// sticky header 用のファイル境界一覧。単一ファイル表示中は常に空
     pub fn boundaries(&self) -> &[(usize, String)] {
         if self.showing_all {
             self.all.as_ref().map_or(&[], |d| &d.boundaries)
@@ -722,9 +712,7 @@ impl GitState {
         !self.boundaries().is_empty()
     }
 
-    /// LogState::sticky_label と同じロジックを共有する (gitlane::sticky_label、下記)。
-    /// 複数ファイル diff のレンダラ (render_commit) を共有しているぶん、sticky 表示のロジックも
-    /// 揃えておく
+    /// LogState::sticky_label と同じロジック (gitlane::sticky_label を共有する)
     pub fn sticky_label(&self) -> Option<&str> {
         sticky_label(self.boundaries(), self.viewport.scroll)
     }
@@ -739,7 +727,7 @@ impl GitState {
     }
 
     /// Search 入力中のライブプレビュー。viewer::Viewer::update_search と同じ 3 点セット
-    /// (update/confirm/cancel) を GIT レーンにも持たせる (#31)。マッチ探索は
+    /// (update/confirm/cancel) を GIT レーンにも持たせる。マッチ探索は
     /// viewer::search_matches をそのまま再利用し、大文字小文字の畳み込み (ASCII 限定) も揃う
     pub fn update_search(&mut self, query: &str) {
         if query.is_empty() {
@@ -963,8 +951,7 @@ pub(crate) fn sticky_label(boundaries: &[(usize, String)], scroll: usize) -> Opt
 // フォールバックし、その出力のヘッダには絶対パスがそのまま載る。これを `git apply --cached` に
 // 通すと repo 外のパスを作ろうとして失敗するので、hunk 単位の対象から外すための判定に使う。
 // 新規ファイルは `+++ b/<path>`、削除ファイルは `--- a/<path>` 側にしかパスが出ない。
-// git が特殊文字を含むパスをクォートした場合は strip_prefix が外れて false になる = 拒否側
-// (誤って別のパスへ apply するより、ツリー側の Space でファイル単位に stage してもらう方が安全)
+// git がクォートしたパスは strip_prefix が外れて false = 拒否側へ倒す
 fn header_path_matches(raw: &[String], rel: &str) -> bool {
     let header = raw
         .iter()

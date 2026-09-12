@@ -11,7 +11,7 @@ pub use msg::Msg;
 // 引数で配って回ると全ての draw_* と notice の組み立てに引数の変更が及ぶ。
 // 文言そのものは呼び出し側に置かず、キー (`Msg`) で引く。翻訳表は言語ごとに 1 ファイル
 // (ja.rs / en.rs) で、`Msg` に対する match を網羅させることで「片方の言語だけ書き忘れた
-// 文言」をコンパイルエラーにしている (以前の「対で書く」設計と同じ保証をキー方式で保つ)
+// 文言」をコンパイルエラーにしている
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Lang {
     #[default]

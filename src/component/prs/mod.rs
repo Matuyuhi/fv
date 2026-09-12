@@ -1,15 +1,11 @@
-//! GitHub pull requests タブ (#34) の状態。左ペインは一覧 (issues タブ #33 と同じ
+//! GitHub pull requests タブの状態。左ペインは一覧 (issues タブと同じ
 //! remotelist::{filter_rows, DetailSlot} を再利用したフィルタ + キャッシュ)、右ペインは
-//! 選択 PR の 3 表示 (説明・diff・CI ステータス) を切り替える。PR 固有なのは
-//! headRefName/isDraft (github::PrRow) と、右ペイン 3 種の切替・diff の hunk/wrap/hscroll
-//! だけに閉じており、一覧側の実装は issues タブと完全に共有する。
+//! 選択 PR の 3 表示 (説明・diff・CI ステータス) を切り替える。一覧側の実装は issues タブと
+//! 完全に共有し、PR 固有なのは headRefName/isDraft と右ペイン 3 種の切替だけ。
 //!
-//! **体感速度改善**: 説明表示も issues の詳細と同じ理由で本文を即座に組み立てる。
-//! `RemoteItem::body` (一覧取得時点で受け取り済み) から `issues::build_body_lines` で
-//! ヘッダー + 本文を組み立て、コメントだけ `gh pr view --comments` の非同期 1 往復で取りに行く
-//! (`description` フィールドの役割はコメントキャッシュに変わった)。diff と CI ステータスは
-//! 一覧に含まれないデータなので取得が要るが、`d`/`S` を押した瞬間の 1 往復待ちを無くすため
-//! PR を開いた時点でバックグラウンド先読みする (`PrefetchStage` 節参照)
+//! 説明表示は `RemoteItem::body` (一覧取得時点で受け取り済み) から即座に組み立て、
+//! コメントだけ非同期の 1 往復で取りに行く。diff と CI は一覧に含まれず取得が要るため、
+//! `d`/`S` を押した瞬間の待ちを無くすよう PR を開いた時点で先読みする (`PrefetchStage`)
 pub mod view;
 
 use std::path::Path;
@@ -128,12 +124,11 @@ pub struct PrsState {
 
     pub view: DetailView,
     open_number: Option<u64>,
-    /// 説明表示のコメントキャッシュ (以前は本文込みの detail をここに持っていたが、体感速度
-    /// 改善で本文は RemoteItem::body から即座に組み立てる側へ移した。issues::IssuesState
-    /// と同じ理由)
+    /// 説明表示のコメントキャッシュ。本文は RemoteItem::body から即座に組み立てるので、
+    /// ここはコメントだけを持つ (issues::IssuesState と同じ)
     comments: DetailSlot<Vec<Line<'static>>>,
     /// header + body + comments を組み立て済みの表示行 (説明表示のみ使う。diff/checks は
-    /// 従来通り DetailSlot のキャッシュをそのまま描く)
+    /// DetailSlot のキャッシュをそのまま描く)
     description_display: Vec<Line<'static>>,
     diff: DetailSlot<PrDiffData>,
     checks: DetailSlot<Vec<Line<'static>>>,
@@ -141,9 +136,7 @@ pub struct PrsState {
 
     /// diff/CI の先読み状態機械 (`PrefetchStage` 参照)
     prefetch: PrefetchStage,
-    /// 打ち切り notice を「実際に diff を表示した時」に一度だけ出すための既通知集合。
-    /// 先読み経由で静かにキャッシュへ入った場合はここに入れず、後から `d` で表示した
-    /// 瞬間に初めて通知する (poll 完了時に notice を出す既存経路と合流させる、後述)
+    /// 打ち切り notice を番号ごとに 1 度だけ出すための既通知集合 (`truncation_notice_if_needed` 参照)
     notified_truncation: std::collections::HashSet<u64>,
 
     /// 説明/CI は issues の詳細と同じくプロースなので常時 wrap 固定の Viewport を共有する。

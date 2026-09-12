@@ -53,8 +53,7 @@ impl TextDoc {
         self.plain.len()
     }
 
-    /// タブ未展開の元の行。範囲選択のコピー (selection.rs) はこちらから取り出す —
-    /// plain のままだとタブが空白 4 個に化けて貼り付け先のインデントが壊れる
+    /// タブ未展開の元の行 (範囲選択のコピーはこちらから取り出す。selection.rs)
     pub fn raw(&self) -> &[String] {
         &self.raw
     }

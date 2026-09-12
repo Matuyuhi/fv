@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use super::{App, Focus, InputKind, Mode, SettingsState};
 
 impl App {
-    // issues タブ (#33) のグローバルキー。フォーカスに依らない操作 (o/r/t/フィルタ開始) を先に拾い、
+    // issues タブのグローバルキー。フォーカスに依らない操作 (o/r/t/フィルタ開始) を先に拾い、
     // 残りは on_tree_key/on_viewer_key と同じ「フォーカスで振り分け」に揃える
     pub(super) fn on_issues_key(&mut self, key: KeyEvent, ctrl: bool) {
         match key.code {
@@ -154,7 +154,7 @@ impl App {
         self.issues.begin_open_web(rx);
     }
 
-    // pull requests タブ (#34) のグローバルキー。issues (#33) と同じ形 (フォーカスに依らない
+    // pull requests タブのグローバルキー。issues と同じ形 (フォーカスに依らない
     // 操作を先に拾い、残りはフォーカスで振り分け) に、右ペインの表示切替 (d/S) が追加で入る
     pub(super) fn on_pr_key(&mut self, key: KeyEvent, ctrl: bool) {
         match key.code {

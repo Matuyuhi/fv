@@ -67,19 +67,17 @@ pub struct App {
     /// トップレベルのタブ (Lane/Mode に続く3本目の軸)。GitHub モードが無効/使えない間は
     /// 常に Viewer 固定 (workspace_available が false の間、切替キーは全て no-op にする)
     pub workspace: Workspace,
-    /// issues タブ (#33) の状態。GitHub モードが無効でも構築コスト自体はゼロ (フィールドが
+    /// issues タブの状態。GitHub モードが無効でも構築コスト自体はゼロ (フィールドが
     /// 空のまま) なので、常に持たせて Workspace::Issues に切り替わった時だけ取得を始める
     pub issues: IssuesState,
     /// ツリーのファイル操作 (n/N/R) で Mode::Input を開いている間の対象 (app/file_ops.rs)
     file_op: Option<file_ops::FileOp>,
-    /// pull requests タブ (#34) の状態。issues と同じ理由で常に持たせる
+    /// pull requests タブの状態。issues と同じ理由で常に持たせる
     pub prs: PrsState,
     pub tree: Tree,
     pub viewer: Viewer,
     /// VIEW レーンの左ペイン下半分に出すコミット一覧 (`L` でトグル)。None = 出していない。
-    /// かつての Lane::Log を畳んだもので、レーンではなく「ツリーと並べて常設できるパネル」に
-    /// したのは「ファイルを読みながら履歴も追う」が本来の使い方だったため。開いた瞬間に
-    /// git log を叩くので、使わない限りコストを払わないよう Option で遅延生成する
+    /// 開いた瞬間に git log を叩くので、使わない限りコストを払わないよう Option で遅延生成する
     pub log: Option<LogState>,
     /// Finder の候補。ツリーが遅延走査になったぶん、全ファイル一覧は別に持つ
     pub file_index: FileIndex,
@@ -286,7 +284,7 @@ impl App {
             self.finish_remote_job(outcome);
             changed = true;
         }
-        // issues/PR タブ (#33/#34) の list/detail/open ジョブも同じ 100ms poll ループに
+        // issues/PR タブの list/detail/open ジョブも同じ 100ms poll ループに
         // 相乗りさせる。専用タイマーは作らない (job.rs の既存方針)
         for outcome in [self.issues.poll(), self.prs.poll()] {
             changed |= outcome.changed;
@@ -341,9 +339,8 @@ impl App {
                 // 開いていないファイルは読み直さず、cache に残っている古い内容だけ捨てる
                 self.viewer.forget(&change.path);
             }
-            // 開いているファイル自身の変更でも git status の再取得は要る。以前はここが
-            // else if で繋がっていたため、閲覧・編集中のファイルを書き換えても差分の有無
-            // (= GIT レーンの可否・ツリーの status・diff) が r を押すまで更新されなかった
+            // 開いているファイル自身の変更でも git status の再取得は要る (差分の有無が
+            // GIT レーンの可否・ツリーの status・diff を決めるため)
             if change.structural {
                 // ファイルの作成・削除・リネーム。ツリーの行構成が変わりうるので全走査が要る
                 self.rescan_pending = true;
@@ -694,7 +691,7 @@ impl App {
         match self.workspace {
             Workspace::Issues => {
                 self.focus = Focus::Tree;
-                // 初回タブ表示時に 1 回だけ取得する。タブを往復しても再取得しない (issue #33 の要求)
+                // 初回タブ表示時に 1 回だけ取得する。タブを往復しても再取得しない
                 if !self.issues.fetched() && !self.issues.list_loading() {
                     self.refresh_issues();
                 }
@@ -717,7 +714,7 @@ impl App {
     pub(super) fn open_selected(&mut self, path: &Path) {
         match &mut self.lane {
             Lane::Git(git) => {
-                // ツリーでファイルを選び直したら「全ファイルまとめ」表示 (#31) は解除する
+                // ツリーでファイルを選び直したら「全ファイルまとめ」表示は解除する
                 git.exit_all();
                 git.open(&self.root, path);
             }
@@ -754,7 +751,6 @@ impl App {
 
     /// bracketed paste (main のイベントループから)。編集バッファへは複数行のまま、
     /// Search/Goto/Finder の 1 行入力へは制御文字を落として流す
-    /// (paste 有効化前は生キー入力として届いていた挙動の維持)
     pub fn on_paste(&mut self, text: &str) {
         if let Lane::Edit(state) = &mut self.lane {
             state.paste(text, &mut self.viewer.viewport);

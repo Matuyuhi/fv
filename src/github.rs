@@ -1,8 +1,7 @@
 // GitHub モードが使える環境かどうかの判定。呼ぶのは App::new / toggle_github からの
-// 1 回きりで、描画のたびには叩かない (docs/design/git.md の GIT レーンと同じ「重い処理はイベントループを
-// ブロックしない」方針とは別に、そもそも起動時 1 回に絞ることでブロック自体を避けている)。
+// 1 回きりで、描画のたびには叩かない。
 //
-// issues/PR タブ (#33/#34) の一覧・詳細取得もここに集約する。git.rs と同じ方針で
+// issues/PR タブの一覧・詳細取得もここに集約する。git.rs と同じ方針で
 // serde 等の新規依存は足さず、`--json` ではなく `--template` で `\0` 区切りのプレーン
 // テキストを出させ porcelain -z と同じ流儀で自前パースする。
 use crate::lang::{Msg, t};
@@ -43,14 +42,11 @@ pub fn check_available(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// issues/PR 一覧の 1 行分。#34 (pull requests タブ) が一覧の描画・絞り込み・キャッシュを
-/// そのまま再利用できるよう issue 固有の項目は持たせない (`gh issue list` / `gh pr list` は
-/// どちらも同じ --json フィールド名 (number/title/author/updatedAt/labels/state) を返すため、
-/// 型を分ける理由がない)。state は "OPEN"/"CLOSED" (PR は将来 "MERGED" も乗る想定だが、
-/// 判定は呼び出し側の StateFilter 相当に閉じ、ここでは生の文字列のまま持つ)。
-/// `body` (#体感速度改善) は一覧取得の時点で受け取っておく本文。詳細を開いた瞬間にネットワーク
-/// 往復を発生させない (`gh <kind> view` を待たず即座に描画する) ための核で、フォールバック
-/// テンプレート使用時は空文字のまま持つ
+/// issues/PR 一覧の 1 行分。`gh issue list` / `gh pr list` はどちらも同じ --json フィールド名
+/// (number/title/author/updatedAt/labels/state) を返すので、issue 固有の項目は持たせず
+/// 両タブで共有する。state は "OPEN"/"CLOSED" の生の文字列のまま持ち、判定は呼び出し側に閉じる。
+/// `body` は一覧取得の時点で受け取っておく本文。詳細を開いた瞬間にネットワーク往復を
+/// 発生させないための核で、フォールバックテンプレート使用時は空文字のまま持つ
 pub struct RemoteItem {
     pub number: u64,
     pub title: String,
@@ -62,7 +58,7 @@ pub struct RemoteItem {
 }
 
 // number/title/author/updatedAt/labels(","区切り)/state の6フィールド。
-// gh issue list --template と gh pr list --template (PR_LIST_TEMPLATE、#34) の先頭 6 個は
+// gh issue list --template と gh pr list --template (PR_LIST_TEMPLATE) の先頭 6 個は
 // この並びに揃える前提 (parse_records で共有パースする)。body は各テンプレートの末尾に
 // 追加してあるので、共通 6 フィールドのパース (remote_item) には含めない
 const ISSUE_LIST_TEMPLATE: &str = r#"{{range .}}{{.number}}{{"\x00"}}{{.title}}{{"\x00"}}{{.author.login}}{{"\x00"}}{{.updatedAt}}{{"\x00"}}{{range .labels}}{{.name}},{{end}}{{"\x00"}}{{.state}}{{"\x00"}}{{.body}}{{"\x00"}}{{end}}"#;
@@ -154,7 +150,7 @@ fn remote_item(fields: &[&str]) -> Option<RemoteItem> {
 }
 
 /// コメントだけを取得する。本文は一覧取得の時点で `RemoteItem::body` に入っているので、
-/// 詳細を開いた瞬間はこれ 1 回の往復で済む (以前は本文取得 + コメント取得の 2 往復だった)
+/// 詳細を開いた瞬間はこれ 1 回の往復で済む
 pub fn issue_comments(root: &Path, number: u64) -> Result<Vec<String>, String> {
     comments(root, "issue", number)
 }
@@ -164,7 +160,7 @@ pub fn open_issue_web(root: &Path, number: u64) -> Result<(), String> {
     run_gh(root, ["issue", "view", &number.to_string(), "--web"]).map(|_| ())
 }
 
-/// pull requests タブ (#34) の一覧行。`RemoteItem` (issues と共有) を PR 専用フィールドで
+/// pull requests タブの一覧行。`RemoteItem` (issues と共有) を PR 専用フィールドで
 /// 汚さないよう、headRefName/isDraft はここに閉じて持つ。一覧の絞り込み・キャッシュ・描画は
 /// `remotelist::ListRow` (title/state だけを見る) 越しに issues と同じ実装を再利用する
 pub struct PrRow {
@@ -286,9 +282,8 @@ pub fn open_pr_web(root: &Path, number: u64) -> Result<(), String> {
 }
 
 // gh の実行。読み取り専用の照会なので git.rs の run_git と同じ発想で GIT_OPTIONAL_LOCKS は
-// 付けない (gh 自体は git の index を触らないため元々関係ないが、明示はしない)。
-// 失敗理由は stderr 先頭の非空行に要約する (git.rs の first_line と同じ考え方だが、
-// このファイルの責務は gh CLI ラッパーに閉じているため小さな重複を許容し共有しない)
+// 付けない (gh は git の index を触らないため不要)。
+// 失敗理由は stderr 先頭の非空行に要約する
 fn run_gh<I, S>(root: &Path, args: I) -> Result<String, String>
 where
     I: IntoIterator<Item = S>,

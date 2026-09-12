@@ -95,7 +95,7 @@ fn run_app(root: PathBuf, config: Config, github: bool) -> Result<(), Box<dyn Er
     )?;
     // kitty keyboard protocol (ghostty/kitty/WezTerm 等)。修飾付きキーの報告が
     // 曖昧さなしになり、mac の Cmd (SUPER) 修飾も受信できるようになる。
-    // 未対応端末では query が false になり何もしない (挙動は従来どおり)
+    // 未対応端末では query が false になり何もしない
     if matches!(supports_keyboard_enhancement(), Ok(true)) {
         let _ = execute!(
             io::stdout(),
@@ -248,7 +248,7 @@ fn icons_default() -> bool {
     if matches!(term_program.as_str(), "WezTerm" | "ghostty") {
         return true;
     }
-    // kitty は 0.32 以降 Nerd Font シンボルを同梱している
+    // kitty/ghostty は Nerd Font シンボルを同梱しているため TERM で判定する
     env::var("TERM").is_ok_and(|t| t.contains("kitty") || t.contains("ghostty"))
         || env::var("KITTY_WINDOW_ID").is_ok()
 }
