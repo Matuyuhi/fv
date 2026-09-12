@@ -684,7 +684,10 @@ impl App {
             KeyCode::Char('v') if self.viewer.is_text() => self.viewer.toggle_line_selection(),
             KeyCode::Char('y') => self.copy_selection(),
             KeyCode::Char('Y') => self.copy_open_file(),
-            KeyCode::Esc => self.viewer.clear_selection(),
+            KeyCode::Esc => {
+                self.viewer.clear_selection();
+                self.viewer.cancel_search();
+            }
             _ => {}
         }
     }
