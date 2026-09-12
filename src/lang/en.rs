@@ -222,7 +222,7 @@ pub(super) fn text(msg: Msg) -> &'static str {
         }
         Msg::HelpCopySelectionClipboard => "copy the selection to the clipboard",
         Msg::HelpCopyWholeOpenFile => "copy the whole open file",
-        Msg::HelpClearSelection => "clear the selection",
+        Msg::HelpClearSelection => "clear the selection and search",
         Msg::HelpCopyBackend => "copy backend",
         Msg::HelpPbcopyWlCopyXclipXsel => {
             "pbcopy/wl-copy/xclip/xsel/clip.exe, falling back to OSC 52 (works over ssh)"

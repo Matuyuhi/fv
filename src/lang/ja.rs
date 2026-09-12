@@ -219,7 +219,7 @@ pub(super) fn text(msg: Msg) -> &'static str {
         }
         Msg::HelpCopySelectionClipboard => "選択範囲をクリップボードへコピー",
         Msg::HelpCopyWholeOpenFile => "開いているファイル全体をコピー",
-        Msg::HelpClearSelection => "選択を解除",
+        Msg::HelpClearSelection => "選択と検索を解除",
         Msg::HelpCopyBackend => "コピー手段",
         Msg::HelpPbcopyWlCopyXclipXsel => {
             "pbcopy/wl-copy/xclip/xsel/clip.exe → 無ければ OSC 52 (ssh 越しも可)"
