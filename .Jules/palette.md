@@ -7,3 +7,7 @@
 ## $(date +%Y-%m-%d) - Edit Mode Notice Consistency
 **Learning:** Edit mode specific notices (`EditState.notice`) previously bypassed the standard `notice_line` styling, resulting in warnings (unsaved changes) and errors (save failed) lacking visual distinction (color and icon) from normal hints.
 **Action:** Always ensure nested or state-specific notice mechanisms reuse the top-level standard styling to provide a consistent visual language across all modes.
+
+## 2026-09-11 - Confirmation Dialog UI & Status Bar UX
+**Learning:** Destructive operations display a multi-line prompt that gets unreadably squished when condensed to a single-line status bar. Additionally, dialogs without visual center alignment or prominent localized warning titles fail to draw sufficient user attention to destructive operations.
+**Action:** Always replace newlines with spaces when rendering multi-line dialog prompts in a single-line context like a status bar. Furthermore, align pop-up dialog prompts to the center and augment titles with warning indicators to emphasize their importance and maintain visual hierarchy.
