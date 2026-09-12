@@ -136,11 +136,16 @@ fn issues_status_line(app: &App) -> Line<'static> {
             Style::default().fg(Color::Red),
         ));
     }
+    // 詳細を開いていない間は一覧しか画面に無いので、Tab/Esc は案内しない
+    // (画面に無いペインへの操作を出さない = shell::remote_layout の 2 レイアウトと対応させる)
     let hint = match app.focus {
-        Focus::Tree | Focus::Log => {
-            "j/k: move  Enter/l: open  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
+        Focus::Tree | Focus::Log if app.issues.open_number().is_none() => {
+            "j/k: move  Enter/l: open  /: filter  t: state  o: web  r: refresh  ?: help"
         }
-        Focus::Viewer => "j/k: scroll  o: web  Tab: focus  ?: help",
+        Focus::Tree | Focus::Log => {
+            "j/k: move  Enter/l: open  Tab: detail  Esc: close  /: filter  t: state  o: web  ?: help"
+        }
+        Focus::Viewer => "j/k: scroll  Tab: list  Esc: close  o: web  ?: help",
     };
     Line::from(format!(
         "{}/{} issues [{}]  {hint}",
@@ -164,11 +169,14 @@ fn pr_status_line(app: &App) -> Line<'static> {
         ));
     }
     let hint = match app.focus {
+        Focus::Tree | Focus::Log if app.prs.open_number().is_none() => {
+            "j/k: move  Enter/l: open  d: diff  S: checks  /: filter  t: state  o: web  r: refresh  ?: help"
+        }
         Focus::Tree | Focus::Log => {
-            "j/k: move  Enter/l: open  d: diff  S: checks  /: filter  t: state  o: web  r: refresh  Tab: focus  ?: help"
+            "j/k: move  Enter/l: open  d: diff  S: checks  Tab: detail  Esc: close  /: filter  t: state  ?: help"
         }
         Focus::Viewer => {
-            "j/k: cursor (diff)  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: focus  ?: help"
+            "j/k: cursor (diff)  d: diff  S: checks  ]/[: hunk (diff)  w: wrap (diff)  Tab: list  Esc: close  ?: help"
         }
     };
     Line::from(format!(

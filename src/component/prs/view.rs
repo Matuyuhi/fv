@@ -14,7 +14,7 @@ use crate::component::prs::{DetailView, PrsState};
 use crate::github::PrRow;
 use crate::lang::{Msg, t};
 
-use crate::component::issues::view::{highlight_span, short_date};
+use crate::component::issues::view::{highlight_span, rail_spans, short_date};
 use crate::component::remotelist::view::{draw_remote_list, draw_text_detail};
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::pane_block;
@@ -24,14 +24,26 @@ const AUTHOR_THRESHOLD: u16 = 60;
 const BRANCH_THRESHOLD: u16 = 80;
 const DATE_THRESHOLD: u16 = 100;
 
-pub(crate) fn draw_pr_list(frame: &mut Frame, prs: &mut PrsState, focused: bool, area: Rect) {
+// compact = 詳細を開いている間の左端レール (issues タブと同じ 2 レイアウト)
+pub(crate) fn draw_pr_list(
+    frame: &mut Frame,
+    prs: &mut PrsState,
+    focused: bool,
+    compact: bool,
+    area: Rect,
+) {
     prs.list_area_height = area.height.saturating_sub(2) as usize;
-    let title = format!(
-        "pull requests {}/{} [{}]",
-        prs.visible_count(),
-        prs.total(),
-        prs.state_filter.label()
-    );
+    let title = if compact {
+        format!("prs {}/{}", prs.visible_count(), prs.total())
+    } else {
+        format!(
+            "pull requests {}/{} [{}]",
+            prs.visible_count(),
+            prs.total(),
+            prs.state_filter.label()
+        )
+    };
+    let open = prs.open_number();
     // list_error() は Option<&str> (prs を借りたまま) を返すため、&mut prs.list_state と
     // 同じ呼び出しには渡せない (issues/view.rs::draw_issues_list と同じ理由で String に複製する)
     let error = prs.list_error().map(str::to_string);
@@ -44,7 +56,17 @@ pub(crate) fn draw_pr_list(frame: &mut Frame, prs: &mut PrsState, focused: bool,
         "no pull requests",
         &prs.matches,
         &prs.rows,
-        pr_line,
+        |row, positions, width| {
+            if compact {
+                rail_spans(
+                    row.item.number,
+                    open == Some(row.item.number),
+                    highlight_span(&row.item.title, positions, state_style(&row.item.state)),
+                )
+            } else {
+                pr_line(row, positions, width)
+            }
+        },
         prs.selected,
         &mut prs.list_state,
         focused,

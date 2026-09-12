@@ -60,10 +60,10 @@
 
 | | |
 | --- | --- |
-| **issues** — issues タブ | **prs** — pull requests タブ |
-| <img width="500" src="issues.svg" /> | <img width="500" src="prs.svg" /> |
-| **prs-diff** — pull requests タブ: 差分表示 (`d`) と行カーソル | |
-| <img width="500" src="prs-diff.svg" /> | |
+| **issues-list** — issues タブ: 一覧だけの画面 (タブに入った直後) | **issues** — issues タブ: 詳細を開いた画面 (左端は最小化した一覧) |
+| <img width="500" src="issues-list.svg" /> | <img width="500" src="issues.svg" /> |
+| **prs** — pull requests タブ: 説明表示 | **prs-diff** — pull requests タブ: 差分表示 (`d`) と行カーソル |
+| <img width="500" src="prs.svg" /> | <img width="500" src="prs-diff.svg" /> |
 
 ---
 

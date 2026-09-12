@@ -15,20 +15,29 @@ const AUTHOR_THRESHOLD: u16 = 60;
 const DATE_THRESHOLD: u16 = 80;
 const LABEL_THRESHOLD: u16 = 100;
 
+// compact = 詳細を開いている間の左端レール (shell::draw_issues_workspace のレイアウト 2 種に
+// 対応する)。一覧のみ全幅の時と同じ状態・同じ List ウィジェットのまま、行の組み立てと
+// タイトルだけを絞る — レール専用の描画経路を別に持つと、選択位置・スクロールが 2 系統になる
 pub(crate) fn draw_issues_list(
     frame: &mut Frame,
     issues: &mut IssuesState,
     focused: bool,
+    compact: bool,
     area: Rect,
 ) {
     // Ctrl+d/u の半ページ移動に使う実測値。viewport.height 等と同じ ui→app の書き戻しパターン
     issues.list_area_height = area.height.saturating_sub(2) as usize;
-    let title = format!(
-        "issues {}/{} [{}]",
-        issues.visible_count(),
-        issues.total(),
-        issues.state_filter.label()
-    );
+    let title = if compact {
+        format!("issues {}/{}", issues.visible_count(), issues.total())
+    } else {
+        format!(
+            "issues {}/{} [{}]",
+            issues.visible_count(),
+            issues.total(),
+            issues.state_filter.label()
+        )
+    };
+    let open = issues.open_number();
     // list_error() は Option<&str> (issues を借りたまま) を返すため、&mut issues.list_state と
     // 同じ呼び出しには渡せない (String に複製して借用を切ってから渡す。エラー時のみのコストなので安い)
     let error = issues.list_error().map(str::to_string);
@@ -41,7 +50,17 @@ pub(crate) fn draw_issues_list(
         "no issues",
         &issues.matches,
         &issues.rows,
-        issue_line,
+        |row, positions, width| {
+            if compact {
+                rail_spans(
+                    row.number,
+                    open == Some(row.number),
+                    highlight_title(row, positions),
+                )
+            } else {
+                issue_line(row, positions, width)
+            }
+        },
         issues.selected,
         &mut issues.list_state,
         focused,
@@ -75,6 +94,21 @@ fn issue_line(row: &RemoteItem, positions: &[usize], width: u16) -> Vec<Span<'st
             Style::default().fg(Color::Cyan),
         ));
     }
+    spans
+}
+
+// 詳細を開いている間の左端レール 1 行。幅が無いので番号とタイトルだけに絞り、右ペインに
+// 出している行には ▎ を付ける — 一覧のハイライト (選択カーソル) とは別に「今どれを読んで
+// いるか」を示す必要があるため (レールでは j/k で選択だけ動かせる)。issues/PR で共有する
+pub(crate) fn rail_spans(number: u64, open: bool, title: Vec<Span<'static>>) -> Vec<Span<'static>> {
+    let mut spans = vec![
+        Span::styled(
+            if open { "▎" } else { " " },
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::styled(format!("#{number} "), Style::default().fg(Color::DarkGray)),
+    ];
+    spans.extend(title);
     spans
 }
 

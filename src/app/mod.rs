@@ -691,6 +691,10 @@ impl App {
         match self.workspace {
             Workspace::Issues => {
                 self.focus = Focus::Tree;
+                // タブに入った直後は一覧だけを全幅で見せる (レール + 詳細のレイアウトは
+                // Enter/l/クリックで選んだ時にだけ出す)。キャッシュは捨てないので、
+                // 直前に読んでいた issue を開き直しても gh は叩かれない
+                self.issues.close_detail();
                 // 初回タブ表示時に 1 回だけ取得する。タブを往復しても再取得しない
                 if !self.issues.fetched() && !self.issues.list_loading() {
                     self.refresh_issues();
@@ -698,6 +702,7 @@ impl App {
             }
             Workspace::PullRequests => {
                 self.focus = Focus::Tree;
+                self.prs.close_detail();
                 // 右ペインは Viewer タブと同じ Rect なので、まだ 1 度も描かれていない
                 // Viewport にも実測値を渡しておく (GitState::new / LogState::new と同じ理由)
                 self.prs

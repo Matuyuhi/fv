@@ -152,48 +152,71 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     }
 }
 
-// issues タブの中身。左 = 一覧、右 = 詳細で、幅・ドラッグリサイズは Viewer タブと
-// 同じ App::tree_width / split_ratio を共有する (tree_area 等の書き戻しも同じパターン)
-fn draw_issues_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
-    let [left, right] = Layout::horizontal([
-        Constraint::Length(app.tree_width(main.width)),
-        Constraint::Min(1),
-    ])
-    .areas(main);
+// issues / pull requests タブは「一覧だけ (全幅)」と「レール + 詳細」の 2 レイアウトを行き来する。
+// 詳細を開いていない間に空の詳細ペインを出しておくと、タブに入った直後の主操作 (一覧から選ぶ)
+// に対して画面の半分が常に無駄になるため。開いている間も一覧を消さないのは、レールから
+// j/k + Enter で次を開けるようにするため (Viewer タブのツリーと同じ役割)
+const RAIL_WIDTH: u16 = 24;
+
+// 一覧ペイン (全幅 or レール) と詳細ペインの矩形を決め、マウスのヒットテスト用に書き戻す。
+// issues/PR で同じなので 1 箇所に閉じる。ペイン境界のドラッグはどちらのレイアウトでも
+// 持たない (レールは固定幅、一覧のみの時は境界そのものが無い) ので splitter_area は空にする
+fn remote_layout(app: &mut App, main: Rect, detail_open: bool) -> (Rect, Option<Rect>) {
+    app.splitter_area = Rect::default();
+    if !detail_open {
+        app.tree_area = main;
+        // 空 Rect は contains が常に false なので、詳細ペインへのクリック・ホイールは
+        // 判定を分岐させなくても自然に届かなくなる (tab_areas の無効化と同じ手)
+        app.viewer_area = Rect::default();
+        return (main, None);
+    }
+    // 狭い端末でレールが画面の 1/3 を超えないようにするだけの上限 (下限は 8 桁 = "#1234" が入る幅)
+    let rail = RAIL_WIDTH.min((main.width / 3).max(8)).min(main.width);
+    let [left, right] =
+        Layout::horizontal([Constraint::Length(rail), Constraint::Min(1)]).areas(main);
     app.tree_area = left;
     app.viewer_area = right;
-    app.splitter_area = Rect {
-        x: left.right().saturating_sub(1),
-        y: main.y,
-        width: 2.min(main.width),
-        height: main.height,
-    };
-    let list_focused = app.focus == Focus::Tree;
-    let detail_focused = app.focus == Focus::Viewer;
-    let background = app.viewer.background();
-    issues::view::draw_issues_list(frame, &mut app.issues, list_focused, left);
-    issues::view::draw_issues_detail(frame, &mut app.issues, detail_focused, background, right);
+    (left, Some(right))
 }
 
-// pull requests タブの中身。issues タブと同じ左右分割・幅共有パターン
-// (App::tree_width / split_ratio、tree_area 等の書き戻し)
-fn draw_pr_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
-    let [left, right] = Layout::horizontal([
-        Constraint::Length(app.tree_width(main.width)),
-        Constraint::Min(1),
-    ])
-    .areas(main);
-    app.tree_area = left;
-    app.viewer_area = right;
-    app.splitter_area = Rect {
-        x: left.right().saturating_sub(1),
-        y: main.y,
-        width: 2.min(main.width),
-        height: main.height,
-    };
+// issues タブの中身
+fn draw_issues_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
+    let (list_rect, detail_rect) = remote_layout(app, main, app.issues.open_number().is_some());
     let list_focused = app.focus == Focus::Tree;
-    let detail_focused = app.focus == Focus::Viewer;
-    let background = app.viewer.background();
-    prs::view::draw_pr_list(frame, &mut app.prs, list_focused, left);
-    prs::view::draw_pr_detail(frame, &mut app.prs, detail_focused, background, right);
+    issues::view::draw_issues_list(
+        frame,
+        &mut app.issues,
+        list_focused,
+        detail_rect.is_some(),
+        list_rect,
+    );
+    if let Some(detail_rect) = detail_rect {
+        let detail_focused = app.focus == Focus::Viewer;
+        let background = app.viewer.background();
+        issues::view::draw_issues_detail(
+            frame,
+            &mut app.issues,
+            detail_focused,
+            background,
+            detail_rect,
+        );
+    }
+}
+
+// pull requests タブの中身。issues タブと同じ 2 レイアウト
+fn draw_pr_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
+    let (list_rect, detail_rect) = remote_layout(app, main, app.prs.open_number().is_some());
+    let list_focused = app.focus == Focus::Tree;
+    prs::view::draw_pr_list(
+        frame,
+        &mut app.prs,
+        list_focused,
+        detail_rect.is_some(),
+        list_rect,
+    );
+    if let Some(detail_rect) = detail_rect {
+        let detail_focused = app.focus == Focus::Viewer;
+        let background = app.viewer.background();
+        prs::view::draw_pr_detail(frame, &mut app.prs, detail_focused, background, detail_rect);
+    }
 }

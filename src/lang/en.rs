@@ -163,6 +163,9 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::HelpSwitchFocusBetweenListDetail => "switch focus between list and detail",
         Msg::HelpEnterLClick => "Enter / l / click",
         Msg::HelpLoadSelectedIssueSDetail => "load the selected issue's detail on the right",
+        Msg::HelpCloseDetailBackToListOnly => {
+            "close the detail and go back to the list-only screen"
+        }
         Msg::HelpOpenInBrowserGhIssue => "open in the browser (gh issue view --web)",
         Msg::HelpRefetchListSwitchingTabsDoes => {
             "refetch the list (switching tabs does not refetch)"
