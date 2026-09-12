@@ -328,8 +328,7 @@ pub(super) fn node_mut<'a>(nodes: &'a mut [Node], index_path: &[usize]) -> Optio
 
 // ディレクトリ 1 階層だけを読む。1 階層でも WalkBuilder を通すのは、既定の
 // parents(true) が祖先の .gitignore まで遡って読むため、サブディレクトリ起点の
-// 走査でも root 側の無視設定がそのまま効くから (これが効かないなら一括走査に
-// 戻す必要がある)。
+// 走査でも root 側の無視設定がそのまま効くから。
 // parent_ignored は親ディレクトリ自体が無視対象かどうか。無視されたディレクトリの
 // 配下は git 的にも全て無視対象なので、その場合は判定用の再走査を省いて全件 true にする
 pub(super) fn read_dir(dir: &Path, opts: ScanOptions, parent_ignored: bool) -> Vec<Node> {

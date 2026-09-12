@@ -1,8 +1,8 @@
-//! pull requests タブ (#34) の描画。左ペイン (一覧) は issues タブと同じ
-//! remote_list_pane::draw_remote_list を再利用し、右ペインは表示切替 (説明/diff/CI) を
+//! pull requests タブの描画。左ペイン (一覧) は issues タブと同じ
+//! remotelist::view::draw_remote_list を再利用し、右ペインは表示切替 (説明/diff/CI) を
 //! ここで振り分ける。diff だけ GIT/LOG レーンと同じ sticky header・hunk・wrap の描画が
 //! 要るので、gitlane::render_commit の結果 (PrsState 経由) と widget/diff_boundary.rs の
-//! 部品をそのまま使う (行の組み立てそのものは複製しない)
+//! 部品をそのまま使う
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -33,7 +33,7 @@ pub(crate) fn draw_pr_list(frame: &mut Frame, prs: &mut PrsState, focused: bool,
         prs.state_filter.label()
     );
     // list_error() は Option<&str> (prs を借りたまま) を返すため、&mut prs.list_state と
-    // 同じ呼び出しには渡せない (issues_pane::draw_issues_list と同じ理由で String に複製する)
+    // 同じ呼び出しには渡せない (issues/view.rs::draw_issues_list と同じ理由で String に複製する)
     let error = prs.list_error().map(str::to_string);
     draw_remote_list(
         frame,
@@ -140,11 +140,9 @@ pub(crate) fn draw_pr_detail(
     );
 }
 
-// diff 表示。GIT レーン (git_pane.rs) の単一ファイル diff・LOG レーン (log_pane.rs) の
-// 複数ファイル diff と同じ見え方 (行番号 gutter・色・hunk・sticky header) にするため、
-// gitlane::render_commit の結果をそのまま同じ組み立て順 (widen_boundary_bands → sticky_line
-// を先頭に挿す) で描く。行の組み立てそのものは PrsState::fetch 側 (gitlane::render_commit) に
-// 任せ、ここでは描画だけを行う
+// diff 表示。GIT レーンの単一ファイル diff・LOG レーンの複数ファイル diff と同じ見え方
+// (行番号 gutter・色・hunk・sticky header) にするため、gitlane::render_commit の結果を
+// そのまま同じ組み立て順 (widen_boundary_bands → sticky_line を先頭に挿す) で描く
 fn draw_pr_diff(
     frame: &mut Frame,
     prs: &mut PrsState,

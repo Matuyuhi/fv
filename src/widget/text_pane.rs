@@ -49,10 +49,7 @@ impl<'a> LineWindow<'a> {
 /// 両方を同時に使うモードはない。
 ///
 /// 各段は `Vec<Span>` を**受け取って返す**形にしてあり、加工しない span は中身を
-/// 複製せず借りたまま (borrowed) / 所有したまま (move) 引き継ぐ。組み立て済みの行は
-/// 描画のたびに読むだけなので、段ごとに Line を deep clone すると 1 フレームの確保が
-/// 「可視行数 × span 数」に比例して積み上がる (再描画のコストを画面の大きさより上に
-/// 持ち上げない、の一環)
+/// 複製せず借りたまま (borrowed) / 所有したまま (move) 引き継ぐ。
 pub(crate) struct TextPane<'a> {
     pub window: LineWindow<'a>,
     pub changed_lines: &'a Option<HashSet<usize>>,
@@ -388,10 +385,8 @@ fn push_segment(spans: &mut Vec<Span<'_>>, chars: &[char], style: Style) {
 }
 
 // 論理行 1 本を width セルごとの視覚行に切る。span の style は切れ目を跨いで保存する。
-// 切る単位が char 数ではなくセル数なのは、端末 (ratatui の LineTruncator) が全角を
-// 2 セル送るため — char 数で詰めると行が幅を超え、はみ出した文字が次の視覚行にも
-// 現れないまま消える。走査も char ではなく grapheme 単位にするのは、ZWJ 絵文字の
-// ように「char ごとの幅の合計と実際の描画幅が食い違う」列を割らないため。
+// 切る単位・走査の単位は text::WrapCursor に合わせる (char で数えると全角やZWJ 絵文字で
+// 桁がずれる。理由は text.rs 側)。
 // span の内容は normalize 済み (タブ展開済み) なのでタブの手当ては要らない
 fn wrap_line<'a>(line: &[Span<'a>], width: usize, gutter_width: usize) -> Vec<Line<'a>> {
     let mut rows: Vec<Line<'a>> = Vec::new();
@@ -578,8 +573,8 @@ mod tests {
         );
     }
 
-    // 帯をペイン幅まで伸ばす量は char 数ではなくセル幅で測る。全角を 1 桁と数えると
-    // 詰めすぎて行が幅を超え、ZWJ 絵文字 (char 4 個で描画幅 2) では足りずに右端が空く
+    // 全角を 1 桁と数えると詰めすぎて行が幅を超え、ZWJ 絵文字 (char 4 個で描画幅 2) では
+    // 逆に足りず右端が空く。その 2 つの失敗モードを両端から押さえる
     #[test]
     fn widening_a_band_measures_cells_not_chars() {
         for (body, label) in [("あいう", "全角"), ("👩\u{200d}💻ab", "ZWJ")] {

@@ -108,13 +108,12 @@ impl Finder {
     }
 }
 
-// クエリの各文字を candidate 内で順序を保って探す (大小無視)。マッチしなければ None。
+// クエリの各文字を candidate 内で順序を保って探す (大小無視)。
 // 大小無視は既存の検索実装 (viewer.rs の fold_case) と同じ理由で to_ascii_lowercase を使う:
 // char 数を変えないため、返す positions がそのまま元の文字列の char インデックスとして使える。
 //
 // 各クエリ文字は「直前の一致位置より後で最初に現れる位置」を貪欲に選ぶ2ポインタ法。
-// 最適なアラインメントを保証するものではないが、クエリを連続入力すれば自然と
-// 連続一致になるため実用上は十分で、数千件を毎キー入力で線形走査しても軽い
+// 最適なアラインメントは保証しないが、数千件を毎キー入力で線形走査しても軽い
 //
 // pub(crate): BranchState (component/branch/mod.rs) が新しいマッチャを書かずこれを再利用するため公開する
 pub(crate) fn fuzzy_match(candidate: &str, query: &str) -> Option<(i64, Vec<usize>)> {

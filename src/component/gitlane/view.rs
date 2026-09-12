@@ -19,11 +19,11 @@ pub(crate) fn draw_git(
     area: Rect,
 ) {
     let inner_width = area.width.saturating_sub(2) as usize;
-    // まとめ diff (#31) の sticky header に 1 行使う分だけ TextPane へ渡す高さを削る。
+    // まとめ diff の sticky header に 1 行使う分だけ TextPane へ渡す高さを削る。
     // LOG レーンの draw_log_diff と同じく scroll ではなく「境界を持つか」だけで決める
     // (scroll 依存にすると Ctrl+d/Ctrl+u のページ送り量がスクロール中に変わってしまう)
     let sticky_reserved = usize::from(git.has_file_boundary());
-    // キー・マウス処理が次のフレームで読む実測値の書き戻し (viewer_pane と同じパターン)。
+    // キー・マウス処理が次のフレームで読む実測値の書き戻し (viewer/view.rs と同じパターン)。
     // side-by-side のカラム幅もここに書いた width から導出する (GitState::column_width)
     git.viewport.height = (area.height.saturating_sub(2) as usize).saturating_sub(sticky_reserved);
     git.viewport.width = inner_width;
@@ -79,7 +79,7 @@ pub(crate) fn draw_git(
     let pane = TextPane {
         window: LineWindow::slice(git.lines(), &git.viewport),
         // diff 自体が変更の表示なので、閲覧側の変更行マーク・char 単位カーソルは使わない
-        // (行カーソルは focus_row の帯で出す)。検索 (#31) は inline 表示
+        // (行カーソルは focus_row の帯で出す)。検索は inline 表示
         // (単一ファイル/まとめ diff とも) でだけ有効にする
         changed_lines: &None,
         search: git.search(),
@@ -105,7 +105,7 @@ pub(crate) fn draw_git(
 // 区切り罫線を挟む。折返し中は GitState::side_wrapped が char 単位に事前分割・行数を
 // 揃えた列を返す (wrap 幅は実測でしか出せないので作るのは描画時だが、幅も diff も
 // 変わらなければ作り直さない)。事前に行数を揃えてあるぶん TextPane 自体は非 wrap の
-// まま普通にスライスするだけで済み、text_pane.rs に side-by-side 専用の分岐は増えない
+// まま普通にスライスするだけで済む
 fn draw_side_by_side(
     frame: &mut Frame,
     git: &mut GitState,

@@ -173,8 +173,7 @@ fn is_ignore_config(root: &Path, path: &Path) -> bool {
 /// 内容を伴う操作なら別のイベントが必ず来るので実害は無い。
 /// Modify(Data) だけ structural=false にする — ファイルの中身が変わってもツリーの行構成
 /// (どのパスが存在するか) は変わらないため、呼び出し側はここだけ WalkBuilder の全走査を
-/// 省略できる。種別が判別できない Modify (Rename 以外の Any 等) は「構造が変わったかもしれない」
-/// 側に倒し、全走査をスキップして表示が古いまま固定される事故を避ける
+/// 省略できる。種別が判別できない Modify は structural=true 側に倒す
 fn classify(kind: &EventKind) -> Option<bool> {
     match kind {
         EventKind::Create(_) | EventKind::Remove(_) => Some(true),

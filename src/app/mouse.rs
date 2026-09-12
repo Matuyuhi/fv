@@ -67,9 +67,8 @@ impl App {
         let area = self.viewer_area;
         // 枠線 (上 1 セル) の内側だけをコンテンツ座標に変換し、sticky header が実際に
         // 描かれている行数ぶんをさらに差し引く。**高さの確保 (has_file_boundary) ではなく
-        // 描画の有無 (sticky_label) で判定する** — 高さは「境界を持つか」だけで常に予約する
-        // 一方、sticky 行自体は最初のファイル境界より手前 (コミットメッセージ本文) では
-        // 挿入されない。確保の方で引くと、その領域ではクリックが 1 行ずれて先頭行を選べない
+        // 描画の有無 (sticky_label) で判定する** — 確保の方で引くと、sticky 行が挿入されない
+        // 領域 (最初のファイル境界より手前) でクリックが 1 行ずれて先頭行を選べない
         let Some(row) = mouse.row.checked_sub(area.y + 1).map(usize::from) else {
             return;
         };
@@ -236,7 +235,7 @@ impl App {
         }
     }
 
-    // issues タブ (#33) のマウス操作。左右ペインの領域判定は Viewer タブと同じ tree_area/
+    // issues タブのマウス操作。左右ペインの領域判定は Viewer タブと同じ tree_area/
     // viewer_area を使い回す (draw_issues_workspace が同じ書き戻しパターンで埋める)
     fn on_issues_mouse(&mut self, mouse: MouseEvent) {
         self.pending_g = false;
@@ -268,7 +267,7 @@ impl App {
         }
     }
 
-    // pull requests タブ (#34) のマウス操作。issues (#33) と同じ tree_area/viewer_area を使い回す
+    // pull requests タブのマウス操作。issues と同じ tree_area/viewer_area を使い回す
     fn on_pr_mouse(&mut self, mouse: MouseEvent) {
         self.pending_g = false;
         let pos = Position::new(mouse.column, mouse.row);

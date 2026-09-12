@@ -196,8 +196,8 @@ impl Lane {
 ";
 
 // modified=false が HEAD の内容、true が作業ツリーの内容。
-// 行の入れ替え・1 単語だけの変更を混ぜてあり、word-level ハイライト (#29) と
-// side-by-side (#30) の見え方をそのままプレビューで確認できる
+// 行の入れ替え・1 単語だけの変更を混ぜてあり、word-level ハイライトと
+// side-by-side の見え方をそのままプレビューで確認できる
 fn main_rs(modified: bool) -> String {
     let mode = if modified { "Lane::Git" } else { "Lane::View" };
     let extra = if modified {

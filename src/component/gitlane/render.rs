@@ -30,9 +30,8 @@ pub(super) fn render_inline(body: &[(Kind, &str)]) -> InlineDiff {
 /// 1 つに揃える (TextPane の wrap 幅計算はパネル単位で単一の gutter_width を前提にしており、
 /// ファイルごとに違う幅を使うと折返し位置がずれるため)
 ///
-/// 戻り値の最後の `Vec<(usize, String)>` はファイル境界 (#40 sticky header 用):
-/// ファイル見出し行の index → 表示ラベル。既存の 4 要素の意味・生成ロジックはそのまま
-/// (呼び出し側で追加的に使うだけの情報なので、行の組み立て自体には手を入れない)
+/// 戻り値の最後の `Vec<(usize, String)>` はファイル境界 (sticky header 用):
+/// ファイル見出し行の index → 表示ラベル。
 pub fn render_commit(raw: &[String]) -> CommitRender {
     let diff_start = raw
         .iter()
@@ -48,7 +47,7 @@ pub fn render_commit(raw: &[String]) -> CommitRender {
     let mut lines = Vec::new();
     let mut hunks = Vec::new();
     let mut max_width = 0usize;
-    // ファイル境界: 見出し行を push する直前の index がその行番号 (#40)
+    // ファイル境界: 見出し行を push する直前の index がその行番号
     let mut boundaries = Vec::new();
 
     for raw_line in header {

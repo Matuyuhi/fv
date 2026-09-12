@@ -152,7 +152,7 @@ fn draw_viewer_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     }
 }
 
-// issues タブ (#33) の中身。左 = 一覧、右 = 詳細で、幅・ドラッグリサイズは Viewer タブと
+// issues タブの中身。左 = 一覧、右 = 詳細で、幅・ドラッグリサイズは Viewer タブと
 // 同じ App::tree_width / split_ratio を共有する (tree_area 等の書き戻しも同じパターン)
 fn draw_issues_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     let [left, right] = Layout::horizontal([
@@ -175,7 +175,7 @@ fn draw_issues_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     issues::view::draw_issues_detail(frame, &mut app.issues, detail_focused, background, right);
 }
 
-// pull requests タブ (#34) の中身。issues タブと同じ左右分割・幅共有パターン
+// pull requests タブの中身。issues タブと同じ左右分割・幅共有パターン
 // (App::tree_width / split_ratio、tree_area 等の書き戻し)
 fn draw_pr_workspace(frame: &mut Frame, app: &mut App, main: Rect) {
     let [left, right] = Layout::horizontal([

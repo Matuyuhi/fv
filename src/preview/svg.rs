@@ -191,8 +191,8 @@ fn push_text(out: &mut String, runs: &[Run], top: f32) {
 ///
 /// 空白のセルは本文から落とす。空白は何も描かず、位置決めは後続の文字が自分の x を
 /// 持っているので要らない。落とすことで XML の空白の扱い (連続する空白の詰め・
-/// 前後の空白の削除) に一切依存しなくなる — `xml:space="preserve"` は SVG2 で
-/// 非推奨になっており、実際に Chromium では効かず字送りが 1 文字ずつずれた
+/// 前後の空白の削除) に一切依存しなくなる — `xml:space="preserve"` は Chromium では
+/// 効かず字送りが 1 文字ずつずれた
 fn glyphs(run: &Run) -> (String, String) {
     let mut xs = String::new();
     let mut text = String::new();

@@ -1,5 +1,5 @@
-//! LOG の複数ファイル diff (`git show`) と GIT レーンの「全ファイルまとめ diff」(#31) が
-//! 共有するファイル境界の描画ヘルパー。#40 で LOG 用に作った sticky header の見た目を
+//! LOG の複数ファイル diff (`git show`) と GIT レーンの「全ファイルまとめ diff」が
+//! 共有するファイル境界の描画ヘルパー。LOG 用に作った sticky header の見た目を
 //! そのまま流用する (境界の色・truncate ロジックを 2 箇所に複製しない)。
 
 use ratatui::style::{Color, Modifier, Style};
@@ -20,8 +20,7 @@ pub(crate) fn sticky_line(label: &str, width: usize) -> Line<'static> {
         .bg(BOUNDARY_BG)
         .add_modifier(Modifier::BOLD);
     let label = truncate_label(label, width.max(1));
-    // 詰める量は char 数ではなくセル幅で測る (widen_row_bands と同じ理由)。
-    // 全角を 1 桁と数えると帯がペイン幅を超えて罫線を押し出す
+    // 詰める量はセル幅で測る (text_pane::widen_row_bands と同じ理由)
     let pad = width.saturating_sub(text::cells(&label));
     Span::styled(format!("{label}{}", " ".repeat(pad)), style).into()
 }
@@ -39,7 +38,6 @@ pub(crate) fn widen_boundary_bands(rows: &mut [Line<'_>], width: usize) {
         else {
             continue;
         };
-        // 使用済み幅も char 数ではなくセル幅で測る (text_pane::widen_row_bands と同じ)。
         // Line::width は span ごとに text::cells と同じ測り方をするので描画と一致する
         let used = row.width();
         if used < width {
@@ -73,9 +71,8 @@ fn truncate_label(label: &str, max_width: usize) -> String {
     format!("…{}", tail_by_cells(label, max_width - ellipsis))
 }
 
-// 末尾から budget セルぶんを取る。char ではなく grapheme 単位で数えるのは、全角 (1 char =
-// 2 セル) と ZWJ 絵文字 (char 数の合計と描画幅が食い違う) のどちらでも桁をずらさないため。
-// grapheme 分割は描画とまったく同じ計算になるよう ratatui を通す (text::WrapCursor と同じ)
+// 末尾から budget セルぶんを取る。grapheme 分割は描画とまったく同じ計算になるよう
+// ratatui を通す (text::WrapCursor と同じ)
 fn tail_by_cells(label: &str, budget: usize) -> String {
     let span = Span::raw(label);
     let graphemes: Vec<&str> = span

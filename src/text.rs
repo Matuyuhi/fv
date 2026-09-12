@@ -59,8 +59,7 @@ pub fn cells(symbol: &str) -> usize {
 /// (wrap_rows)・カーソル追従 (wrap_position)・クリック座標 (wrap_col_at) の 4 者が
 /// この 1 つの規則を共有する。
 /// **char ではなく grapheme を単位にする**のは、ZWJ 絵文字 (👩\u{200d}💻) のように
-/// 「char ごとの幅の合計 (4) と実際の描画幅 (2) が食い違う」列があるため。char で
-/// 数えると幅を過大に見積もって列が途中で切れ、絵文字が 2 つの視覚行に割れる
+/// 「char ごとの幅の合計 (4) と実際の描画幅 (2) が食い違う」列があるため
 pub(crate) struct WrapCursor {
     width: usize,
     used: usize,

@@ -1,8 +1,7 @@
 // バックグラウンドジョブの汎用基盤。std::thread::spawn + mpsc::channel でブロッキング処理
 // (ネットワークを伴う git コマンド等) を投げっぱなしにし、結果は呼び出し側 (App::on_tick) が
 // 既存の 100ms poll ループの中で try_recv して drain するだけにする。専用タイマーやブロッキング
-// read を新設しないための唯一の入口。GIT リモート操作 (#27) 専用ではなく、将来の GitHub 連携
-// (issues/PR の取得等) もここへ乗せる想定であえて git 非依存にしてある
+// read を新設しないための唯一の入口で、git には依存しない
 
 use std::sync::mpsc::{self, Receiver};
 use std::thread;

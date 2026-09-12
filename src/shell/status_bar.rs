@@ -13,7 +13,7 @@ pub(super) fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     // レーンのセグメントは常に先頭に出す。Claude Code のモード表示と同じく
     // 「今どこにいるか」と「Shift+Tab で次に何が来るか」を同時に見せるため
     let mut spans = lane_segments(app);
-    // ブランチ + ahead/behind は issue #26 の要求通り GIT レーン以外・どの Mode 中でも常時出す
+    // ブランチ + ahead/behind は GIT レーン以外・どの Mode 中でも常時出す
     spans.extend(branch_segment(app));
     spans.extend(hint_line(app).spans);
     let paragraph = Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::White));
@@ -311,7 +311,7 @@ fn normal_status_line(app: &App) -> Line<'static> {
     // コミット一覧ペイン (`L`) が絡む文脈は専用のヒントに振り分ける。**選択・検索より前に
     // 見る**のが要点で、どちらも viewer (ファイル表示) に紐づく状態なのに残り続けるため、
     // 後ろに置くと「検索したまま L を押す」だけでキーの宛先 (コミット一覧) とヒント (検索) が
-    // 食い違う。パネルを出していない間はここを素通りするので従来の見え方は変わらない
+    // 食い違う
     if app.focus == Focus::Log
         && let Some(log) = &app.log
     {

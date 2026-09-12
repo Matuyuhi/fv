@@ -17,8 +17,7 @@ pub(crate) fn draw_viewer(frame: &mut Frame, viewer: &mut Viewer, focused: bool,
     // 借りるメソッド (background) はその前に済ませておく
     let background = viewer.background();
     // 行カーソルは viewer.render を可変で借りる前に読み出しておく (background と同じ理由)。
-    // 帯を出すのはこのペインにフォーカスがある間だけ — ツリー操作中の右ペインに
-    // 帯だけが残っていても、そのキーがそこへ効かない以上ただの雑音になる
+    // 帯を出すのはこのペインにフォーカスがある間だけ (CLAUDE.md「行カーソル」)
     let focus_row = focused.then(|| viewer.cursor());
 
     let Some(open) = &viewer.current else {

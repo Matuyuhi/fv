@@ -19,7 +19,7 @@ pub enum Focus {
     Viewer,
 }
 
-// Search と Goto (:N 行ジャンプ) の入力を kind で分ける。Filter は issues/PR タブ (#33/#34) の
+// Search と Goto (:N 行ジャンプ) の入力を kind で分ける。Filter は issues/PR タブの
 // 一覧絞り込み用で、Search と違い「常設のフィルタ状態を編集する」ものなので Esc の意味が違う
 // (Search は cancel で全消去、Filter は編集前のクエリへ復元。issues::IssuesState 参照)
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -56,9 +56,7 @@ pub struct SettingsState {
 /// (Finder と同じパターン)。オーバーレイ (Mode) を挟んでもレーンは保持されるので、
 /// GIT でヘルプを開いて閉じても GIT に戻る。
 ///
-/// コミット履歴はかつて Lane::Log として 4 つ目のレーンだったが、「ファイルを読みながら
-/// 履歴も見る」が本来の使い方で、レーンを 1 つ消費して画面を丸ごと差し替えるのは強すぎた。
-/// 今は VIEW の左ペイン下半分に出る一覧 (App::log) になっていて、レーンではなく `L` の
+/// コミット履歴はレーンではなく VIEW の左ペイン下半分に出す一覧 (App::log) で、`L` の
 /// トグルで on/off する
 pub enum Lane {
     View,
@@ -104,7 +102,7 @@ pub enum Mode {
     Settings(SettingsState),
     // 破壊的・書き込み系操作の確認オーバーレイ。Lane と直交する (GIT で出しても EDIT で出しても
     // 同じ挙動)。y/Enter でのみ action を実行し、それ以外の全キーは中止として扱う。
-    // #23 (stage/unstage) は非破壊的なのでここを経由させない
+    // stage/unstage は非破壊的なのでここを経由させない
     Confirm {
         prompt: String,
         action: ConfirmAction,
@@ -124,25 +122,25 @@ pub enum Mode {
 }
 
 /// Mode::Confirm が実行する操作。クロージャは App を借りたまま呼べず持たせられないため
-/// enum にする。書き込み系の子 issue が実装されるたびにここへ variant を足していく想定。
-/// #23 (stage/unstage) は非破壊的操作なので Confirm を経由させない
+/// enum にする。書き込み系の操作が実装されるたびにここへ variant を足していく想定。
+/// stage/unstage は非破壊的操作なので Confirm を経由させない
 pub enum ConfirmAction {
     // amend は履歴を書き換える (push 済みの可能性がある) ので確認を必須にする。
-    // 通常コミットは確認なしで直接実行する (issue #24 の要求通り)
+    // 通常コミットは確認なしで直接実行する
     Amend {
         message: String,
     },
-    /// 選択ファイル/ディレクトリの変更破棄 (#25)。is_dir は tracked/untracked の扱いを
+    /// 選択ファイル/ディレクトリの変更破棄。is_dir は tracked/untracked の扱いを
     /// 分けるために確認時点の Row から引き継ぐ (実行時に fs へ問い合わせ直さない)
     Discard {
         path: PathBuf,
         is_dir: bool,
     },
-    /// `git stash push -u` (#25)。untracked も含めて退避する
+    /// `git stash push -u`。untracked も含めて退避する
     StashPush,
-    /// `git stash pop` (#25)。コンフリクト時は stash entry を残したまま notice にエラーを出す
+    /// `git stash pop`。コンフリクト時は stash entry を残したまま notice にエラーを出す
     StashPop,
-    /// `P`: push (#27)。fetch/pull と違いリモートの履歴・ブランチ構成を変えるので確認必須にする
+    /// `P`: push。fetch/pull と違いリモートの履歴・ブランチ構成を変えるので確認必須にする
     Push,
     /// `D`: ツリーの選択ファイル/ディレクトリを fs から削除する (app/file_ops.rs)。
     /// git を経由しない (discard と違い tracked かどうかを問わない) ので復元できない
@@ -153,11 +151,10 @@ pub enum ConfirmAction {
 }
 
 /// トップレベルのタブ ("Workspace")。Lane / Mode に続く 3 本目の軸で、GitHub モード
-/// (#32) 有効時だけヘッダに 1 行のタブバーとして現れる。Viewer が既存アプリ全体
+/// 有効時だけヘッダに 1 行のタブバーとして現れる。Viewer が既存アプリ全体
 /// (Lane 3 種 + ツリー + オーバーレイ) にあたり、Issues / PullRequests は「ローカルの
 /// ファイル」という文脈を共有しないリモートのデータなので Lane には混ぜない。
-/// #33 / #34 で中身が入るまでは状態を持たない unit variant のままで良い
-/// (Lane::View が状態を持たないのと同じ理由)
+/// 状態は App が持つので unit variant のままにする (Lane::View と同じ)
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Workspace {
     Viewer,

@@ -28,14 +28,10 @@ pub fn stage_path(root: &Path, path: &Path, has_deletion: bool) -> GitOutcome {
 /// discard (tracked 分): `git restore --source=HEAD --staged --worktree --`。untracked 分の
 /// 削除は git ではなく呼び出し側の fs 操作で扱うため、この関数は tracked 分のみを対象にする。
 ///
-/// HEAD の無い初期 repo では `--staged` 側の復元先が HEAD しかあり得ない (index が最初の
-/// 内容そのものなので、index を復元先にする選択肢が無い) ため、`--source` を省いても
-/// 同じ「HEAD を解決できない」エラーになる (`--staged --worktree` は明示 `--source=HEAD` と
-/// 挙動が同じ。unstage_path の「try → だめなら別コマンド」とは違い、単純な代替コマンドが
-/// 存在しない)。そこで HEAD 無し repo 限定のフォールバックとして、`--worktree` 単独
-/// (index 基準で HEAD を要求しない) で worktree 側だけ index に揃えた上で、`git rm --cached`
-/// (unstage_path と同じ) で index から外す。結果としてファイルは HEAD 相当の内容へは戻らず
-/// (存在しないため) untracked として残る点は「破棄」として不完全だが、HEAD 未解決のまま
+/// HEAD の無い初期 repo では `--staged` 側の復元先が HEAD しかあり得ないため、HEAD 無し
+/// repo 限定のフォールバックとして `--worktree` 単独 (index 基準で HEAD を要求しない) で
+/// worktree 側だけ index に揃えた上で、`git rm --cached` で index から外す。結果として
+/// ファイルは HEAD 相当の内容へは戻らず untracked として残るが、HEAD 未解決のまま
 /// エラーを見せるよりは安全側 (誤ってファイルを消さない) に倒している
 pub fn discard_path(root: &Path, path: &Path, is_dir: bool) -> GitOutcome {
     let outcome = run_git_write(
@@ -158,7 +154,6 @@ pub fn commit(root: &Path, message: &str, amend: bool) -> GitOutcome {
 /// パッチはメッセージ本文と同じ理由 (エスケープ・コマンドライン長) で stdin から渡す。
 /// `--whitespace=nowarn` を付けるのは、既存の空白エラーを含む行を stage しようとしたときに
 /// git の警告でパッチが弾かれる (= 表示されている hunk なのに stage できない) のを避けるため。
-/// fv は diff を「そのまま index へ移す」だけで、内容の整形はしない
 pub fn apply_cached(root: &Path, patch: &str, reverse: bool) -> GitOutcome {
     let mut args: Vec<OsString> = vec![
         OsString::from("apply"),

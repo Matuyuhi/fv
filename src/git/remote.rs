@@ -1,4 +1,4 @@
-// fetch / pull / push (#27)。認証プロンプトで裏のスレッドが無限に待つのが最悪の挙動なので、
+// fetch / pull / push。認証プロンプトで裏のスレッドが無限に待つのが最悪の挙動なので、
 // 実行環境の潰し方 (run_git_remote) をこのモジュール 1 箇所に閉じる。
 
 use crate::lang::{Msg, t};
@@ -8,7 +8,7 @@ use std::process::Command;
 
 use super::{GitOutcome, first_line};
 
-/// `f`/`p`/`P` (#27) の種別。ステータスバー表示・完了メッセージの組み立て・
+/// `f`/`p`/`P` の種別。ステータスバー表示・完了メッセージの組み立て・
 /// 多重起動防止 (App::pending_remote_job) に使う
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RemoteJobKind {
@@ -30,8 +30,7 @@ impl RemoteJobKind {
 /// fetch/pull/push 専用の実行。`run_git_write` の `GIT_TERMINAL_PROMPT=0` に加え、
 /// `GIT_ASKPASS`/`SSH_ASKPASS` を空文字にしてプロンプト用の外部プロセス起動そのものを潰し、
 /// `SSH_ASKPASS_REQUIRE=never` で DISPLAY の有無に関わらず ssh 側からの起動も止める。
-/// 認証プロンプトで裏のスレッドが無限に待つのが最悪の挙動なので、ここで確実に潰しておく
-/// (待たせるくらいなら「認証が必要」で即失敗させて notice に出す方が安全)。
+/// 認証プロンプトで裏のスレッドが無限に待つのが最悪の挙動なので、ここで確実に潰しておく。
 /// fetch は進捗・更新内容が成功時でも stderr に出るため、stdout が空なら stderr を見る
 fn run_git_remote<I, S>(root: &Path, args: I) -> GitOutcome
 where

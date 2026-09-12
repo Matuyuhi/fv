@@ -1,4 +1,4 @@
-//! side-by-side 表示 (#30)。左右 2 本の Line 列を「対応行が同じ視覚行に来る」よう組み立て、
+//! side-by-side 表示。左右 2 本の Line 列を「対応行が同じ視覚行に来る」よう組み立て、
 //! 折返し時の行数合わせ (side_by_side_wrapped) までをここに閉じる。
 //! text_pane.rs には side-by-side 専用の分岐を足さないための受け皿。
 
@@ -16,7 +16,7 @@ use super::{ADDED, ADDED_WORD_BG, DELETED, DELETED_WORD_BG, HUNK, Kind, SideDiff
 
 /// unified diff の body から side-by-side (左 = 旧, 右 = 新) の 2 本の Line 列を組み立てる。
 /// 削除行 = 左のみ・追加行 = 右のみ・文脈行と hunk header = 両方。削除→追加が連続する
-/// ブロックは同じ視覚行に並べ、行数が合わない側は空行で埋める (issue #30 の要件)
+/// ブロックは同じ視覚行に並べ、行数が合わない側は空行で埋める
 pub(super) fn render_side_by_side(body: &[(Kind, &str)]) -> SideDiff {
     let left_gutter_width = text::gutter_width(max_old_lineno(body));
     let right_gutter_width = text::gutter_width(max_new_lineno(body));
@@ -189,8 +189,7 @@ pub(super) fn side_by_side_wrapped(
 // text_pane.rs の wrap_line と同じセル単位分割 (span の style は境界を跨いで保持する)。
 // side-by-side はカラムごとに幅・gutter 幅が違う独立した 2 本のドキュメントを同時に扱うため
 // text_pane 側の (1 本の Line 列前提の) wrap をそのまま呼べず、ここに複製している。
-// 折返しの規則そのものは text::WrapCursor を共有するので、複製されるのは
-// 「span を積み直す組み立て」だけで、どこで切るかの判断は 1 箇所のままになる
+// 折返しの規則そのものは text::WrapCursor を共有する
 fn wrap_split(line: &Line<'static>, width: usize, gutter_width: usize) -> Vec<Line<'static>> {
     let mut rows: Vec<Line> = Vec::new();
     let mut spans: Vec<Span> = vec![

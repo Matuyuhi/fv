@@ -1,10 +1,9 @@
-//! issues (#33) / pull requests (#34) タブが共有する一覧・詳細キャッシュの土台。
+//! issues / pull requests タブが共有する一覧・詳細キャッシュの土台。
 //! 「gh の一覧取得 → フィルタ (query + state) → 選択 → 詳細を番号ごとに非同期キャッシュ」
 //! という形がどちらも完全に同じなので、絞り込みの実アルゴリズム (`filter_rows`) と
 //! 詳細の非同期キャッシュ (`DetailSlot`) をここに 1 度だけ実装して両タブから使う。
 //! state 絞り込みのカーディナリティ (issues は open/closed/all、PR は
-//! open/closed/merged/all) と一覧の行の型 (issues は RemoteItem そのもの、PR は
-//! headRefName/isDraft を足した PrRow) は呼び出し側ごとに違うため、ここには持ち込まず
+//! open/closed/merged/all) と一覧の行の型は呼び出し側ごとに違うため、ここには持ち込まず
 //! `ListRow` トレイト (title/state を引けること) 越しに扱う。
 pub mod view;
 
@@ -72,7 +71,7 @@ pub fn filter_rows<R: ListRow>(
 /// 番号 (issue/PR number) ごとに非同期取得・キャッシュする詳細スロット。issues の詳細
 /// (1 種類) と PR の説明/diff/CI (3 種類、component/prs/mod.rs) がどちらも「取得中/キャッシュ済み/
 /// エラー を番号で持つ」という同じ形なので、表示用に組み立て済みのデータ型 T だけ差し替えて
-/// 共有する (T は issues/PR の説明なら Vec<Line<'static>>、PR の diff なら専用の構造体)
+/// 共有する
 /// `poll` の結果。`changed` は「画面に出る状態が動いたか」で、main.rs の再描画判定が読む。
 /// notice を返さない (成功して静かにキャッシュが埋まっただけの) ケースでも再描画は要るため、
 /// 通知の有無とは別のフラグとして持つ

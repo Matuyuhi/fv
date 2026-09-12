@@ -29,7 +29,7 @@ use crate::text;
 const MAX_HIGHLIGHT_BYTES: usize = 10 * 1024 * 1024;
 /// バイナリ判定で先頭から NUL バイトを探す範囲
 const BINARY_SNIFF_BYTES: usize = 8192;
-/// 履歴スタックの上限件数。vim の jumplist に倣い、超えたら古い方から捨てる
+/// 履歴スタックの上限件数 (vim の jumplist に倣う)
 const HISTORY_LIMIT: usize = 50;
 
 /// syntect が同梱するデフォルトテーマの一覧。設定画面のテーマ切替はこの中を巡回する
@@ -179,9 +179,8 @@ impl Viewer {
         }
     }
 
-    // 履歴スタックに新規ファイルを積む。ブラウザ履歴と同じく、現在位置より後ろ (進む方向) は
-    // 切り捨ててから末尾に追加する。呼び出し元 (open) で「同一ファイルの連続 open」は
-    // 早期 return 済みなので、ここでは単純に追加してよい
+    // 呼び出し元 (open) で「同一ファイルの連続 open」は早期 return 済みなので、
+    // ここでは重複を気にせず末尾へ足してよい
     fn push_history(&mut self, path: &Path) {
         if !self.history.is_empty() {
             self.history.truncate(self.history_index + 1);
@@ -424,7 +423,7 @@ impl Viewer {
         self.ensure_cursor_visible();
     }
 
-    /// :N の行ジャンプ。1-origin。範囲外は最終行にクランプ。0 は no-op (呼び出し側でも弾いているが念のため)
+    /// :N の行ジャンプ。1-origin。範囲外は最終行にクランプ。0 は no-op
     pub fn goto_line(&mut self, line_no: usize) {
         if line_no == 0 {
             return;
@@ -589,8 +588,7 @@ impl Viewer {
     }
 }
 
-// 巨大ファイルは syntect を通さない。判定自体は load が済ませているので、
-// ここは HighlightCache へ渡すための取り出しだけ
+// 判定自体は load が済ませているので、ここは HighlightCache へ渡すための取り出しだけ
 fn plain_only(content: &Content) -> bool {
     match content {
         Content::Text(doc) => doc.plain_only,

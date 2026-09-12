@@ -1,5 +1,5 @@
 mod buffer;
-// word-level diff (#29) が LCS 実装を再利用するため gitlane からも見える必要がある
+// word-level diff が LCS 実装を再利用するため gitlane からも見える必要がある
 pub(crate) mod diff;
 pub mod view;
 mod word;
