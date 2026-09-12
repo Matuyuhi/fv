@@ -5,6 +5,14 @@
 ## GitHub モードのタブバー（app/mouse.rs on_tab_mouse・shell/tab_bar.rs）
 タブごとの列範囲は `App::tab_areas`（`shell/tab_bar.rs` が毎フレーム書き戻す、`tree_area`/`splitter_area` と同じ 描画→app のパターン）。クリック判定 `on_tab_mouse` はペイン境界のドラッグと同じ理由でレーン・オーバーレイ判定より前に処理して消費する（タブ移動はレーンと直交する操作）。`workspace_available` が false の間は `tab_areas` が全て空 Rect のままなので、判定コードを分岐させなくても自然に無効化される。
 
+## 一覧と詳細のレイアウト（shell/mod.rs::remote_layout）
+issues/PR タブは**「一覧だけを全幅で出す」「左端の細いレール（最小化した一覧）+ 詳細」の 2 レイアウト**を行き来する。左右を常に割り付ける形をやめたのは、タブに入った直後の主操作が「一覧から読むものを選ぶ」で、その間ずっと画面の半分が空の詳細ペインに取られていたため。判定は新しいフラグを増やさず `IssuesState::open_number` / `PrsState::open_number` の有無だけで行い、矩形の決定とマウス用の書き戻し（`tree_area`/`viewer_area`/`splitter_area`）は `shell::remote_layout` 1 箇所に閉じる（issues と PR で同じ形なので 2 回書かない）。
+- **行き来の経路**: 開くのは Enter/`l`/クリック（PR は `d`/`S` でも開く）、戻るのは `Esc`。開いた瞬間に `Focus::Viewer` へ寄せる（`App::open_selected_issue`/`open_selected_pr`/`switch_pr_view`）ので、開いてすぐ `j`/`k` で読める。`Esc` は `close_detail()` + `Focus::Tree` で、レール + 詳細 ⇄ 一覧だけ の唯一の戻り道
+- **タブに入り直したら詳細は畳む**（`App::after_workspace_change` が `close_detail`）。「タブ切替時は一覧のみ」を仕様として固定するため。キャッシュ（コメント・diff・CI）は捨てないので、同じ番号を開き直しても gh は叩かれない
+- **レールは固定幅**（`RAIL_WIDTH` = 24 桁、狭い端末では画面の 1/3 まで）。Viewer タブの `split_ratio`（ドラッグリサイズ）は共有しない — 「最小化した一覧」は可変にする意味が無く、`splitter_area` を空 Rect にすればドラッグ判定も自然に無効になる。一覧のみの時も同じく空 Rect
+- **レールも同じ `draw_remote_list` / 同じ状態のまま**で、`compact` フラグで行の組み立てとペインタイトルだけを差し替える（`issues::view::rail_spans` を PR と共有）。専用の描画経路を別に持つと選択位置・スクロールが 2 系統になる。レール行は `▎#番号 タイトル` で、`▎` は「右ペインに出ているのはどれか」を示す — レールでは `j`/`k` が選択カーソルだけを動かす（詳細は追従しない）ので、選択ハイライトとは別の印が要る
+- 詳細を開いていない間は `viewer_area` が空 Rect なので、クリック・ホイールの宛先判定（app/mouse.rs）は分岐を増やさずそのまま無効になる。`Tab`（一覧 ⇄ 詳細）とステータスバーのヒントだけは「画面に無いペインの操作を案内しない」ために `open_number` を見る
+
 ## issues タブ（#33、github.rs + component/issues/）
 - 取得は `gh issue list`/`gh issue view` を CLI 呼び出しで済ませ、`--json` の生 JSON を自前パースする代わりに `--template` で `\0` 区切りのプレーンテキストへ整形させてから porcelain -z と同じ流儀でパースする（serde を足さないため）。`--template` 単独では gh が使うフィールドを決められないため `--json number,title,author,updatedAt,labels,state,body` を必ず併せて渡す
 - **一覧は `--state all` で常に 1 回だけ取得する**。`t`（open/closed/all の循環）は再取得せず `IssuesState::state_filter` によるローカルフィルタに閉じる — 「タブを往復しても gh を叩かない」という要求と同じ理由で、state 切替のたびに gh を叩くのは避けたい。副作用として `--limit 100` の枠を open/closed 合算で消費する（極端に issue が多い repo では新しい open issue が一覧から漏れうるが、`r` で明示的に取り直せる）

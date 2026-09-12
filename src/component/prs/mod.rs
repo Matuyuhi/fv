@@ -1,7 +1,9 @@
-//! GitHub pull requests タブの状態。左ペインは一覧 (issues タブと同じ
-//! remotelist::{filter_rows, DetailSlot} を再利用したフィルタ + キャッシュ)、右ペインは
-//! 選択 PR の 3 表示 (説明・diff・CI ステータス) を切り替える。一覧側の実装は issues タブと
-//! 完全に共有し、PR 固有なのは headRefName/isDraft と右ペイン 3 種の切替だけ。
+//! GitHub pull requests タブの状態。一覧 (issues タブと同じ
+//! remotelist::{filter_rows, DetailSlot} を再利用したフィルタ + キャッシュ) と、選択 PR の
+//! 3 表示 (説明・diff・CI ステータス) を切り替える詳細から成る。issues タブと同じく画面は
+//! 「一覧だけ」「レール + 詳細」の 2 レイアウトで、`open_number` の有無だけで決まる。
+//! 一覧側の実装は issues タブと完全に共有し、PR 固有なのは headRefName/isDraft と
+//! 詳細 3 種の切替だけ。
 //!
 //! 説明表示は `RemoteItem::body` (一覧取得時点で受け取り済み) から即座に組み立て、
 //! コメントだけ非同期の 1 往復で取りに行く。diff と CI は一覧に含まれず取得が要るため、
@@ -267,6 +269,15 @@ impl PrsState {
 
     pub fn open_number(&self) -> Option<u64> {
         self.open_number
+    }
+
+    /// Esc / タブへ入り直した時: 詳細を畳んで一覧のみの画面へ戻す。キャッシュ
+    /// (コメント/diff/CI) は捨てないので、開き直しても gh は叩かれない。先読みは
+    /// `advance_prefetch` が open_number のずれを見て自分から Idle へ落ちる
+    pub fn close_detail(&mut self) {
+        self.open_number = None;
+        self.view = DetailView::Description;
+        self.description_display = Vec::new();
     }
 
     /// Enter/l/クリック (常に説明表示) と d/S (diff/CI へ表示切替) が共通で呼ぶ。

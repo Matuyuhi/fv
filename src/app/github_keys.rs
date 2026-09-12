@@ -26,12 +26,22 @@ impl App {
             }
             KeyCode::Tab => {
                 self.pending_g = false;
+                // 詳細を開いていない間は一覧しか画面に無いので、行き来する相手が居ない。
                 // Focus::Log は Viewer タブ専用 (after_workspace_change がタブ移動時に
                 // Tree へ寄せる) なのでここへは来ないが、来ても左ペイン扱いで矛盾しない
                 self.focus = match self.focus {
-                    Focus::Tree | Focus::Log => Focus::Viewer,
+                    Focus::Tree | Focus::Log if self.issues.open_number().is_some() => {
+                        Focus::Viewer
+                    }
+                    Focus::Tree | Focus::Log => Focus::Tree,
                     Focus::Viewer => Focus::Tree,
                 };
+                return;
+            }
+            // Esc: 詳細を畳んで一覧のみの画面へ戻す (レール + 詳細 ⇄ 一覧だけ の唯一の戻り道)
+            KeyCode::Esc => {
+                self.issues.close_detail();
+                self.focus = Focus::Tree;
                 return;
             }
             KeyCode::Char('o') => {
@@ -125,7 +135,12 @@ impl App {
         let Some(number) = self.issues.selected_number() else {
             return;
         };
-        if !self.issues.request_open(number) {
+        let need_fetch = self.issues.request_open(number);
+        // 一覧だけの画面から「レール + 詳細」へ切り替わる操作なので、読む側へフォーカスを移す
+        // (戻るのは Tab か Esc)。キャッシュ済みで取得が要らない時も同じなので、
+        // need_fetch による早期 return より前に行う
+        self.focus = Focus::Viewer;
+        if !need_fetch {
             return;
         }
         let root = self.root.clone();
@@ -172,12 +187,17 @@ impl App {
             }
             KeyCode::Tab => {
                 self.pending_g = false;
-                // Focus::Log は Viewer タブ専用 (after_workspace_change がタブ移動時に
-                // Tree へ寄せる) なのでここへは来ないが、来ても左ペイン扱いで矛盾しない
+                // issues タブと同じ (詳細を開いていない間は行き来する相手が居ない)
                 self.focus = match self.focus {
-                    Focus::Tree | Focus::Log => Focus::Viewer,
+                    Focus::Tree | Focus::Log if self.prs.open_number().is_some() => Focus::Viewer,
+                    Focus::Tree | Focus::Log => Focus::Tree,
                     Focus::Viewer => Focus::Tree,
                 };
+                return;
+            }
+            KeyCode::Esc => {
+                self.prs.close_detail();
+                self.focus = Focus::Tree;
                 return;
             }
             KeyCode::Char('o') => {
@@ -289,6 +309,8 @@ impl App {
         self.prs
             .set_open(number, crate::component::prs::DetailView::Description);
         self.prs.note_opened(number);
+        // issues タブと同じく、開いたら詳細ペインへフォーカスを移す
+        self.focus = Focus::Viewer;
         self.dispatch_pr_fetch();
     }
 
@@ -303,6 +325,9 @@ impl App {
             return;
         };
         self.prs.set_open(number, view);
+        // 一覧だけを見ている状態から d/S で直接開いた場合もレイアウトが変わるので、
+        // Enter/l と同じく詳細ペインへフォーカスを移す
+        self.focus = Focus::Viewer;
         self.dispatch_pr_fetch();
         // 先読みで diff が既にキャッシュ済みだと dispatch_pr_fetch はジョブを起動しない
         // (=poll での通知が発火しない) ため、表示に切り替えた瞬間にここで打ち切りを知らせる

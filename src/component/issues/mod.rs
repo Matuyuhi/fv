@@ -1,5 +1,6 @@
-//! GitHub issues タブの状態。左ペインは一覧 (フィルタ + キャッシュ)、右ペインは選択 issue の
-//! 詳細で、VIEW/EDIT/GIT/LOG のいずれとも独立した Viewport を持つ (別ドキュメントなので
+//! GitHub issues タブの状態。画面は「一覧だけ (全幅)」と「左端のレール + 詳細」の 2 レイアウトで、
+//! どちらかは `open_number` の有無だけで決まる (shell::remote_layout・docs/design/github.md)。
+//! 詳細は VIEW/EDIT/GIT/LOG のいずれとも独立した Viewport を持つ (別ドキュメントなので
 //! 位置を共有する意味がなく、Viewer タブへ戻った時の読み位置も壊さない)。一覧・コメント取得・
 //! ブラウザで開く、の 3 操作はすべて job.rs の非同期基盤に乗せ、イベントループをブロックしない。
 //! フィルタは component/finder/mod.rs の fuzzy_match を再利用し、新しいマッチャは書かない。
@@ -253,6 +254,17 @@ impl IssuesState {
             self.comments.loading(number),
             self.comments.error(number),
         );
+    }
+
+    pub fn open_number(&self) -> Option<u64> {
+        self.open_number
+    }
+
+    /// Esc / タブへ入り直した時: 詳細を畳んで一覧のみの画面へ戻す。キャッシュ (コメント) は
+    /// 捨てないので、同じ issue を開き直しても gh は叩かれない
+    pub fn close_detail(&mut self) {
+        self.open_number = None;
+        self.display = Vec::new();
     }
 
     pub fn begin_open_web(&mut self, rx: Receiver<Result<(), String>>) {

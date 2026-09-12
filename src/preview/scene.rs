@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
-use crate::app::{App, Lane};
+use crate::app::{App, Focus, Lane};
 use crate::component::prs::{self, DetailView};
 use crate::github::{PrRow, RemoteItem};
 
@@ -253,8 +253,21 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "issues-list",
+        description: "issues タブ: 一覧だけの画面 (タブに入った直後)",
+        size: None,
+        setup: |app| {
+            send(app, "<A-2>");
+            let (tx, rx) = mpsc::channel();
+            let _ = tx.send(Ok(sample_issues()));
+            app.issues.begin_list_fetch(rx);
+            app.issues.poll();
+            app.issues.move_selection(1);
+        },
+    },
+    Scene {
         name: "issues",
-        description: "issues タブ (GitHub モード)",
+        description: "issues タブ: 詳細を開いた画面 (左端は最小化した一覧)",
         size: None,
         setup: |app| {
             send(app, "<A-2>");
@@ -266,6 +279,9 @@ pub const SCENES: &[Scene] = &[
             app.issues.poll();
             app.issues.move_selection(1);
             app.issues.request_open(number);
+            // Enter/l/クリックで開いた時と同じフォーカス (App::open_selected_issue)。
+            // 状態を直接注入するシーンなので、キー経路が行うぶんもここで揃える
+            app.focus = Focus::Viewer;
             let (tx, rx) = mpsc::channel();
             let _ = tx.send((number, Ok(sample_comments())));
             app.issues.begin_comments_fetch(rx);
@@ -274,7 +290,7 @@ pub const SCENES: &[Scene] = &[
     },
     Scene {
         name: "prs",
-        description: "pull requests タブ (GitHub モード)",
+        description: "pull requests タブ: 説明表示 (左端は最小化した一覧)",
         size: None,
         setup: |app| {
             send(app, "<A-3>");
@@ -285,6 +301,7 @@ pub const SCENES: &[Scene] = &[
             app.prs.begin_list_fetch(rx);
             app.prs.poll();
             app.prs.set_open(number, DetailView::Description);
+            app.focus = Focus::Viewer;
             app.prs.request_current();
             let (tx, rx) = mpsc::channel();
             let _ = tx.send((number, Ok(sample_comments())));
