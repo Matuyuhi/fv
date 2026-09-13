@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph};
 
 use crate::component::branch::{BranchRow, BranchState};
 
@@ -51,11 +51,14 @@ fn draw_list(frame: &mut Frame, state: &mut BranchState, area: Rect) {
             ListItem::new(Line::from(spans))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▎")
+        .highlight_spacing(HighlightSpacing::Always);
     let selected = (!state.matches.is_empty()).then_some(state.selected);
     state.list_state.select(selected);
     frame.render_stateful_widget(list, area, &mut state.list_state);
