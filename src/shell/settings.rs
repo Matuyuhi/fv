@@ -2,7 +2,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{
+    Block, Borders, Clear, HighlightSpacing, List, ListItem, ListState, Paragraph,
+};
 
 use crate::app::{App, Mode, SETTINGS_ROWS};
 use crate::lang::{self, Msg};
@@ -43,11 +45,14 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             ]))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▎")
+        .highlight_spacing(HighlightSpacing::Always);
     let mut list_state = ListState::default().with_selected(Some(state.selected));
     frame.render_stateful_widget(list, list_area, &mut list_state);
 
