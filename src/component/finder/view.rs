@@ -59,11 +59,14 @@ fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
             ListItem::new(Line::from(highlight_finder_match(path, &m.positions)))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_symbol("▎")
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
     let selected = (!finder.matches.is_empty()).then_some(finder.selected);
     finder.list_state.select(selected);
     frame.render_stateful_widget(list, area, &mut finder.list_state);

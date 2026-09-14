@@ -75,6 +75,8 @@ pub(crate) fn draw_remote_list<R>(
         .collect();
     let list = List::new(items)
         .block(pane_block(title, focused))
+        .highlight_symbol("▎")
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
