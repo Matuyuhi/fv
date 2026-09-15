@@ -1,0 +1,4 @@
+## 2025-02-14 - Fix argument injection vulnerability in git branch commands
+**Vulnerability:** Argument injection when spawning `git switch` processes. Branch names starting with a hyphen (like `-c`) could be passed to `git switch <name>` and wrongly parsed by Git as an option instead of a positional branch name.
+**Learning:** `Command::new` requires explicit `--` arguments to protect variable inputs from being confused with flags when wrapping POSIX commands like `git` or `gh`, specifically in `switch_branch` and `switch_track_branch`. However, commands that explicitly take values, such as `git switch -c <name>`, don't need `--` because `-c` consumes the next token safely.
+**Prevention:** Always insert `--` before user-provided string arguments in external commands that allow positional arguments mixed with options.
