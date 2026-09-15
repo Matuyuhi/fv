@@ -7,3 +7,7 @@
 ## $(date +%Y-%m-%d) - Edit Mode Notice Consistency
 **Learning:** Edit mode specific notices (`EditState.notice`) previously bypassed the standard `notice_line` styling, resulting in warnings (unsaved changes) and errors (save failed) lacking visual distinction (color and icon) from normal hints.
 **Action:** Always ensure nested or state-specific notice mechanisms reuse the top-level standard styling to provide a consistent visual language across all modes.
+
+## 2024-05-23 - List Selection Accessibility
+**Learning:** For TUI accessibility, relying solely on background color to denote selected items in `ratatui`'s `List` widget can be insufficient (e.g. low contrast setups or color blindness).
+**Action:** Always append `.highlight_symbol("▎")` and `.highlight_spacing(ratatui::widgets::HighlightSpacing::Always)` to `List::new()` instantiations so selection is clearly indicated by a dedicated character.

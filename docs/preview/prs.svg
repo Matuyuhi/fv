@@ -13,17 +13,18 @@
 <rect x="23" y="54" width="198" height="20" fill="#65737e"/>
 <rect x="230" y="54" width="774" height="20" fill="#2b303b"/>
 <text x="14" y="69" fill="#65737e">│</text>
-<text x="23" y="69" fill="#96b5b4" font-weight="bold">▎</text>
-<text x="32 41 50" y="69" fill="#65737e" font-weight="bold">#62</text>
-<text x="68 77 86 95 104 122 140 158 176 194" y="69" fill="#c0c5ce" font-weight="bold">feat:実装しなが</text>
+<text x="23" y="69" fill="#c0c5ce" font-weight="bold">▎</text>
+<text x="32" y="69" fill="#96b5b4" font-weight="bold">▎</text>
+<text x="41 50 59" y="69" fill="#65737e" font-weight="bold">#62</text>
+<text x="77 86 95 104 113 131 149 167 185 203" y="69" fill="#c0c5ce" font-weight="bold">feat:実装しなが</text>
 <text x="221" y="69" fill="#65737e">│</text>
 <text x="230" y="69" fill="#96b5b4">│</text>
 <text x="239 248 257 284 293 302 311 320 338 356 374 392 410 428 455 464 482 500 518 536 554 572 590 608 626 644 662 680 698 716 734 752" y="69" fill="#c0c5ce" font-weight="bold">#62feat:実装しながらUIを確認できるプレビューを追加する</text>
 <text x="995" y="69" fill="#96b5b4">│</text>
 <rect x="230" y="74" width="774" height="20" fill="#2b303b"/>
 <text x="14" y="89" fill="#65737e">│</text>
-<text x="32 41 50" y="89" fill="#65737e">#58</text>
-<text x="68 77 86 95 104 122 140 158 176 194" y="89" fill="#c0c5ce">perf:ツリーペイ</text>
+<text x="41 50 59" y="89" fill="#65737e">#58</text>
+<text x="77 86 95 104 113 131 149 167 185 203" y="89" fill="#c0c5ce">perf:ツリーペイ</text>
 <text x="221" y="89" fill="#65737e">│</text>
 <text x="230" y="89" fill="#96b5b4">│</text>
 <text x="239 248 257 266 293 302 311 320 329 338 347 356 365 392 401 410 419 428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 563" y="89" fill="#65737e">open@matuyuhi2026-08-01T01:20:00Z</text>

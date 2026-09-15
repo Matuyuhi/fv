@@ -12,8 +12,8 @@
 <text x="230 239 248 257 284 302 320 338 356 374 401 410 428 446 464 482 500 518 536 554 572 590 599 608 617 626 635 644 653 662 671 680 689 698 707 716 725 734 743 752 761 770 779 788 797 806 815 824 833 842 851 860 869 878 887 896 905 914 923 932 941 950 959 968 977 986 995" y="49" fill="#96b5b4">┌#39実装しながらUIをプレビューしたい─────────────────────────────────────────────┐</text>
 <rect x="230" y="54" width="774" height="20" fill="#2b303b"/>
 <text x="14" y="69" fill="#65737e">│</text>
-<text x="32 41 50" y="69" fill="#65737e">#41</text>
-<text x="68 77 86 104 122 140 158 185 194 203 212" y="69" fill="#c0c5ce">GITレーンでhunk</text>
+<text x="41 50 59" y="69" fill="#65737e">#41</text>
+<text x="77 86 95 113 131 149 167 194 203 212" y="69" fill="#c0c5ce">GITレーンでhun</text>
 <text x="221" y="69" fill="#65737e">│</text>
 <text x="230" y="69" fill="#96b5b4">│</text>
 <text x="239 248 257 284 302 320 338 356 374 401 410 428 446 464 482 500 518 536 554 572" y="69" fill="#c0c5ce" font-weight="bold">#39実装しながらUIをプレビューしたい</text>
@@ -21,9 +21,10 @@
 <rect x="23" y="74" width="198" height="20" fill="#65737e"/>
 <rect x="230" y="74" width="774" height="20" fill="#2b303b"/>
 <text x="14" y="89" fill="#65737e">│</text>
-<text x="23" y="89" fill="#96b5b4" font-weight="bold">▎</text>
-<text x="32 41 50" y="89" fill="#65737e" font-weight="bold">#39</text>
-<text x="68 86 104 122 140 158 185 194" y="89" fill="#c0c5ce" font-weight="bold">実装しながらUI</text>
+<text x="23" y="89" fill="#c0c5ce" font-weight="bold">▎</text>
+<text x="32" y="89" fill="#96b5b4" font-weight="bold">▎</text>
+<text x="41 50 59" y="89" fill="#65737e" font-weight="bold">#39</text>
+<text x="77 95 113 131 149 167 194 203" y="89" fill="#c0c5ce" font-weight="bold">実装しながらUI</text>
 <text x="221" y="89" fill="#65737e">│</text>
 <text x="230" y="89" fill="#96b5b4">│</text>
 <text x="239 248 257 266 293 302 311 320 329 338 347 356 365 392 401 410 419 428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 563" y="89" fill="#65737e">open@matuyuhi2026-07-30T22:05:00Z</text>
