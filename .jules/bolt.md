@@ -4,3 +4,6 @@
 ## 2024-05-19 - str::replace vs clone
 **Learning:** `str::replace()` overhead is significant compared to `contains() + clone()` when there is no match (e.g. 27ms vs 12ms for 100k strings). However, when there IS a match, the `contains()` check adds a small overhead (71ms vs 73ms).
 **Action:** Use `.contains()` before `.replace()` only when the pattern is highly unlikely to be found (e.g., `\r` in pasted text, or `\t` in source files that primarily use spaces). It provides a worthwhile speedup for the common case (no match) at the cost of a tiny regression in the rare case (match).
+## 2024-05-19 - str::replace allocating overhead with paths
+**Learning:** Checking for presence with `str::contains()` before doing a blind `str::replace()` when normalizing paths (e.g., `rel.replace('\\', "/")`) gives a very substantial speedup (4x) on UNIX systems and on non-backslash paths, avoiding unnecessary string allocations. Path normalization happens repeatedly during git operations (diff parsing, hunks).
+**Action:** Use `.contains()` before `.replace()` for cases like replacing backslashes with forward slashes in path handling where the presence of the character is OS-dependent and often absent.
