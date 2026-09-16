@@ -7,3 +7,7 @@
 ## $(date +%Y-%m-%d) - Edit Mode Notice Consistency
 **Learning:** Edit mode specific notices (`EditState.notice`) previously bypassed the standard `notice_line` styling, resulting in warnings (unsaved changes) and errors (save failed) lacking visual distinction (color and icon) from normal hints.
 **Action:** Always ensure nested or state-specific notice mechanisms reuse the top-level standard styling to provide a consistent visual language across all modes.
+
+## 2026-09-16 - Add Highlight Symbol for Selection State Accessibility
+**Learning:** Depending solely on color changes (e.g., background color) to convey selection states in lists can make the application less accessible.
+**Action:** When using ratatui's `List`, always configure it with a `.highlight_symbol()` (such as `"\u{258e}"`) and `ratatui::widgets::HighlightSpacing::Always` to ensure a consistent visual indicator alongside the color change.

@@ -43,11 +43,14 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             ]))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_symbol("\u{258e}")
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
     let mut list_state = ListState::default().with_selected(Some(state.selected));
     frame.render_stateful_widget(list, list_area, &mut list_state);
 

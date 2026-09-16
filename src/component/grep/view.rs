@@ -93,11 +93,14 @@ fn draw_list(frame: &mut Frame, grep: &mut GrepState, area: Rect) {
             ListItem::new(Line::from(hit_spans(&file.path.to_string_lossy(), hit)))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_symbol("\u{258e}")
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        );
     // List には切り出した部分列を渡すので、選択位置も offset もそれに合わせて相対化する
     // (絶対値の list_state をそのまま渡すと二重にずれる。tree/view.rs と同じ)
     let mut window_state = ListState::default().with_selected(selected.map(|s| s - first));

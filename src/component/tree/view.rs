@@ -107,11 +107,15 @@ pub(crate) fn draw_tree(
                 .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
     } else {
-        let list = List::new(items).block(block).highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
+        let list = List::new(items)
+            .block(block)
+            .highlight_symbol("\u{258e}")
+            .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            );
         // items は [first, last) だけの部分列なので、List に渡す選択位置もその中の相対位置に
         // 直す必要がある。絶対値は app.tree.list_state (offset() 経由でクリック判定が読む) 側に
         // 既に書き戻し済みなので、ここは使い捨ての一時 state で構わない
