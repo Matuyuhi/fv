@@ -958,5 +958,11 @@ fn header_path_matches(raw: &[String], rel: &str) -> bool {
         .find_map(|l| l.strip_prefix("+++ b/"))
         .or_else(|| raw.iter().find_map(|l| l.strip_prefix("--- a/")));
     // Path::display() は Windows で `\` 区切りになるが diff のヘッダは常に `/` なので揃える
-    header.is_some_and(|path| path == rel.replace('\\', "/"))
+    header.is_some_and(|path| {
+        if rel.contains('\\') {
+            path == rel.replace('\\', "/")
+        } else {
+            path == rel
+        }
+    })
 }

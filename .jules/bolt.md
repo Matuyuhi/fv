@@ -4,3 +4,6 @@
 ## 2024-05-19 - str::replace vs clone
 **Learning:** `str::replace()` overhead is significant compared to `contains() + clone()` when there is no match (e.g. 27ms vs 12ms for 100k strings). However, when there IS a match, the `contains()` check adds a small overhead (71ms vs 73ms).
 **Action:** Use `.contains()` before `.replace()` only when the pattern is highly unlikely to be found (e.g., `\r` in pasted text, or `\t` in source files that primarily use spaces). It provides a worthwhile speedup for the common case (no match) at the cost of a tiny regression in the rare case (match).
+## 2024-05-17 - Avoid unnecessary allocations with `str::replace()`
+**Learning:** `str::replace()` allocates memory unconditionally, even if the substring isn't found. This can be problematic in hot loops like `header_path_matches`.
+**Action:** When using `str::replace()`, pre-check if the substring exists using `str::contains()`. Only call `str::replace()` if the substring is present.
