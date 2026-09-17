@@ -116,13 +116,13 @@ pub fn branch_status(root: &Path) -> Option<BranchStatus> {
 
 /// ローカルブランチへ切り替える (`git switch <name>`)
 pub fn switch_branch(root: &Path, name: &str) -> GitOutcome {
-    run_git_write(root, ["switch", name])
+    run_git_write(root, ["switch", "--", name])
 }
 
 /// リモート追跡ブランチを新しいローカルブランチとして切り替える。
 /// remote_ref はリモート側の refname:short ("origin/feature" 等) をそのまま渡す
 pub fn switch_track_branch(root: &Path, remote_ref: &str) -> GitOutcome {
-    run_git_write(root, ["switch", "--track", remote_ref])
+    run_git_write(root, ["switch", "--track", "--", remote_ref])
 }
 
 /// 新規ブランチを作成して切り替える (`git switch -c <name>`)
