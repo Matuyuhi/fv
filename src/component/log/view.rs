@@ -1,7 +1,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph};
 
 use crate::component::log::LogState;
 
@@ -66,11 +66,15 @@ pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool
             ListItem::new(label)
         })
         .collect();
-    let list = List::new(items).block(block).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▎")
+        .highlight_spacing(HighlightSpacing::Always);
     // items は [first, last) の部分列なので、List へ渡す選択位置はその中の相対位置に直す
     // (絶対値は log.list_state 側に書き戻し済みなので、ここは使い捨ての state で構わない)
     let mut render_state = ListState::default();

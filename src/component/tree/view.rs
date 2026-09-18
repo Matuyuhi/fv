@@ -4,7 +4,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, ListState};
+use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState};
 
 use crate::component::tree::Tree;
 use crate::git::{FileStatus, GitStatus, StatusKind};
@@ -107,11 +107,15 @@ pub(crate) fn draw_tree(
                 .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
     } else {
-        let list = List::new(items).block(block).highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
+        let list = List::new(items)
+            .block(block)
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▎")
+            .highlight_spacing(HighlightSpacing::Always);
         // items は [first, last) だけの部分列なので、List に渡す選択位置もその中の相対位置に
         // 直す必要がある。絶対値は app.tree.list_state (offset() 経由でクリック判定が読む) 側に
         // 既に書き戻し済みなので、ここは使い捨ての一時 state で構わない

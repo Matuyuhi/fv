@@ -7,7 +7,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph};
 
 use crate::component::remotelist::ListMatch;
 use crate::component::viewer::Viewport;
@@ -79,7 +79,9 @@ pub(crate) fn draw_remote_list<R>(
             Style::default()
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD),
-        );
+        )
+        .highlight_symbol("▎")
+        .highlight_spacing(HighlightSpacing::Always);
     list_state.select((!matches.is_empty()).then_some(selected));
     frame.render_stateful_widget(list, area, list_state);
 }

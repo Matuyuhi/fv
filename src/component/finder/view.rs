@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph};
 
 use crate::component::finder::Finder;
 
@@ -59,11 +59,14 @@ fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
             ListItem::new(Line::from(highlight_finder_match(path, &m.positions)))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▎")
+        .highlight_spacing(HighlightSpacing::Always);
     let selected = (!finder.matches.is_empty()).then_some(finder.selected);
     finder.list_state.select(selected);
     frame.render_stateful_widget(list, area, &mut finder.list_state);
