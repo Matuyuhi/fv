@@ -104,6 +104,6 @@ pub fn push(root: &Path, branch: &str, has_upstream: bool) -> GitOutcome {
     if has_upstream {
         run_git_remote(root, ["push"])
     } else {
-        run_git_remote(root, ["push", "--set-upstream", "origin", branch])
+        run_git_remote(root, ["push", "--set-upstream", "origin", "--", branch])
     }
 }
