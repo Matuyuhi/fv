@@ -7,3 +7,7 @@
 ## $(date +%Y-%m-%d) - Edit Mode Notice Consistency
 **Learning:** Edit mode specific notices (`EditState.notice`) previously bypassed the standard `notice_line` styling, resulting in warnings (unsaved changes) and errors (save failed) lacking visual distinction (color and icon) from normal hints.
 **Action:** Always ensure nested or state-specific notice mechanisms reuse the top-level standard styling to provide a consistent visual language across all modes.
+
+## $(date +%Y-%m-%d) - TUI List Selection Accessibility
+**Learning:** In terminal UIs, relying solely on background color `.bg()` for list selection state is an accessibility anti-pattern, especially on terminals with varying color palettes or low contrast.
+**Action:** Always use `.highlight_symbol("\u{258e}")` combined with `.highlight_spacing(ratatui::widgets::HighlightSpacing::Always)` for Ratatui `List` widgets. This adds a solid vertical bar (Half Block) to the left of the selected item while keeping layout stable, providing a clear structural indicator alongside color changes.

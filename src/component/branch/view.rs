@@ -51,11 +51,14 @@ fn draw_list(frame: &mut Frame, state: &mut BranchState, area: Rect) {
             ListItem::new(Line::from(spans))
         })
         .collect();
-    let list = List::new(items).highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    );
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("\u{258e}")
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always);
     let selected = (!state.matches.is_empty()).then_some(state.selected);
     state.list_state.select(selected);
     frame.render_stateful_widget(list, area, &mut state.list_state);
