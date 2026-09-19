@@ -14,53 +14,54 @@
 <rect x="320" y="54" width="675" height="20" fill="#3e4a66"/>
 <rect x="995" y="54" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="69" fill="#65737e">│</text>
-<text x="23" y="69" fill="#c0c5ce">▸</text>
-<text x="41 50 59 68 77 86" y="69" fill="#8fa1b3">assets</text>
+<text x="32" y="69" fill="#c0c5ce">▸</text>
+<text x="50 59 68 77 86 95" y="69" fill="#8fa1b3">assets</text>
 <text x="302" y="69" fill="#65737e">│</text>
 <text x="311" y="69" fill="#96b5b4">│</text>
 <text x="347 356 365 374 383 392 410 419 428 437 446 455 464 473 482 491 500 509 518 527 536 545 554 563 572 581 590 599 608 617 626 635 644 653 662 671 680 689 698 707 716 725 734 743 752 761" y="69" fill="#c0c5ce">commitxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</text>
 <text x="995" y="69" fill="#96b5b4">│</text>
 <rect x="311" y="74" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="89" fill="#65737e">│</text>
-<text x="23" y="89" fill="#c0c5ce">▸</text>
-<text x="41 50 59 68" y="89" fill="#ebcb8b">docs</text>
+<text x="32" y="89" fill="#c0c5ce">▸</text>
+<text x="50 59 68 77" y="89" fill="#ebcb8b">docs</text>
 <text x="302" y="89" fill="#65737e">│</text>
 <text x="311" y="89" fill="#96b5b4">│</text>
 <text x="347 356 365 374 383 392 401 419 428 446 455 464 473 482 491 500 518 527 536 545 554 563 572 581 590 599 608 617 626 635 644 653 662 671 680 689 698" y="89" fill="#c0c5ce">Author:fvpreview&lt;preview@example.com&gt;</text>
 <text x="995" y="89" fill="#96b5b4">│</text>
 <rect x="311" y="94" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="109" fill="#65737e">│</text>
-<text x="23" y="109" fill="#c0c5ce">▾</text>
-<text x="41 50 59" y="109" fill="#ebcb8b">src</text>
+<text x="32" y="109" fill="#c0c5ce">▾</text>
+<text x="50 59 68" y="109" fill="#ebcb8b">src</text>
 <text x="302" y="109" fill="#65737e">│</text>
 <text x="311" y="109" fill="#96b5b4">│</text>
 <text x="347 356 365 374 383 419 428 437 446 455 464 995" y="109" fill="#c0c5ce">Date:&lt;date&gt;│</text>
 <rect x="311" y="114" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="129" fill="#65737e">│</text>
-<text x="41" y="129" fill="#c0c5ce">▸</text>
-<text x="59 68 77" y="129" fill="#8fa1b3">app</text>
+<text x="50" y="129" fill="#c0c5ce">▸</text>
+<text x="68 77 86" y="129" fill="#8fa1b3">app</text>
 <text x="302" y="129" fill="#65737e">│</text>
 <text x="311" y="129" fill="#96b5b4">│</text>
 <text x="995" y="129" fill="#96b5b4">│</text>
 <rect x="23" y="134" width="279" height="20" fill="#65737e"/>
 <rect x="311" y="134" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="149" fill="#65737e">│</text>
-<text x="68" y="149" fill="#bf616a" font-weight="bold">M</text>
-<text x="86 95 104 113 122 131 140" y="149" fill="#ebcb8b" font-weight="bold">main.rs</text>
+<text x="23" y="149" fill="#c0c5ce" font-weight="bold">▎</text>
+<text x="77" y="149" fill="#bf616a" font-weight="bold">M</text>
+<text x="95 104 113 122 131 140 149" y="149" fill="#ebcb8b" font-weight="bold">main.rs</text>
 <text x="302" y="149" fill="#65737e">│</text>
 <text x="311" y="149" fill="#96b5b4">│</text>
 <text x="383 392 401 410 419 428 437 446 455 473 491 509 527 545 563 581 608 617 626 635 644 653 662 671 680 698 716 734 752" y="149" fill="#c0c5ce">refactor:ペインの描画をtext_paneに一本化</text>
 <text x="995" y="149" fill="#96b5b4">│</text>
 <rect x="311" y="154" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="169" fill="#65737e">│</text>
-<text x="59 68" y="169" fill="#bf616a">??</text>
-<text x="86 95 104 113 122 131 140 149 158 167 176" y="169" fill="#ebcb8b">new_lane.rs</text>
+<text x="68 77" y="169" fill="#bf616a">??</text>
+<text x="95 104 113 122 131 140 149 158 167 176 185" y="169" fill="#ebcb8b">new_lane.rs</text>
 <text x="302" y="169" fill="#65737e">│</text>
 <text x="311" y="169" fill="#96b5b4">│</text>
 <text x="995" y="169" fill="#96b5b4">│</text>
 <rect x="311" y="174" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="189" fill="#65737e">│</text>
-<text x="59 86 95 104 113 122" y="189" fill="#a3be8c">Mui.rs</text>
+<text x="68 95 104 113 122 131" y="189" fill="#a3be8c">Mui.rs</text>
 <text x="302" y="189" fill="#65737e">│</text>
 <text x="311" y="189" fill="#96b5b4">│</text>
 <text x="995" y="189" fill="#96b5b4">│</text>
@@ -68,7 +69,7 @@
 <rect x="347" y="194" width="648" height="20" fill="#96b5b4"/>
 <rect x="995" y="194" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="209" fill="#65737e">│</text>
-<text x="41 50 59 68 77 86 95 104 113" y="209" fill="#c0c5ce">README.md</text>
+<text x="50 59 68 77 86 95 104 113 122" y="209" fill="#c0c5ce">README.md</text>
 <text x="302" y="209" fill="#65737e">│</text>
 <text x="311" y="209" fill="#96b5b4">│</text>
 <text x="347 356 374 383 392 401 410 419 428 437 446" y="209" fill="#2b303b" font-weight="bold">──src/ui.rs</text>
@@ -121,7 +122,7 @@
 <rect x="23" y="354" width="279" height="20" fill="#65737e"/>
 <rect x="311" y="354" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="369" fill="#65737e">│</text>
-<text x="23 41 50 59 68 77 86 95 122 131 140 149 158 167 176 185 194 212 230 248 266 284" y="369" fill="#c0c5ce" font-weight="bold">▶xxxxxxxrefactor:ペインの描</text>
+<text x="23 32 50 59 68 77 86 95 104 131 140 149 158 167 176 185 194 203 221 239 257 275" y="369" fill="#c0c5ce" font-weight="bold">▎▶xxxxxxxrefactor:ペインの</text>
 <text x="302" y="369" fill="#65737e">│</text>
 <text x="311" y="369" fill="#96b5b4">│</text>
 <text x="320 329" y="369" fill="#65737e">12</text>
@@ -129,13 +130,13 @@
 <text x="995" y="369" fill="#96b5b4">│</text>
 <rect x="311" y="374" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="389" fill="#65737e">│</text>
-<text x="41 50 59 68 77 86 95 122 131 140 149 158 176 194 212 230 248 266 284" y="389" fill="#c0c5ce">xxxxxxxdocs:キーバインド一</text>
+<text x="50 59 68 77 86 95 104 131 140 149 158 167 185 203 221 239 257 275" y="389" fill="#c0c5ce">xxxxxxxdocs:キーバインド</text>
 <text x="302" y="389" fill="#65737e">│</text>
 <text x="311" y="389" fill="#96b5b4">│</text>
 <text x="995" y="389" fill="#96b5b4">│</text>
 <rect x="311" y="394" width="693" height="20" fill="#2b303b"/>
 <text x="14" y="409" fill="#65737e">│</text>
-<text x="41 50 59 68 77 86 95 122 131 140 149 158 176 185 194 212 230 248 266 284" y="409" fill="#c0c5ce">xxxxxxxfeat:TUIコードビュ</text>
+<text x="50 59 68 77 86 95 104 131 140 149 158 167 185 194 203 221 239 257 275" y="409" fill="#c0c5ce">xxxxxxxfeat:TUIコードビ</text>
 <text x="302" y="409" fill="#65737e">│</text>
 <text x="311" y="409" fill="#96b5b4">│</text>
 <text x="995" y="409" fill="#96b5b4">│</text>

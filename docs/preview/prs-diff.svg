@@ -15,9 +15,10 @@
 <rect x="239" y="54" width="756" height="20" fill="#96b5b4"/>
 <rect x="995" y="54" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="69" fill="#65737e">│</text>
-<text x="23" y="69" fill="#96b5b4" font-weight="bold">▎</text>
-<text x="32 41 50" y="69" fill="#65737e" font-weight="bold">#62</text>
-<text x="68 77 86 95 104 122 140 158 176 194" y="69" fill="#c0c5ce" font-weight="bold">feat:実装しなが</text>
+<text x="23" y="69" fill="#c0c5ce" font-weight="bold">▎</text>
+<text x="32" y="69" fill="#96b5b4" font-weight="bold">▎</text>
+<text x="41 50 59" y="69" fill="#65737e" font-weight="bold">#62</text>
+<text x="77 86 95 104 113 131 149 167 185 203" y="69" fill="#c0c5ce" font-weight="bold">feat:実装しなが</text>
 <text x="221" y="69" fill="#65737e">│</text>
 <text x="230" y="69" fill="#96b5b4">│</text>
 <text x="239 248 257 266 275 284 293 302 311 320 329 338 347 356 365 374 383 392" y="69" fill="#2b303b" font-weight="bold">src/preview/mod.rs</text>
@@ -26,8 +27,8 @@
 <rect x="266" y="74" width="729" height="20" fill="#96b5b4"/>
 <rect x="995" y="74" width="9" height="20" fill="#2b303b"/>
 <text x="14" y="89" fill="#65737e">│</text>
-<text x="32 41 50" y="89" fill="#65737e">#58</text>
-<text x="68 77 86 95 104 122 140 158 176 194" y="89" fill="#c0c5ce">perf:ツリーペイ</text>
+<text x="41 50 59" y="89" fill="#65737e">#58</text>
+<text x="77 86 95 104 113 131 149 167 185 203" y="89" fill="#c0c5ce">perf:ツリーペイ</text>
 <text x="221" y="89" fill="#65737e">│</text>
 <text x="230" y="89" fill="#96b5b4">│</text>
 <text x="266 275 293 302 311 320 329 338 347 356 365 374 383 392 401 410 419 428 437 446" y="89" fill="#2b303b" font-weight="bold">──src/preview/mod.rs</text>
