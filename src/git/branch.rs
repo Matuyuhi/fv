@@ -127,5 +127,11 @@ pub fn switch_track_branch(root: &Path, remote_ref: &str) -> GitOutcome {
 
 /// 新規ブランチを作成して切り替える (`git switch -c <name>`)
 pub fn create_branch(root: &Path, name: &str) -> GitOutcome {
+    if name.starts_with('-') {
+        return GitOutcome {
+            ok: false,
+            message: "fatal: branch name cannot start with '-'".to_string(),
+        };
+    }
     run_git_write(root, ["switch", "-c", name])
 }
