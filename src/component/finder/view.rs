@@ -51,6 +51,15 @@ fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
 }
 
 fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
+    if finder.matches.is_empty() {
+        let msg = "no matches";
+        frame.render_widget(
+            Paragraph::new(Span::styled(msg, Style::default().fg(Color::DarkGray))),
+            area,
+        );
+        return;
+    }
+
     let items: Vec<ListItem> = finder
         .matches
         .iter()
