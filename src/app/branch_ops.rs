@@ -99,6 +99,13 @@ impl App {
             return;
         }
         let name = state.query.clone();
+        if name.starts_with('-') {
+            self.set_notice(
+                crate::lang::t(Msg::BranchInvalidNameStartWithHyphen).to_string(),
+                true,
+            );
+            return;
+        }
         let outcome = git::create_branch(&self.root, &name);
         self.finish_branch_action(outcome);
     }

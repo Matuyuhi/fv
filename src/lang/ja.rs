@@ -11,6 +11,7 @@ pub(super) fn text(msg: Msg) -> &'static str {
         }
         Msg::BranchFailedRunGit => "git の実行に失敗しました",
         Msg::BranchAlreadyExists => "ブランチ「{name}」は既に存在します (Enter で切替)",
+        Msg::BranchInvalidNameStartWithHyphen => "ブランチ名をハイフンから始めることはできません",
         Msg::BranchSwitchedStale => {
             "{branch} に切り替えました (開いていたファイルが見つからないため閉じました)"
         }

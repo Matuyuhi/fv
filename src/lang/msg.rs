@@ -8,6 +8,7 @@ pub enum Msg {
     BranchUnsavedChangesSaveBeforeSwitching,
     BranchFailedRunGit,
     BranchAlreadyExists,
+    BranchInvalidNameStartWithHyphen,
     BranchSwitchedStale,
     BranchSwitched,
     // Commit
@@ -314,6 +315,7 @@ impl Msg {
         Msg::BranchUnsavedChangesSaveBeforeSwitching,
         Msg::BranchFailedRunGit,
         Msg::BranchAlreadyExists,
+        Msg::BranchInvalidNameStartWithHyphen,
         Msg::BranchSwitchedStale,
         Msg::BranchSwitched,
         Msg::CommitUnsavedChangesSaveBeforeCommitting,

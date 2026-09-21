@@ -8,6 +8,7 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::BranchUnsavedChangesSaveBeforeSwitching => "unsaved changes — save before switching",
         Msg::BranchFailedRunGit => "failed to run git",
         Msg::BranchAlreadyExists => "branch \"{name}\" already exists (Enter to switch)",
+        Msg::BranchInvalidNameStartWithHyphen => "branch name cannot start with a hyphen",
         Msg::BranchSwitchedStale => {
             "switched to {branch} (closed the open file — it no longer exists)"
         }
