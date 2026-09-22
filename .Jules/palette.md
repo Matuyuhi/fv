@@ -11,3 +11,7 @@
 ## 2024-09-13 - Ratatui List Accessibility
 **Learning:** Ratatui `List` widgets by default rely solely on background color to indicate selection (`highlight_style`). This is poor accessibility for users with color vision deficiency. Also, adding a `highlight_symbol` shifts text if not configured with `HighlightSpacing::Always`.
 **Action:** When adding or updating `List` widgets, consistently use `.highlight_symbol("▎")` and `.highlight_spacing(ratatui::widgets::HighlightSpacing::Always)` alongside `highlight_style` to ensure selection state is accessible and interactions are smooth without layout jank.
+
+## 2024-09-21 - Visual Empty State for Search/Filter TUI Components
+**Learning:** When TUI components with search or filter functionality (like `finder` or `branch` overlays) return zero results, rendering a completely blank list area provides poor feedback and leaves the user unsure if the app is still loading, broken, or genuinely found nothing.
+**Action:** Always provide a clear visual empty state (e.g., a dark gray `Paragraph` displaying "no matches") to explicitly communicate the absence of results when the match list is empty.
