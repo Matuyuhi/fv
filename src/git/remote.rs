@@ -104,6 +104,12 @@ pub fn push(root: &Path, branch: &str, has_upstream: bool) -> GitOutcome {
     if has_upstream {
         run_git_remote(root, ["push"])
     } else {
+        if branch.starts_with('-') {
+            return GitOutcome {
+                ok: false,
+                message: "Branch name cannot start with '-'".to_string(),
+            };
+        }
         run_git_remote(root, ["push", "--set-upstream", "origin", "--", branch])
     }
 }
