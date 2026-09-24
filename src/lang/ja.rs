@@ -15,6 +15,7 @@ pub(super) fn text(msg: Msg) -> &'static str {
             "{branch} に切り替えました (開いていたファイルが見つからないため閉じました)"
         }
         Msg::BranchSwitched => "{branch} に切り替えました",
+        Msg::BranchNameCannotStartWithDash => "ブランチ名に「-」から始まる文字列は使用できません",
         // Commit
         Msg::CommitUnsavedChangesSaveBeforeCommitting => {
             "未保存の変更があります。保存してからコミットしてください"
