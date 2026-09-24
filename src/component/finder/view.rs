@@ -59,6 +59,16 @@ fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
             ListItem::new(Line::from(highlight_finder_match(path, &m.positions)))
         })
         .collect();
+    if items.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "no matches",
+                Style::default().fg(Color::DarkGray),
+            )),
+            area,
+        );
+        return;
+    }
     let list = List::new(items)
         .highlight_style(
             Style::default()

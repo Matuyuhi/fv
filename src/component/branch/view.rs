@@ -51,6 +51,16 @@ fn draw_list(frame: &mut Frame, state: &mut BranchState, area: Rect) {
             ListItem::new(Line::from(spans))
         })
         .collect();
+    if items.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "no matches",
+                Style::default().fg(Color::DarkGray),
+            )),
+            area,
+        );
+        return;
+    }
     let list = List::new(items)
         .highlight_style(
             Style::default()
