@@ -90,6 +90,8 @@ Press `?` inside fv for the full list.
 | `Ctrl+s` / `Cmd+s` | Save |
 | `Ctrl+z` / `Ctrl+y` | Undo / redo |
 | `Ctrl+k` | Delete line |
+| `Enter` | New line, keeping the indentation (one level deeper right after `{` / `(` / `[`) |
+| `Tab` | Indent to the next level — spaces or a tab, guessed from the surrounding lines |
 | `Esc` | Exit edit mode (prompts if unsaved; press `s` at prompt to save) |
 
 ### Git mode (`Shift+Tab`)

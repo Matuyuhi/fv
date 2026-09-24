@@ -1,6 +1,7 @@
 mod buffer;
 // word-level diff が LCS 実装を再利用するため gitlane からも見える必要がある
 pub(crate) mod diff;
+mod indent;
 pub mod view;
 mod word;
 
@@ -179,10 +180,7 @@ impl EditState {
             }
             KeyCode::Char('w') if ctrl => self.delete_word_left(vp),
             KeyCode::Char('u') if ctrl => self.delete_to_line_start(vp),
-            KeyCode::Enter => {
-                self.cursor = self.buffer.insert_block(self.cursor, "\n");
-                self.after_edit(vp);
-            }
+            KeyCode::Enter => self.line_break(vp),
             // Cmd+Backspace は mac 慣習で行頭まで、Option/Ctrl+Backspace は 1 単語ぶん
             KeyCode::Backspace if cmd => self.delete_to_line_start(vp),
             KeyCode::Backspace if word => self.delete_word_left(vp),
@@ -190,10 +188,7 @@ impl EditState {
             KeyCode::Delete if cmd => self.delete_to_line_end(vp),
             KeyCode::Delete if word => self.delete_word_right(vp),
             KeyCode::Delete => self.delete_forward(vp),
-            KeyCode::Tab => {
-                self.cursor = self.buffer.insert_typed(self.cursor, '\t');
-                self.after_edit(vp);
-            }
+            KeyCode::Tab => self.insert_tab(vp),
             // mac 慣習: Cmd+←/→ は行頭・行末、Cmd+↑/↓ は文書の先頭・末尾
             KeyCode::Left if cmd => self.move_home(vp),
             KeyCode::Right if cmd => {
@@ -273,6 +268,34 @@ impl EditState {
             }
             Err(e) => self.notice = Some((format!("save failed: {e}"), true)),
         }
+    }
+
+    /// Enter: 改行してインデントを引き継ぐ (component/editor/indent.rs)。
+    /// 空白だけの行の空白を消す場合も 1 回の差し替えにするので、undo 1 回で改行前へ戻る
+    fn line_break(&mut self, vp: &mut Viewport) {
+        let (line, col) = self.cursor;
+        let unit = indent::indent_unit(self.buffer.lines(), line);
+        let edit = indent::line_break(self.buffer.line(line), col, &unit);
+        if edit.from == col {
+            self.buffer.insert_block(self.cursor, &edit.text);
+        } else {
+            self.buffer
+                .replace((line, edit.from), self.cursor, &edit.text);
+        }
+        self.cursor = (line + edit.cursor.0, edit.cursor.1);
+        self.after_edit(vp);
+    }
+
+    /// Tab: ファイルのインデントが空白なら次の段まで空白で埋める (タブのファイルではタブ)。
+    /// 1 文字ずつ insert_typed に通すのは、続けて打った文字と undo 1 単位にまとめるため
+    fn insert_tab(&mut self, vp: &mut Viewport) {
+        let (line, col) = self.cursor;
+        let unit = indent::indent_unit(self.buffer.lines(), line);
+        let display = text::display_col(self.buffer.line(line), col);
+        for c in indent::tab_fill(&unit, display).chars() {
+            self.cursor = self.buffer.insert_typed(self.cursor, c);
+        }
+        self.after_edit(vp);
     }
 
     fn backspace(&mut self, vp: &mut Viewport) {
@@ -598,6 +621,42 @@ mod tests {
         state.cursor = (0, 2);
         state.handle_key(key(KeyCode::Down, KeyModifiers::ALT), &mut viewer);
         assert_eq!(state.buffer.lines(), ["two", "one", "three"]);
+        assert_eq!(state.cursor, (1, 2));
+    }
+
+    #[test]
+    fn enter_keeps_the_indentation_and_undoes_in_one_step() {
+        let (mut state, mut viewer) = session("fn main() {\n    let x = 1;\n}\n");
+        state.cursor = (1, 14);
+        state.handle_key(key(KeyCode::Enter, KeyModifiers::NONE), &mut viewer);
+        assert_eq!(state.cursor, (2, 4));
+        // インデントだけの行でもう一度押すと、その行の空白は消えて次の行へ移る
+        state.handle_key(key(KeyCode::Enter, KeyModifiers::NONE), &mut viewer);
+        assert_eq!(
+            state.buffer.lines(),
+            ["fn main() {", "    let x = 1;", "", "    ", "}"]
+        );
+        assert_eq!(state.cursor, (3, 4));
+        state.handle_key(key(KeyCode::Char('z'), KeyModifiers::CONTROL), &mut viewer);
+        state.handle_key(key(KeyCode::Char('z'), KeyModifiers::CONTROL), &mut viewer);
+        assert_eq!(state.buffer.lines(), ["fn main() {", "    let x = 1;", "}"]);
+    }
+
+    #[test]
+    fn enter_between_brackets_opens_a_block() {
+        let (mut state, mut viewer) = session("if x {}\n");
+        state.cursor = (0, 6);
+        state.handle_key(key(KeyCode::Enter, KeyModifiers::NONE), &mut viewer);
+        assert_eq!(state.buffer.lines(), ["if x {", "    ", "}"]);
+        assert_eq!(state.cursor, (1, 4));
+    }
+
+    #[test]
+    fn tab_fills_with_the_files_indent_unit() {
+        let (mut state, mut viewer) = session("a {\n  b\n}\n");
+        state.cursor = (1, 1);
+        state.handle_key(key(KeyCode::Tab, KeyModifiers::NONE), &mut viewer);
+        assert_eq!(state.buffer.line(1), "   b");
         assert_eq!(state.cursor, (1, 2));
     }
 

@@ -334,6 +334,10 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::HelpSave => "save",
         Msg::HelpUndoRedoCmdZCmd => "undo / redo (Cmd+z / Cmd+Shift+z)",
         Msg::HelpDeleteLine => "delete the line",
+        Msg::HelpNewLineKeepsIndent => {
+            "new line, keeping the indentation (one level deeper after { ( [)"
+        }
+        Msg::HelpTabIndentUnit => "indent to the next level (spaces or a tab, as the file does)",
         Msg::HelpLeaveEditModeConfirmsWhen => {
             "leave edit mode (confirms when unsaved; s in the confirmation saves and leaves)"
         }
