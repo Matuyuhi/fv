@@ -271,16 +271,16 @@ impl EditState {
     }
 
     /// Enter: 改行してインデントを引き継ぐ (component/editor/indent.rs)。
-    /// 空白だけの行の空白を消す場合も 1 回の差し替えにするので、undo 1 回で改行前へ戻る
+    /// 割った位置の前後の空白を捨てる場合も 1 回の差し替えにするので、undo 1 回で改行前へ戻る
     fn line_break(&mut self, vp: &mut Viewport) {
         let (line, col) = self.cursor;
         let unit = indent::indent_unit(self.buffer.lines(), line);
         let edit = indent::line_break(self.buffer.line(line), col, &unit);
-        if edit.from == col {
+        if (edit.from, edit.to) == (col, col) {
             self.buffer.insert_block(self.cursor, &edit.text);
         } else {
             self.buffer
-                .replace((line, edit.from), self.cursor, &edit.text);
+                .replace((line, edit.from), (line, edit.to), &edit.text);
         }
         self.cursor = (line + edit.cursor.0, edit.cursor.1);
         self.after_edit(vp);
