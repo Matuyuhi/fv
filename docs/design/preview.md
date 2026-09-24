@@ -20,7 +20,7 @@
 
 ## 速度チェック（`cargo perf` + `.github/workflows/perf.yml`）
 「AI が書いたコードをその場で手直しする」のが用途なので、**1 打鍵ぶんのコスト**が壊れていないかを見る。`src/preview/perf.rs` が preview と同じ dev 専用 feature の別入口として入っていて、`TestBackend` に `shell::draw` をそのまま通す（計測専用の描画経路は作らない — そこを分けると「ベンチだけ速い」が起きる）。状態もキー列で組み立てるので、`app/keys.rs` の優先順位を通らない経路を測ってしまうこともない。
-- 計測は 7 ケース。git を絡めない合成ディレクトリで `open`（20000 行のファイルを開いて 1 フレーム）/ `type`（EDIT で 1 文字ずつ 200 回）/ `scroll-down`・`scroll-up`（1 行ずつ 300 回）、**git repo の合成物**で `type-tracked`（変更行マークのライブ diff 込みのタイピング）/ `git-scroll`（GIT レーンの inline diff）/ `git-scroll-side-wrap`（side-by-side + 折返し）。どれも `on_key` → `draw` の 1 サイクルを 1 op と数え、`REPEATS` 回の**最小値**を採る（遅い側の外れ値は必ず外乱なので、速い方がその実装の実力に近い）
+- 計測は 9 ケース。git を絡めない合成ディレクトリで `open`（20000 行のファイルを開いて 1 フレーム）/ `type`（EDIT で 1 文字ずつ 200 回）/ `scroll-down`・`scroll-up`（1 行ずつ 300 回）/ `search-type`（`/` のライブ入力。1 文字ごとにマッチを引き直す）/ `search-scroll`（検索ハイライトが出たままのスクロール）、**git repo の合成物**で `type-tracked`（変更行マークのライブ diff 込みのタイピング）/ `git-scroll`（GIT レーンの inline diff）/ `git-scroll-side-wrap`（side-by-side + 折返し）。どれも `on_key` → `draw` の 1 サイクルを 1 op と数え、`REPEATS` 回の**最小値**を採る（遅い側の外れ値は必ず外乱なので、速い方がその実装の実力に近い）
 - **対象を 2 つに分けている**のは、git repo にするとファイルを開くところで `git diff` の実行時間が混ざり、素の描画コストが読めなくなるため。それでも git 側を用意するのは、**ライブ diff (baseline が無いと計算自体が走らない) と diff ペインが git 無しでは 1 度も通らない**から — 実際にこの 2 経路には長く計測が無く、どちらも「1 打鍵のコストが文書/diff の大きさに比例する」状態のまま残っていた
 - ケースごとに端末サイズを指定できる（`Case::size`）。side-by-side は 1 カラムが 40 桁を切ると inline に自動フォールバックするので、既定の 120 桁のままだと測っているものが黙ってすり替わる
 - 対象は固定の合成ファイル（`$TMPDIR/fv-perf-fixture`）。実プロジェクトを測ると「その時の作業状態」で数字が動いて 2 点間の比較にならない。git repo にはしない（git status の時間が混ざるうえ、測りたいのは描画のコスト）

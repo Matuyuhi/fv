@@ -28,7 +28,9 @@ use std::path::{Path, PathBuf};
 use ratatui::style::Color;
 use ratatui::text::Line;
 
-use crate::component::viewer::{Match, SearchState, Viewport, rowcursor, search_matches};
+use crate::component::viewer::{
+    Match, SearchState, Viewport, candidate_lines, matches_in, rowcursor, search_matches,
+};
 use crate::git::{self, DiffBase};
 use crate::lang::{Msg, t};
 use crate::text;
@@ -734,7 +736,18 @@ impl GitState {
             self.search = None;
             return;
         }
-        let matches = self.compute_matches(query);
+        let matches = match candidate_lines(self.search.as_ref(), query) {
+            Some(candidates) => {
+                // 絞り込んだ行の本文だけを組み立てる (diff 全行ぶんの String を作らない)
+                let lines = self.lines();
+                let bodies: Vec<(usize, String)> = candidates
+                    .into_iter()
+                    .filter_map(|i| lines.get(i).map(|line| (i, line_body(line))))
+                    .collect();
+                matches_in(bodies.iter().map(|(i, body)| (*i, body.as_str())), query)
+            }
+            None => self.compute_matches(query),
+        };
         self.search = Some(SearchState {
             query: query.to_string(),
             matches,
