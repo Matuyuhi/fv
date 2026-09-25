@@ -319,6 +319,8 @@ pub(super) fn text(msg: Msg) -> &'static str {
         Msg::HelpSave => "保存",
         Msg::HelpUndoRedoCmdZCmd => "undo / redo (Cmd+z / Cmd+Shift+z)",
         Msg::HelpDeleteLine => "行削除",
+        Msg::HelpNewLineKeepsIndent => "改行してインデントを引き継ぐ ({ ( [ の直後は 1 段下げる)",
+        Msg::HelpTabIndentUnit => "次の段までインデント (ファイルに合わせて空白かタブ)",
         Msg::HelpLeaveEditModeConfirmsWhen => "終了 (未保存なら確認。確認中の s で保存して終了)",
         Msg::HelpClick => "クリック",
         Msg::HelpSelectOpenTreeRowFocus => "ツリーの行を選択して開く / ペインをフォーカス",

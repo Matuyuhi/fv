@@ -37,6 +37,9 @@ const REPEATS: usize = 3;
 const FIXTURE_LINES: usize = 20_000;
 const TYPE_OPS: usize = 200;
 const SCROLL_OPS: usize = 300;
+/// ファイル内検索 (`/`) のライブ入力で打つクエリ。1 文字ごとにマッチを引き直すので、
+/// 絞り込みが効く長さまで打つ (`item_1` までで対象行が 1 割強に減る)
+const SEARCH_QUERY: &str = "item_1234";
 /// git repo 側の合成ファイルの行数と、そのうち書き換える連続した行数。
 /// 「AI がまとまった範囲を書き直したものを手直しする」という実際の使い方に寄せてある —
 /// 全体に散らした変更にすると LCS が上限で諦めて全行変更扱いになり、測っているものが
@@ -129,6 +132,25 @@ fn cases() -> Vec<Case> {
             size: None,
             setup: "<CR><Tab>G",
             measured: "k".repeat(SCROLL_OPS),
+        },
+        // `/` の入力中は 1 文字ごとにマッチを引き直す (live_update_input)。
+        // 何もしなければ 1 打鍵が文書全体の走査になる唯一のキー処理
+        Case {
+            name: "search-type",
+            fixture: Fixture::Plain,
+            size: None,
+            setup: "<CR><Tab>/",
+            measured: SEARCH_QUERY.to_string(),
+        },
+        // 検索を確定してハイライトが出たままのスクロール。マッチは可視行の外にも
+        // 文書全体ぶんあるので、行ごとに自分のマッチを引く部分が全件走査だと
+        // 1 フレームが「可視行数 × マッチ総数」になる
+        Case {
+            name: "search-scroll",
+            fixture: Fixture::Plain,
+            size: None,
+            setup: "<CR><Tab>/item<CR>",
+            measured: "j".repeat(SCROLL_OPS),
         },
         // baseline (HEAD 版) がある状態のタイピング。変更行マークのライブ diff が
         // 1 打鍵ごとに走るので、plain の type との差がそのままその計算のコストになる

@@ -395,6 +395,8 @@ fn sections() -> Vec<Section> {
                 ("Ctrl+s / Cmd+s", t(Msg::HelpSave)),
                 ("Ctrl+z / Ctrl+y", t(Msg::HelpUndoRedoCmdZCmd)),
                 ("Ctrl+k", t(Msg::HelpDeleteLine)),
+                ("Enter", t(Msg::HelpNewLineKeepsIndent)),
+                ("Tab", t(Msg::HelpTabIndentUnit)),
                 ("Esc", t(Msg::HelpLeaveEditModeConfirmsWhen)),
             ],
         },

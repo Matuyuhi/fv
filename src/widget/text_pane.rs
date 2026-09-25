@@ -280,12 +280,15 @@ fn highlight_matches<'a>(
     line_idx: usize,
     search: &SearchState,
 ) -> Vec<Span<'a>> {
-    let ranges: Vec<(usize, usize, bool)> = search
-        .matches
+    // matches は (line, start_col) 順に並んでいる (search_matches が行を先頭から舐めるため)。
+    // 全件を filter すると 1 フレームが「可視行数 × 文書全体のマッチ数」になるので、
+    // 二分探索でこの行の区間だけを切り出す
+    let from = search.matches.partition_point(|m| m.line < line_idx);
+    let to = from + search.matches[from..].partition_point(|m| m.line == line_idx);
+    let ranges: Vec<(usize, usize, bool)> = search.matches[from..to]
         .iter()
         .enumerate()
-        .filter(|(_, m)| m.line == line_idx)
-        .map(|(i, m)| (m.start_col, m.end_col, Some(i) == search.current))
+        .map(|(i, m)| (m.start_col, m.end_col, Some(from + i) == search.current))
         .collect();
     if ranges.is_empty() {
         return spans;
