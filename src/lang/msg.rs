@@ -10,6 +10,7 @@ pub enum Msg {
     BranchAlreadyExists,
     BranchSwitchedStale,
     BranchSwitched,
+    BranchNameCannotStartWithDash,
     // Commit
     CommitUnsavedChangesSaveBeforeCommitting,
     CommitNoStagedChangesSpaceStage,
@@ -318,6 +319,7 @@ impl Msg {
         Msg::BranchAlreadyExists,
         Msg::BranchSwitchedStale,
         Msg::BranchSwitched,
+        Msg::BranchNameCannotStartWithDash,
         Msg::CommitUnsavedChangesSaveBeforeCommitting,
         Msg::CommitNoStagedChangesSpaceStage,
         Msg::CommitTabEnterBodyCtrlCmd,

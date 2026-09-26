@@ -12,6 +12,7 @@ pub(super) fn text(msg: Msg) -> &'static str {
             "switched to {branch} (closed the open file — it no longer exists)"
         }
         Msg::BranchSwitched => "switched to {branch}",
+        Msg::BranchNameCannotStartWithDash => "branch name cannot start with '-'",
         // Commit
         Msg::CommitUnsavedChangesSaveBeforeCommitting => "unsaved changes — save before committing",
         Msg::CommitNoStagedChangesSpaceStage => "no staged changes (Space to stage)",
