@@ -361,7 +361,8 @@ mod tests {
     fn directory_symlink_is_opened_as_directory() {
         use std::os::unix::fs::symlink;
 
-        let root = std::env::temp_dir().join(format!("fv-tree-test-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("fv-tree-symlink-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("target")).unwrap();
         std::fs::write(root.join("target/file.txt"), "").unwrap();
