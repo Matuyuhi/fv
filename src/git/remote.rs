@@ -2,11 +2,11 @@
 // 実行環境の潰し方 (run_git_remote) をこのモジュール 1 箇所に閉じる。
 
 use crate::lang::{Msg, t};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::Command;
 
-use super::{GitOutcome, first_line};
+use super::{GitOutcome, first_line, log_spawn_failure, log_write_failure};
 
 /// `f`/`p`/`P` の種別。ステータスバー表示・完了メッセージの組み立て・
 /// 多重起動防止 (App::pending_remote_job) に使う
@@ -37,10 +37,11 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let args: Vec<OsString> = args.into_iter().map(|a| a.as_ref().into()).collect();
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(args)
+        .args(&args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ASKPASS", "")
         .env("SSH_ASKPASS", "")
@@ -58,14 +59,19 @@ where
                 },
             }
         }
-        Ok(output) => GitOutcome {
-            ok: false,
-            message: remote_error_line(&output.stderr),
-        },
-        Err(_) => GitOutcome {
-            ok: false,
-            message: t(Msg::GitCannotRun).to_string(),
-        },
+        Ok(output) => {
+            let message = remote_error_line(&output.stderr);
+            // remote URL (userinfo 込みのこともある) が入りうるが、logger 側で伏せる
+            log_write_failure(&args, &output.status, &message);
+            GitOutcome { ok: false, message }
+        }
+        Err(e) => {
+            log_spawn_failure(&args, &e);
+            GitOutcome {
+                ok: false,
+                message: t(Msg::GitCannotRun).to_string(),
+            }
+        }
     }
 }
 

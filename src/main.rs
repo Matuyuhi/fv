@@ -1,3 +1,7 @@
+// TUI 中の stderr は画面そのものなので、診断出力は logger (ファイル) へ寄せる。
+// eprintln! を使ってよいのは端末を戻した後の 1 箇所だけ (run_app)
+#![warn(clippy::print_stderr)]
+
 mod app;
 mod clipboard;
 mod component;
@@ -6,6 +10,7 @@ mod git;
 mod github;
 mod job;
 mod lang;
+mod logger;
 // 開発用の静的プレビュー (preview/mod.rs)。製品ビルドには含めないため既定では無効で、
 // 見た目を確認する時だけ `cargo preview <scene>` (= --features preview) で有効化する
 #[cfg(feature = "preview")]
@@ -63,13 +68,16 @@ const PREVIEW_HELP: &str = "      --preview   render UI scenes to stdout instead
 const PREVIEW_HELP: &str = "";
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // 設定の読み込み (parse_command) と App::new が既に失敗経路を持つので、その前に有効化する。
+    // ファイルは最初の 1 行を書く時まで開かないので、--help 等では何も作られない
+    logger::init();
     match parse_command(env::args().skip(1))? {
         Command::Version => {
             println!("fv {}", env!("CARGO_PKG_VERSION"));
         }
         Command::Help => {
             println!(
-                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -i, --ignored show ignored files (.gitignore / .ignore / .git/info/exclude)\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)"
+                "fv - TUI code viewer with inline editing\n\nusage: fv [options] [dir]{PREVIEW_USAGE}\n\noptions:\n  -a, --hidden  show hidden files and directories\n  -i, --ignored show ignored files (.gitignore / .ignore / .git/info/exclude)\n      --icons     show Nerd Font file icons (default: auto by terminal / FV_ICONS)\n      --no-icons  disable file icons\n      --github    enable the GitHub workspace tabs for this run only (not saved to config)\n{PREVIEW_HELP}  -h, --help    print help\n  -V, --version print version\n\npress ? inside the app for keybindings\nsettings changed via 's' are saved to $XDG_CONFIG_HOME/fv/config (~/.config/fv/config by default)\nerrors are logged to $XDG_STATE_HOME/fv/fv.log (~/.local/state/fv/fv.log by default; FV_LOG=off|error|warn|info|debug, FV_LOG_FILE=<path>)"
             );
         }
         #[cfg(feature = "preview")]
@@ -106,6 +114,13 @@ fn run_app(root: PathBuf, config: Config, github: bool) -> Result<(), Box<dyn Er
 
     let result = run(&mut terminal, &mut app);
     restore_terminal();
+    // ログが書けなかった時のフォールバック。TUI 中は画面を壊すので出せず、ここで初めて出す
+    if let Some(report) = logger::finish() {
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!("{report}");
+        }
+    }
     result
 }
 
@@ -279,6 +294,7 @@ fn install_panic_hook() {
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         restore_terminal();
+        logger::panic(info);
         default_hook(info);
     }));
 }

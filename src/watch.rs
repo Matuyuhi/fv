@@ -7,6 +7,7 @@ use notify::event::{EventKind, ModifyKind};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::component::tree::ScanOptions;
+use crate::logger;
 
 /// root を再帰監視し、変更パスをためておくキューを持つ。
 /// 再帰監視の登録 (inotify では配下のディレクトリ 1 つずつに watch を張る) は
@@ -42,7 +43,13 @@ impl FsWatcher {
             let _ = tx.send(Active::start(&target));
         }) {
             Ok(_) => State::Starting(rx),
-            Err(_) => State::Off,
+            Err(e) => {
+                logger::warn(
+                    "watch",
+                    format_args!("cannot start the watcher thread: {e}"),
+                );
+                State::Off
+            }
         };
         Self {
             state,
@@ -62,7 +69,15 @@ impl FsWatcher {
         let mut changes = Vec::new();
         let mut ignore_changed = false;
         while let Ok(res) = active.rx.try_recv() {
-            let Ok(event) = res else { continue };
+            let event = match res {
+                Ok(event) => event,
+                // 監視自体のエラー (inotify の上限・監視中のディレクトリ消失等)。自動リロードが
+                // 黙って効かなくなる原因になるので残す (同じエラーの連続は logger が畳む)
+                Err(e) => {
+                    logger::warn("watch", format_args!("watch error: {e}"));
+                    continue;
+                }
+            };
             // キューが溢れて取りこぼした (inotify の overflow 等)。何が変わったか分からないので
             // root 全体の構造変化として通す — 横断検索はこれを見て前回の一覧を信用しなくなる
             if event.need_rescan() {
@@ -200,11 +215,24 @@ impl Active {
     /// 監視なしでアプリを動かし続けられるようにする。
     fn start(root: &Path) -> Option<Self> {
         let (tx, rx) = channel();
-        let mut watcher = notify::recommended_watcher(move |res| {
+        // 失敗すると自動リロードが効かないだけで UI には何も出ない。inotify の watch 数上限
+        // (fs.inotify.max_user_watches) 等、後から原因を追えるのはこのログだけになる
+        let mut watcher = match notify::recommended_watcher(move |res| {
             let _ = tx.send(res);
-        })
-        .ok()?;
-        watcher.watch(root, RecursiveMode::Recursive).ok()?;
+        }) {
+            Ok(watcher) => watcher,
+            Err(e) => {
+                logger::warn("watch", format_args!("cannot create the watcher: {e}"));
+                return None;
+            }
+        };
+        if let Err(e) = watcher.watch(root, RecursiveMode::Recursive) {
+            logger::warn(
+                "watch",
+                format_args!("cannot watch {}: {e}", root.display()),
+            );
+            return None;
+        }
         Some(Self {
             _watcher: watcher,
             rx,

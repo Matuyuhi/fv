@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use super::{GitOutcome, run_git, run_git_write};
+use super::{GitOutcome, log_spawn_failure, log_write_failure, run_git, run_git_write};
 
 /// stage: modified/untracked は `git add --`、削除 (index/worktree いずれかが Deleted) を
 /// 含む場合は `git add -A --` にする (プレーンな add でも現在の git は削除を拾うが、
@@ -189,7 +189,7 @@ pub fn apply_cached(root: &Path, patch: &str, reverse: bool) -> GitOutcome {
 // GIT_OPTIONAL_LOCKS は付けない (書き込みなので lock を取らせる) / GIT_TERMINAL_PROMPT=0 で
 // 認証待ちのハングを防ぐ、という run_git_write と同じ環境の作法は揃える
 fn run_git_stdin(root: &Path, args: Vec<OsString>, input: &[u8]) -> Option<Output> {
-    let mut child = Command::new("git")
+    let mut child = match Command::new("git")
         .arg("-C")
         .arg(root)
         .args(&args)
@@ -198,13 +198,23 @@ fn run_git_stdin(root: &Path, args: Vec<OsString>, input: &[u8]) -> Option<Outpu
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .ok()?;
+    {
+        Ok(child) => child,
+        Err(e) => {
+            log_spawn_failure(&args, &e);
+            return None;
+        }
+    };
     // take() したハンドルをこのスコープの末尾で drop して EOF を送る
     // (`-F -` / `apply -` はどちらも EOF まで読み続けるため)
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(input);
     }
-    child.wait_with_output().ok()
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        log_write_failure(&args, &output.status, &stderr_summary(&output.stderr));
+    }
+    Some(output)
 }
 
 // pre-commit hook 失敗時などの stderr は複数行になりうる。ステータスバー 1 行に収めるため
