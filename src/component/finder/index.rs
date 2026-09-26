@@ -112,7 +112,7 @@ impl FileIndex {
 fn walk_files(root: &Path, opts: ScanOptions) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for entry in opts.walker(root).build().flatten() {
-        if entry.file_type().is_some_and(|t| t.is_dir()) {
+        if entry.path().is_dir() {
             continue;
         }
         if let Ok(rel) = entry.path().strip_prefix(root) {

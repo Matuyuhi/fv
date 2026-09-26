@@ -355,4 +355,28 @@ mod tests {
         assert_eq!(names, ["a"]);
         std::fs::remove_dir_all(&root).unwrap();
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlink_is_opened_as_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!("fv-tree-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::write(root.join("target/file.txt"), "").unwrap();
+        symlink(root.join("target"), root.join("linked")).unwrap();
+
+        let mut tree = Tree::new(&root, opts());
+        let linked = tree
+            .visible
+            .iter()
+            .position(|row| row.name == "linked")
+            .unwrap();
+        assert!(tree.visible[linked].is_dir);
+        tree.selected = linked;
+        assert!(tree.toggle_or_open().is_none());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }

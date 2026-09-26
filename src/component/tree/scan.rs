@@ -370,7 +370,9 @@ fn entries(dir: &Path, opts: ScanOptions, ignored: bool) -> Vec<Node> {
         if entry.depth() == 0 {
             continue;
         }
-        let kind = if entry.file_type().is_some_and(|t| t.is_dir()) {
+        // DirEntry::file_type はシンボリックリンク自身の種別を返すため、リンク先が
+        // ディレクトリなら通常のフォルダと同じく開閉できるよう追跡して判定する
+        let kind = if entry.path().is_dir() {
             NodeKind::Dir {
                 expanded: false,
                 loaded: false,
