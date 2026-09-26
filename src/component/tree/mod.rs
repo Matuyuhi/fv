@@ -39,7 +39,7 @@ impl Tree {
     /// 開いた時に読む (巨大なディレクトリでも起動が待たされないようにするため)
     pub fn new(root: &Path, opts: ScanOptions) -> Self {
         // root 自身は走査起点なので無視対象にはなりえない (親を持たない)
-        let nodes = scan::read_dir(root, opts, false);
+        let nodes = scan::read_dir(root, root, opts, false);
         let mut tree = Self {
             root: root.to_path_buf(),
             nodes,
@@ -63,18 +63,18 @@ impl Tree {
             (None, Some(paths)) => {
                 self.saved_expanded = Some(scan::collect_expanded(&self.nodes));
                 let paths = paths.clone();
-                scan::expand_all(&mut self.nodes, &paths, self.opts);
+                scan::expand_all(&mut self.nodes, &paths, &self.root, self.opts);
             }
             // 絞り込み中の張り替え (再走査): 新しく対象になったディレクトリだけ開く。
             // 既存のものに触らないので、ユーザーが畳んだ状態が保存のたびに開き直されない
             (Some(previous), Some(paths)) => {
                 let added: HashSet<PathBuf> = paths.difference(previous).cloned().collect();
-                scan::expand_all(&mut self.nodes, &added, self.opts);
+                scan::expand_all(&mut self.nodes, &added, &self.root, self.opts);
             }
             // 絞り込み解除: 退避しておいた状態へ厳密に戻す (絞り込み中の開閉は持ち越さない)
             (Some(_), None) => {
                 if let Some(saved) = self.saved_expanded.take() {
-                    scan::set_expanded(&mut self.nodes, &saved, self.opts);
+                    scan::set_expanded(&mut self.nodes, &saved, &self.root, self.opts);
                 }
             }
             (None, None) => {}
@@ -158,7 +158,7 @@ impl Tree {
         // 次に開く時のキャッシュとしてそのまま使える。子がディレクトリ 1 つ
         // だけの階層はそのまま連鎖して開く (`com/example/app` を 3 回開かせない)
         if opened {
-            scan::expand_single_child_chain(node, opts);
+            scan::expand_single_child_chain(node, &self.root, opts);
             scan::expand_ancestors(&mut self.nodes, &index_path);
         }
         self.rebuild_visible();
@@ -249,7 +249,7 @@ impl Tree {
     /// (走査順が変わりうるため index_path はそのまま使い回せない)。
     pub fn rescan(&mut self) {
         let selected = self.selected_path();
-        scan::refresh(&mut self.nodes, &self.root, self.opts, false);
+        scan::refresh(&mut self.nodes, &self.root, &self.root, self.opts, false);
         self.rebuild_visible();
         self.restore_selection(selected);
     }
@@ -282,7 +282,7 @@ impl Tree {
             .take_while(|p| p.starts_with(&self.root) && *p != self.root)
             .map(Path::to_path_buf)
             .collect();
-        scan::expand_all(&mut self.nodes, &ancestors, self.opts);
+        scan::expand_all(&mut self.nodes, &ancestors, &self.root, self.opts);
         self.rebuild_visible();
         self.restore_selection(Some(path.to_path_buf()));
     }
@@ -353,6 +353,78 @@ mod tests {
         tree.sync_deleted(&deleted);
         let names: Vec<&str> = tree.visible.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["a"]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlink_is_opened_as_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root =
+            std::env::temp_dir().join(format!("fv-tree-symlink-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::write(root.join("target/file.txt"), "").unwrap();
+        symlink(root.join("target"), root.join("linked")).unwrap();
+
+        let mut tree = Tree::new(&root, opts());
+        let linked = tree
+            .visible
+            .iter()
+            .position(|row| row.name == "linked")
+            .unwrap();
+        assert!(tree.visible[linked].is_dir);
+        tree.selected = linked;
+        assert!(tree.toggle_or_open().is_none());
+        assert!(tree.visible.iter().any(|row| row.name == "file.txt"));
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlink_outside_root_is_not_opened_as_directory() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!(
+            "fv-tree-external-symlink-test-{}",
+            std::process::id()
+        ));
+        let root = base.join("root");
+        let outside = base.join("outside");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+
+        let tree = Tree::new(&root, opts());
+        let linked = tree
+            .visible
+            .iter()
+            .find(|row| row.name == "linked")
+            .unwrap();
+        assert!(!linked.is_dir);
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlink_cycle_does_not_expand_indefinitely() {
+        use std::os::unix::fs::symlink;
+
+        let root =
+            std::env::temp_dir().join(format!("fv-tree-symlink-cycle-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        symlink(&root, root.join("loop")).unwrap();
+
+        let mut tree = Tree::new(&root, opts());
+        tree.selected = 0;
+        assert!(tree.toggle_or_open().is_none());
+        assert!(tree.visible.len() <= 2);
+
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
