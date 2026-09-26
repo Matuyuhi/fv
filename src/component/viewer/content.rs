@@ -74,7 +74,14 @@ pub struct Open {
 pub(super) fn load(path: &Path) -> Content {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
-        Err(e) => return Content::Error(format!("failed to read: {e}")),
+        Err(e) => {
+            // 中身は読めていないので出しようがないが、書くのはパスと理由だけにする
+            crate::logger::warn(
+                "viewer",
+                format_args!("failed to read {}: {e}", path.display()),
+            );
+            return Content::Error(format!("failed to read: {e}"));
+        }
     };
     let sniff = &bytes[..bytes.len().min(super::BINARY_SNIFF_BYTES)];
     if sniff.contains(&0) {

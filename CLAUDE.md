@@ -52,7 +52,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 ## アーキテクチャ
 
 ### イベントループ（main.rs）
-`event::poll(100ms)` → Key/Mouse/Paste を App へ → 毎 tick `app.on_tick()`（FS 監視の drain）→ 毎ループ再描画。ブロッキング read にしないこと（自動リロードと 100ms 周期再描画がこの構造に依存）。端末復元は `restore_terminal()` に集約され panic hook からも呼ばれる。raw mode / alternate screen / mouse capture / bracketed paste / keyboard enhancement の解除を追加・変更する時は必ずここに入れる。
+`event::poll(100ms)` → Key/Mouse/Paste を App へ → 毎 tick `app.on_tick()`（FS 監視の drain）→ 毎ループ再描画。ブロッキング read にしないこと（自動リロードと 100ms 周期再描画がこの構造に依存）。端末復元は `restore_terminal()` に集約され panic hook からも呼ばれる。**TUI 中の stderr は画面そのものなので `eprintln!` は使わない**（`#![warn(clippy::print_stderr)]` で禁止）。失敗経路の診断は `logger::{error,warn,info,debug}`（ファイルへの追記のみ）へ寄せ、UI への表示は従来どおり呼び出し側が持つ（docs/design/logging.md）。raw mode / alternate screen / mouse capture / bracketed paste / keyboard enhancement の解除を追加・変更する時は必ずここに入れる。
 - kitty keyboard protocol を対応端末（ghostty/kitty/WezTerm 等）で opt-in している。有効時はキー長押しが `KeyEventKind::Repeat` で届くため、イベントフィルタは「Release 以外」で受ける（Press 限定に戻すと長押しリピートが死ぬ）。mac の Cmd は SUPER 修飾として届く（未対応端末では届かない = Cmd バインドは補助扱いに留める）
 - 修飾付き文字キーは端末により大文字で届くことがある。修飾キーバインドのマッチは `to_ascii_lowercase` で畳んでから行う（component/editor/mod.rs handle_key 参照）
 
@@ -77,7 +77,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
 - `shell/` — 画面全体の骨格と、App 全体を横断して見せる画面。mod.rs(draw・レイアウト・各 View への値の取り出し), status_bar.rs, tab_bar.rs(Workspace タブバー), help.rs, settings.rs, confirm.rs(確認オーバーレイ), commit.rs(コミットメッセージ入力オーバーレイ)。ここに置くか component に置くかの境界は「専用の状態型を持つか」（「描画の依存範囲」節）
 - `widget/` — 複数のコンポーネントが使う描画部品。text_pane.rs(閲覧・編集・diff 共通の描画コア + 行カーソル/行選択の帯 + `line_body`), diff_boundary.rs(sticky header の帯)。**帯の幅は必ずセル幅で測る**（`Line::width` / `text::cells`）— char 数で数えると全角のパスやコードで帯がペイン幅を超えて罫線を押し出し、ZWJ 絵文字では逆に右端が空く（「桁位置の整合インバリアント」の帯版）, icons.rs, mod.rs(pane_block / centered_rect)。**どの状態を描くかは持たせない**（渡された Line 列をどう見せるかだけ）
 - `preview/` — mod.rs(`--preview` の入口・TestBackend への 1 フレーム描画), scene.rs(シーン定義＝プレビューしたい状態の一覧), keys.rs(シーンを組み立てるキー列 DSL), render.rs(Buffer → ANSI 文字列。手元で見る stdout 用), svg.rs(Buffer → SVG。スナップショット兼 README の画面写真), snapshot.rs(マスクとファイル書き出し), fixture.rs(固定サンプルリポジトリ)。開発用の入口で、アプリ本体からは呼ばれない（docs/design/preview.md）
-- インフラ（どのコンポーネントにも属さない）: `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `lang/`(UI 文言の言語とキー別の翻訳表。docs/design/ui-text.md) / `clipboard.rs`(クリップボードへの書き出し。外部コマンド → OSC 52 のフォールバックと自前 base64) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・component/branch/mod.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify) / `config.rs`
+- インフラ（どのコンポーネントにも属さない）: `text.rs`(タブ幅・gutter 幅・桁変換の唯一の定義) / `lang/`(UI 文言の言語とキー別の翻訳表。docs/design/ui-text.md) / `clipboard.rs`(クリップボードへの書き出し。外部コマンド → OSC 52 のフォールバックと自前 base64) / `git/`(git CLI ラッパー。mod.rs が実行レイヤ (run_git / run_git_write と出力整形) と全再エクスポート、status.rs(porcelain パース)・diff.rs(changed_lines/baseline_lines/file_diff/diff_all/truncate_diff)・log.rs・write.rs(stage/unstage/discard/commit)・component/branch/mod.rs(branches/branch_status/switch 系)・remote.rs(fetch/pull/push) にコマンドを分ける。呼び出し側から見えるパスは分割前と同じ `git::foo`) / `github.rs`(GitHub モードが使えるか 1 箇所で判定する check_available に加え、gh CLI ラッパー: issues/PR 一覧・詳細取得の `list_issues`/`issue_detail`/`open_issue_web`/`list_prs`/`pr_detail`/`pr_diff`/`pr_checks`/`open_pr_web`) / `logger.rs`(診断用の永続ログ。`$XDG_STATE_HOME/fv/fv.log` へ追記するだけで画面には出さない。docs/design/logging.md) / `job.rs`(非同期ジョブの基盤。thread::spawn + mpsc::channel の薄いラッパー) / `watch.rs`(notify) / `config.rs`
 - **可視性**: component/widget は別のモジュールツリーから呼ばれるので、跨いで使うものは `pub(crate)` になる（レイヤ別構成なら `component/*/view.rs` 内で `pub(super)` に閉じられていた分の代償）。フォルダ内に閉じるものは `pub(super)` のままにする
 
 ### Workspace（タブ）・レーン（Lane）・オーバーレイ（Mode）の3軸
@@ -154,6 +154,7 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 | [grep.md](docs/design/grep.md) | ワークスペース横断検索 (`Ctrl+f`) の恒久的な要約（作業メモは [workspace-grep.md](docs/design/workspace-grep.md)） |
 | [viewer-editor.md](docs/design/viewer-editor.md) | ビューアの範囲選択とコピー・インライン編集（EditBuffer・undo・ライブ diff・単語移動） |
 | [ui-text.md](docs/design/ui-text.md) | UI 言語（`lang/`、文言の足し方）・一時通知 |
+| [logging.md](docs/design/logging.md) | 診断ログ（出力先・レベル・初期化・機密情報の扱い・書けない時のフォールバック・eprintln! 禁止） |
 | [preview.md](docs/design/preview.md) | UI プレビュー・スクリーンショットテスト（SVG スナップショット・CI コメント）・速度チェック (`cargo perf`) |
 
 ## スタイル

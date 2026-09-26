@@ -132,6 +132,23 @@ Merge commits are shown as the diff against their first parent, with a note sayi
 
 Ignored files (`.gitignore`, `.ignore`, `.git/info/exclude`) are left out of the tree and the finder by default. `i` (or `-i` / `--ignored`) brings them in — they are drawn dimmed, since git does not track them — and the setting is persisted like the other settings.
 
+## Logs
+
+Errors are still shown in the UI as before; in addition, fv writes diagnostic details (failed file reads, failed `git` / `gh` commands, file-watcher errors, settings that could not be saved, panics) to a log file so you can look at them after the message has gone:
+
+| | |
+| --- | --- |
+| Location | `$XDG_STATE_HOME/fv/fv.log`, i.e. `~/.local/state/fv/fv.log` by default (override with `FV_LOG_FILE=<path>`) |
+| Level | `FV_LOG=off\|error\|warn\|info\|debug` (default `warn`; `debug` also records every non-zero exit of read-only git commands) |
+| Size | rotated to `fv.log.1` at 1 MiB (one old generation is kept) |
+
+```sh
+tail -n 50 ~/.local/state/fv/fv.log          # recent entries
+FV_LOG=debug fv                              # record more detail for one run
+```
+
+The file is created only when something is logged, with mode `0600`. Each line is `timestamp(UTC) pid LEVEL scope: message`. Entries hold file paths, the command name (`git push`, `gh pr list`), the exit status and the one-line error shown in the UI, with any quoted text and argument values (paths, branch names) masked as `[…]`. For `git commit` / `git apply`, whose hooks or errors can echo commit messages and patch lines, only the exit status is recorded. File contents, commit messages and issue bodies are not written, and credentials in URLs and GitHub tokens are masked. If the log itself cannot be written, fv keeps running and prints one line about it to stderr after it exits.
+
 ## Development
 
 Screens can be rendered to stdout without launching the TUI (`cargo preview <scene>`), and every

@@ -943,10 +943,12 @@ impl App {
         }
     }
 
-    // 保存失敗 (権限なし等) はここで握り潰す。読み取り専用ビューアの付随機能が
-    // ファイル書き込み失敗でクラッシュ・エラー表示をする理由はない
+    // 保存失敗 (権限なし等) は UI には出さない。読み取り専用ビューアの付随機能が
+    // ファイル書き込み失敗でクラッシュ・エラー表示をする理由はないので、ログにだけ残す
     fn persist_config(&self) {
-        let _ = self.current_config().save();
+        if let Err(e) = self.current_config().save() {
+            crate::logger::warn("config", format_args!("cannot save settings: {e}"));
+        }
     }
 }
 

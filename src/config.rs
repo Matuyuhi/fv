@@ -45,7 +45,18 @@ impl Config {
     /// CLI 引数や既存のデフォルト判定にフォールバックさせるため Option にしている
     pub fn load() -> Option<Config> {
         let path = config_path()?;
-        let text = fs::read_to_string(path).ok()?;
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            // 未作成は初回起動の正常系。それ以外 (権限・不正な UTF-8) は既定値で続けつつ残す
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                crate::logger::warn(
+                    "config",
+                    format_args!("cannot read {}: {e}", path.display()),
+                );
+                return None;
+            }
+        };
         let mut config = Config::default();
         for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else {

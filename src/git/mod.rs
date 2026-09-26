@@ -28,23 +28,46 @@ pub use write::{
 };
 
 use crate::lang::{Msg, t};
-use std::ffi::OsStr;
+use crate::logger;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, ExitStatus, Output};
 
 fn run_git<I, S>(root: &Path, args: I) -> Option<Output>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new("git")
+    let args: Vec<OsString> = args.into_iter().map(|a| a.as_ref().into()).collect();
+    let output = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(args)
+        .args(&args)
         // ビューアはあくまで読み取り用途なので、index lock を取らせない
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .output()
-        .ok()
+        .output();
+    match output {
+        Ok(output) => {
+            // 読み取りの非ゼロ終了は正常系でも頻繁に起きる (upstream が無い・HEAD の無い repo・
+            // 新規ファイルの HEAD 版等) ので debug に留める
+            if !output.status.success() {
+                logger::debug(
+                    "git",
+                    format_args!(
+                        "git {} failed ({}): {}",
+                        logger::command_label(&args, 1),
+                        output.status,
+                        logger::mask_command_output(&first_line(&output.stderr), &args, 1)
+                    ),
+                );
+            }
+            Some(output)
+        }
+        Err(e) => {
+            log_spawn_failure(&args, &e);
+            None
+        }
+    }
 }
 
 /// 書き込み系コマンドの実行結果。`ok` が false のとき `message` は失敗理由 (stderr 先頭の非空行)、
@@ -63,10 +86,11 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let args: Vec<OsString> = args.into_iter().map(|a| a.as_ref().into()).collect();
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(args)
+        .args(&args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output();
     match output {
@@ -74,15 +98,43 @@ where
             ok: true,
             message: first_line(&output.stdout),
         },
-        Ok(output) => GitOutcome {
-            ok: false,
-            message: first_line(&output.stderr),
-        },
-        Err(_) => GitOutcome {
-            ok: false,
-            message: t(Msg::GitCannotRun).to_string(),
-        },
+        Ok(output) => {
+            let message = first_line(&output.stderr);
+            log_write_failure(&args, &output.status, Some(&message));
+            GitOutcome { ok: false, message }
+        }
+        Err(e) => {
+            log_spawn_failure(&args, &e);
+            GitOutcome {
+                ok: false,
+                message: t(Msg::GitCannotRun).to_string(),
+            }
+        }
     }
+}
+
+// ログに残すのはサブコマンド名・終了状態・UI に出すのと同じ stderr の 1 行だけ。
+// 残りの引数 (パス・ブランチ名) は stderr に引用されて戻ってくるので、その値と引用部分を伏せる。
+// `message` が None の呼び出し (stdin を渡すコマンド) は終了状態だけを書く
+fn log_write_failure(args: &[OsString], status: &ExitStatus, message: Option<&str>) {
+    let label = logger::command_label(args, 1);
+    match message {
+        Some(message) => logger::warn(
+            "git",
+            format_args!(
+                "git {label} failed ({status}): {}",
+                logger::mask_command_output(message, args, 1)
+            ),
+        ),
+        None => logger::warn("git", format_args!("git {label} failed ({status})")),
+    }
+}
+
+fn log_spawn_failure(args: &[OsString], error: &std::io::Error) {
+    logger::error(
+        "git",
+        format_args!("cannot run git {}: {error}", logger::command_label(args, 1)),
+    );
 }
 
 // 出力の先頭の非空行を取り出す。無ければ空文字列 (成功時は notice にそのまま出しても違和感がない)

@@ -5,12 +5,22 @@
 // serde 等の新規依存は足さず、`--json` ではなく `--template` で `\0` 区切りのプレーン
 // テキストを出させ porcelain -z と同じ流儀で自前パースする。
 use crate::lang::{Msg, t};
-use std::ffi::OsStr;
+use crate::logger;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::Command;
 
 /// 使えれば Ok(())、使えなければ理由 (notice にそのまま出す文言) を返す
 pub fn check_available(root: &Path) -> Result<(), String> {
+    let result = check_available_inner(root);
+    // 使えない理由は notice にも出るが、一瞬で消えるので後から追えるよう残す
+    if let Err(reason) = &result {
+        logger::info("github", format_args!("GitHub mode unavailable: {reason}"));
+    }
+    result
+}
+
+fn check_available_inner(root: &Path) -> Result<(), String> {
     match Command::new("gh")
         .args(["auth", "status"])
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -261,18 +271,27 @@ pub fn pr_diff(root: &Path, number: u64) -> Result<String, String> {
 /// `S`: CI ステータス。`gh pr checks` は失敗中のチェックがあると非ゼロ終了するが、その場合も
 /// stdout に一覧が出ているので、失敗を隠さずそのまま見せるため終了コードでは判定しない
 pub fn pr_checks(root: &Path, number: u64) -> Result<Vec<String>, String> {
-    let output = Command::new("gh")
-        .args(["pr", "checks", &number.to_string()])
-        .current_dir(root)
-        .output();
+    let args = [
+        OsString::from("pr"),
+        "checks".into(),
+        number.to_string().into(),
+    ];
+    let output = Command::new("gh").args(&args).current_dir(root).output();
     match output {
         Ok(output) if !output.stdout.is_empty() => Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(str::to_string)
             .collect()),
         Ok(output) if output.status.success() => Ok(Vec::new()),
-        Ok(output) => Err(first_line(&output.stderr)),
-        Err(_) => Err(t(Msg::GhGhCommandNotFound).to_string()),
+        Ok(output) => {
+            let message = first_line(&output.stderr);
+            log_failure(&args, &output.status, &message);
+            Err(message)
+        }
+        Err(e) => {
+            log_spawn_failure(&args, &e);
+            Err(t(Msg::GhGhCommandNotFound).to_string())
+        }
     }
 }
 
@@ -289,14 +308,43 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let output = Command::new("gh").args(args).current_dir(root).output();
+    let args: Vec<OsString> = args.into_iter().map(|a| a.as_ref().into()).collect();
+    let output = Command::new("gh").args(&args).current_dir(root).output();
     match output {
         Ok(output) if output.status.success() => {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         }
-        Ok(output) => Err(first_line(&output.stderr)),
-        Err(_) => Err(t(Msg::GhGhCommandNotFound).to_string()),
+        Ok(output) => {
+            let message = first_line(&output.stderr);
+            log_failure(&args, &output.status, &message);
+            Err(message)
+        }
+        Err(e) => {
+            log_spawn_failure(&args, &e);
+            Err(t(Msg::GhGhCommandNotFound).to_string())
+        }
     }
+}
+
+// サブコマンド 2 語 ("issue list" 等) と UI に出すのと同じ stderr の 1 行だけを残す。
+// issue/PR の番号・本文・トークンは書かない (stderr に引用されて戻ってきた引数の値と引用部分は
+// mask_command_output が、紛れ込んだトークンは logger が伏せる)
+fn log_failure(args: &[OsString], status: &std::process::ExitStatus, message: &str) {
+    logger::warn(
+        "github",
+        format_args!(
+            "gh {} failed ({status}): {}",
+            logger::command_label(args, 2),
+            logger::mask_command_output(message, args, 2)
+        ),
+    );
+}
+
+fn log_spawn_failure(args: &[OsString], error: &std::io::Error) {
+    logger::error(
+        "github",
+        format_args!("cannot run gh {}: {error}", logger::command_label(args, 2)),
+    );
 }
 
 fn first_line(bytes: &[u8]) -> String {
