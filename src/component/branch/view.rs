@@ -40,6 +40,12 @@ fn draw_input(frame: &mut Frame, state: &BranchState, area: Rect) {
 }
 
 fn draw_list(frame: &mut Frame, state: &mut BranchState, area: Rect) {
+    if state.matches.is_empty() {
+        let p = Paragraph::new("no matches").style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(p, area);
+        return;
+    }
+
     let items: Vec<ListItem> = state
         .matches
         .iter()
