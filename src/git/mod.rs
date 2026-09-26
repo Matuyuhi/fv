@@ -57,7 +57,7 @@ where
                         "git {} failed ({}): {}",
                         logger::command_label(&args, 1),
                         output.status,
-                        first_line(&output.stderr)
+                        logger::mask_command_output(&first_line(&output.stderr), &args, 1)
                     ),
                 );
             }
@@ -100,7 +100,7 @@ where
         },
         Ok(output) => {
             let message = first_line(&output.stderr);
-            log_write_failure(&args, &output.status, &message);
+            log_write_failure(&args, &output.status, Some(&message));
             GitOutcome { ok: false, message }
         }
         Err(e) => {
@@ -114,15 +114,20 @@ where
 }
 
 // ログに残すのはサブコマンド名・終了状態・UI に出すのと同じ stderr の 1 行だけ。
-// 残りの引数 (パス・ブランチ名) や stdin (コミットメッセージ・パッチ) は書かない
-fn log_write_failure(args: &[OsString], status: &ExitStatus, message: &str) {
-    logger::warn(
-        "git",
-        format_args!(
-            "git {} failed ({status}): {message}",
-            logger::command_label(args, 1)
+// 残りの引数 (パス・ブランチ名) は stderr に引用されて戻ってくるので、その値と引用部分を伏せる。
+// `message` が None の呼び出し (stdin を渡すコマンド) は終了状態だけを書く
+fn log_write_failure(args: &[OsString], status: &ExitStatus, message: Option<&str>) {
+    let label = logger::command_label(args, 1);
+    match message {
+        Some(message) => logger::warn(
+            "git",
+            format_args!(
+                "git {label} failed ({status}): {}",
+                logger::mask_command_output(message, args, 1)
+            ),
         ),
-    );
+        None => logger::warn("git", format_args!("git {label} failed ({status})")),
+    }
 }
 
 fn log_spawn_failure(args: &[OsString], error: &std::io::Error) {

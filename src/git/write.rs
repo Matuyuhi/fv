@@ -212,7 +212,9 @@ fn run_git_stdin(root: &Path, args: Vec<OsString>, input: &[u8]) -> Option<Outpu
     }
     let output = child.wait_with_output().ok()?;
     if !output.status.success() {
-        log_write_failure(&args, &output.status, &stderr_summary(&output.stderr));
+        // stderr は書かない。commit の hook (pre-commit / commit-msg) はメッセージやファイルの
+        // 中身を出しうるし、apply の失敗はパッチの行をそのまま引用する
+        log_write_failure(&args, &output.status, None);
     }
     Some(output)
 }

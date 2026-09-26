@@ -71,6 +71,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     // 設定の読み込み (parse_command) と App::new が既に失敗経路を持つので、その前に有効化する。
     // ファイルは最初の 1 行を書く時まで開かないので、--help 等では何も作られない
     logger::init();
+    let result = run_command();
+    // どの終了経路 (--preview / --perf / エラー終了を含む) でも 1 回だけ。TUI は run_app が
+    // 端末を戻し終えてから返るので、ここで stderr に書いても画面は壊れない
+    if let Some(report) = logger::finish() {
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!("{report}");
+        }
+    }
+    result
+}
+
+fn run_command() -> Result<(), Box<dyn Error>> {
     match parse_command(env::args().skip(1))? {
         Command::Version => {
             println!("fv {}", env!("CARGO_PKG_VERSION"));
@@ -114,13 +127,6 @@ fn run_app(root: PathBuf, config: Config, github: bool) -> Result<(), Box<dyn Er
 
     let result = run(&mut terminal, &mut app);
     restore_terminal();
-    // ログが書けなかった時のフォールバック。TUI 中は画面を壊すので出せず、ここで初めて出す
-    if let Some(report) = logger::finish() {
-        #[allow(clippy::print_stderr)]
-        {
-            eprintln!("{report}");
-        }
-    }
     result
 }
 

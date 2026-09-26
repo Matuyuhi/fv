@@ -147,7 +147,7 @@ tail -n 50 ~/.local/state/fv/fv.log          # recent entries
 FV_LOG=debug fv                              # record more detail for one run
 ```
 
-The file is created only when something is logged, with mode `0600`. Each line is `timestamp(UTC) pid LEVEL scope: message`. Entries hold file paths, the command name (`git push`, `gh pr list`), the exit status and the same one-line error shown in the UI — never file contents, the rest of the command arguments, commit messages or issue bodies — and credentials in URLs and GitHub tokens are masked. If the log itself cannot be written, fv keeps running and prints one line about it to stderr after it exits.
+The file is created only when something is logged, with mode `0600`. Each line is `timestamp(UTC) pid LEVEL scope: message`. Entries hold file paths, the command name (`git push`, `gh pr list`), the exit status and the one-line error shown in the UI, with any quoted text and argument values (paths, branch names) masked as `[…]`. For `git commit` / `git apply`, whose hooks or errors can echo commit messages and patch lines, only the exit status is recorded. File contents, commit messages and issue bodies are not written, and credentials in URLs and GitHub tokens are masked. If the log itself cannot be written, fv keeps running and prints one line about it to stderr after it exits.
 
 ## Development
 

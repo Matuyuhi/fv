@@ -62,7 +62,7 @@ where
         Ok(output) => {
             let message = remote_error_line(&output.stderr);
             // remote URL (userinfo 込みのこともある) が入りうるが、logger 側で伏せる
-            log_write_failure(&args, &output.status, &message);
+            log_write_failure(&args, &output.status, Some(&message));
             GitOutcome { ok: false, message }
         }
         Err(e) => {

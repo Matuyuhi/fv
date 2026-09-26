@@ -25,6 +25,8 @@ const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// 1 メッセージの上限 (char 数)。stderr 丸ごと等を誤って渡しても 1 行が際限なく伸びないように
 const MAX_MESSAGE_CHARS: usize = 500;
 const REDACTED: &str = "[REDACTED]";
+/// 引数由来の値 (パス・ブランチ名等) を伏せた跡。認証情報の REDACTED とは区別して読めるように
+const MASKED: &str = "[…]";
 // GitHub のトークン接頭辞 (PAT / OAuth / App / refresh)。gh や git の stderr に紛れても残さない
 const TOKEN_PREFIXES: [&str; 6] = ["github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"];
 
@@ -174,13 +176,71 @@ pub fn command_label<S: AsRef<OsStr>>(args: &[S], words: usize) -> String {
         .join(" ")
 }
 
+/// git / gh の stderr 1 行から、引数由来の値を伏せる。ログに残さないと決めた引数
+/// (`command_label` が落とした分) は stderr にそのまま引用されて戻ってくる — 不正なブランチ名・
+/// 一致しない pathspec 等 — ので、その値と、引用符で囲まれた部分をまとめて伏せる。
+/// UI に出す文言はこれを通さない (ここでの加工はログ専用)
+pub fn mask_command_output<S: AsRef<OsStr>>(message: &str, args: &[S], words: usize) -> String {
+    let mut values: Vec<String> = args
+        .iter()
+        .skip(words)
+        .filter_map(|a| {
+            let a = a.as_ref().to_string_lossy();
+            // `--source=HEAD` のような値付きフラグは値だけ、素のフラグは対象外
+            let value = match a.strip_prefix('-') {
+                Some(flag) => flag.split_once('=')?.1.to_string(),
+                None => a.into_owned(),
+            };
+            // 1 文字の値まで置き換えると関係ない文字まで潰れて読めなくなる
+            (value.chars().count() >= 2).then_some(value)
+        })
+        .collect();
+    // 長いものから置き換える (短い値が長い値の一部を先に潰さないように)
+    values.sort_by_key(|v| std::cmp::Reverse(v.len()));
+    let mut masked = message.to_string();
+    for value in &values {
+        masked = masked.replace(value.as_str(), MASKED);
+    }
+    mask_quoted(&masked)
+}
+
+// git / gh はユーザー由来の値 (パス・ref・URL) を '…' か "…" で引用して出す。英文中の
+// アポストロフィ (couldn't) を開き引用符と取り違えないよう、直前が英数字の引用符では開かず、
+// 閉じは直後が英数字でないものに限る。閉じが見つからなければそのまま残す
+fn mask_quoted(message: &str) -> String {
+    let chars: Vec<char> = message.chars().collect();
+    let mut out = String::with_capacity(message.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let opens = (c == '\'' || c == '"') && (i == 0 || !chars[i - 1].is_alphanumeric());
+        let close = opens
+            .then(|| {
+                (i + 1..chars.len()).find(|&j| {
+                    chars[j] == c && chars.get(j + 1).is_none_or(|n| !n.is_alphanumeric())
+                })
+            })
+            .flatten();
+        match close {
+            Some(j) if j > i + 1 => {
+                out.push(c);
+                out.push_str(MASKED);
+                out.push(c);
+                i = j + 1;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 enum Sink {
     /// まだ 1 行も書いていない (ファイルは開いていない)
     Pending,
-    Open {
-        file: File,
-        size: u64,
-    },
+    Open(File),
     /// 開けない・書けなかった。以後は試さない (失敗する I/O を毎回繰り返さない)
     Disabled,
 }
@@ -219,6 +279,12 @@ impl Logger {
     }
 
     fn record(&mut self, now: SystemTime, level: Level, scope: &str, message: &str) {
+        // 書けないと分かった後は畳まずに 1 件ずつ数える。畳んだ要約行は書けないので、
+        // 要約 1 行ぶん (= 1 件) としか数えられなくなる
+        if matches!(self.sink, Sink::Disabled) {
+            self.dropped += 1;
+            return;
+        }
         let message = sanitize(&redact(message));
         if let Some((l, s, m)) = &self.last
             && *l == level
@@ -230,7 +296,9 @@ impl Logger {
         }
         self.flush_repeats(now);
         let line = format_line(now, self.pid, level, scope, &message);
-        self.write_line(&line);
+        if !self.write_line(&line) {
+            self.dropped += 1;
+        }
         self.last = Some((level, scope.to_string(), message));
     }
 
@@ -241,36 +309,43 @@ impl Logger {
         let Some((level, scope, _)) = &self.last else {
             return;
         };
+        let repeats = self.repeats;
         let line = format_line(
             now,
             self.pid,
             *level,
             scope,
-            &format!("(previous message repeated {} times)", self.repeats),
+            &format!("(previous message repeated {repeats} times)"),
         );
         self.repeats = 0;
-        self.write_line(&line);
+        // 要約行は repeats 件ぶんのメッセージを表しているので、書けなければその件数を落とした扱い
+        if !self.write_line(&line) {
+            self.dropped += repeats;
+        }
     }
 
-    fn write_line(&mut self, line: &str) {
-        if let Sink::Open { size, .. } = &self.sink
-            && *size + line.len() as u64 > self.max_bytes
+    /// 書けたら true。書けなかった件数の数え方は呼び出し側が決める (要約行は複数件ぶん)
+    fn write_line(&mut self, line: &str) -> bool {
+        let incoming = line.len() as u64;
+        // 開きっぱなしのハンドルの大きさは信用しない。別の fv プロセスが同じファイルへ追記・
+        // 退避しうるので、毎回パス側を stat し直して「まだ同じファイルか・上限内か」を見る
+        // (書くのは警告以上が既定なので、1 行ごとの stat は問題にならない)
+        if let (Sink::Open(file), Some(path)) = (&self.sink, &self.path)
+            && !still_current(path, file, incoming, self.max_bytes)
         {
-            // 走行中に上限へ達した。閉じて (退避は open が行う) 新しいファイルで続ける
             self.sink = Sink::Pending;
         }
         if matches!(self.sink, Sink::Pending) {
-            self.sink = self.open(line.len() as u64);
+            self.sink = self.open(incoming);
         }
-        let Sink::Open { file, size } = &mut self.sink else {
-            self.dropped += 1;
-            return;
+        let Sink::Open(file) = &mut self.sink else {
+            return false;
         };
         match file.write_all(line.as_bytes()) {
-            Ok(()) => *size += line.len() as u64,
+            Ok(()) => true,
             Err(e) => {
                 self.fail(format!("cannot write {}: {e}", self.display_path()));
-                self.dropped += 1;
+                false
             }
         }
     }
@@ -289,10 +364,7 @@ impl Logger {
         }
         rotate_if_full(&path, incoming, self.max_bytes);
         match open_append(&path) {
-            Ok(file) => {
-                let size = file.metadata().map(|m| m.len()).unwrap_or(0);
-                Sink::Open { file, size }
-            }
+            Ok(file) => Sink::Open(file),
             Err(e) => {
                 self.fail(format!("cannot open {}: {e}", path.display()));
                 Sink::Disabled
@@ -323,7 +395,33 @@ impl Logger {
     }
 }
 
-// 大きさは開き直す時点の実ファイルで測る (同じファイルへ別の fv プロセスも追記しうるため)
+/// 開いているハンドルが今もパスの指すファイルで、この 1 行を足しても上限内か。
+/// 別プロセスに退避 (rename) されたハンドルへ書き続けると `.1` 側が伸び続けてしまう
+fn still_current(path: &Path, file: &File, incoming: u64, max_bytes: u64) -> bool {
+    let Ok(on_disk) = fs::metadata(path) else {
+        return false;
+    };
+    if on_disk.len() > 0 && on_disk.len() + incoming > max_bytes {
+        return false;
+    }
+    same_file(&on_disk, file)
+}
+
+#[cfg(unix)]
+fn same_file(on_disk: &fs::Metadata, file: &File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata()
+        .is_ok_and(|open| open.dev() == on_disk.dev() && open.ino() == on_disk.ino())
+}
+
+// inode で比べられない環境では、退避の検出を諦めて大きさの判定だけに頼る
+#[cfg(not(unix))]
+fn same_file(_on_disk: &fs::Metadata, _file: &File) -> bool {
+    true
+}
+
+// 大きさは開き直す時点の実ファイルで測る (同じファイルへ別の fv プロセスも追記しうるため)。
+// 2 プロセスがほぼ同時に退避すると片方の数行が `.1` ごと上書きされうるが、診断用なので許容する
 fn rotate_if_full(path: &Path, incoming: u64, max_bytes: u64) {
     let Ok(meta) = fs::metadata(path) else {
         return;
@@ -591,6 +689,51 @@ mod tests {
     }
 
     #[test]
+    fn masks_argument_values_and_quoted_text() {
+        assert_eq!(
+            mask_command_output(
+                "fatal: 'bad..name' is not a valid branch name",
+                &["switch", "-c", "bad..name"],
+                1
+            ),
+            "fatal: '[…]' is not a valid branch name"
+        );
+        // 引用されずに出てくる値も伏せる。値付きフラグは値だけ、素のフラグは残す
+        assert_eq!(
+            mask_command_output(
+                "error: src/secret.rs: No such file; source HEAD~3 unknown",
+                &[
+                    "restore",
+                    "--source=HEAD~3",
+                    "--staged",
+                    "--",
+                    "src/secret.rs"
+                ],
+                1
+            ),
+            "error: […]: No such file; source […] unknown"
+        );
+        // 英文中のアポストロフィでは引用とみなさない
+        assert_eq!(
+            mask_command_output("fatal: couldn't find remote ref 'feature/x'", &["pull"], 1),
+            "fatal: couldn't find remote ref '[…]'"
+        );
+        assert_eq!(
+            mask_command_output("no pull requests match \"q\"", &["pr", "list"], 2),
+            "no pull requests match \"[…]\""
+        );
+        // 閉じない引用符・1 文字の値はそのまま
+        assert_eq!(
+            mask_command_output("it's 'open", &["add", "--", "a"], 1),
+            "it's 'open"
+        );
+        assert_eq!(
+            mask_command_output("日本語 'パス'", &["add"], 1),
+            "日本語 '[…]'"
+        );
+    }
+
+    #[test]
     fn writes_lazily_and_collapses_repeats() {
         let dir = temp_dir("repeat");
         let path = dir.join("nested").join("fv.log");
@@ -647,6 +790,34 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    // 同じファイルへ追記している別の fv が退避した後も、退避された `.1` に書き続けない
+    #[test]
+    fn follows_rotation_by_another_process() {
+        let dir = temp_dir("rotate-shared");
+        let path = dir.join("fv.log");
+        let mut a = Logger::new(Level::Warn, Some(path.clone()));
+        let mut b = Logger::new(Level::Warn, Some(path.clone()));
+        let line_len = format_line(at(0), a.pid, Level::Warn, "a", "m0").len() as u64;
+        a.max_bytes = line_len * 3;
+        b.max_bytes = line_len * 3;
+        a.record(at(0), Level::Warn, "a", "m0");
+        b.record(at(0), Level::Warn, "b", "m0");
+        a.record(at(1), Level::Warn, "a", "m1");
+        // ここで上限に達しているので a が退避して新しいファイルに書く
+        a.record(at(2), Level::Warn, "a", "m2");
+        b.record(at(3), Level::Warn, "b", "m3");
+        let old = fs::read_to_string(dir.join("fv.log.1")).unwrap();
+        let new = fs::read_to_string(&path).unwrap();
+        assert_eq!(old.lines().count(), 3, "{old}");
+        assert!(new.contains("a: m2") && new.contains("b: m3"), "{new}");
+
+        // 外から伸ばされた分も、開いたままのハンドルの記憶ではなく実ファイルで測る
+        fs::write(&path, vec![b'x'; (line_len * 3) as usize]).unwrap();
+        b.record(at(4), Level::Warn, "b", "m4");
+        assert!(fs::read_to_string(&path).unwrap().ends_with("b: m4\n"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn reports_failure_instead_of_writing_to_the_terminal() {
         let dir = temp_dir("fail");
@@ -660,6 +831,20 @@ mod tests {
         let report = logger.failure_report().unwrap();
         assert!(report.contains("cannot create"), "{report}");
         assert!(report.contains("2 message(s) dropped"), "{report}");
+
+        // 書けなくなった後の同じメッセージの連続も 1 件ずつ数える (畳んだ要約 1 件にしない)
+        for i in 0..5 {
+            logger.record(at(2 + i), Level::Error, "git", "two");
+        }
+        logger.flush_repeats(at(10));
+        assert!(
+            logger
+                .failure_report()
+                .unwrap()
+                .contains("7 message(s) dropped"),
+            "{:?}",
+            logger.failure_report()
+        );
 
         let mut homeless = Logger::new(Level::Warn, None);
         homeless.record(at(0), Level::Warn, "git", "one");

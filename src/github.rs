@@ -327,13 +327,15 @@ where
 }
 
 // サブコマンド 2 語 ("issue list" 等) と UI に出すのと同じ stderr の 1 行だけを残す。
-// issue/PR の番号・本文・トークンは書かない (トークンが stderr に紛れた場合は logger が伏せる)
+// issue/PR の番号・本文・トークンは書かない (stderr に引用されて戻ってきた引数の値と引用部分は
+// mask_command_output が、紛れ込んだトークンは logger が伏せる)
 fn log_failure(args: &[OsString], status: &std::process::ExitStatus, message: &str) {
     logger::warn(
         "github",
         format_args!(
-            "gh {} failed ({status}): {message}",
-            logger::command_label(args, 2)
+            "gh {} failed ({status}): {}",
+            logger::command_label(args, 2),
+            logger::mask_command_output(message, args, 2)
         ),
     );
 }
