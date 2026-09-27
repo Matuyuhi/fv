@@ -12,8 +12,11 @@ name: Release
 # 前提シークレット: HOMEBREW_TAP_TOKEN
 #   Matuyuhi/homebrew-tools への書き込み権を持つ PAT（fine-grained: Contents=R/W）。
 #   未設定なら update-tap はスキップ（publish までは走る）。
+# 任意シークレット: CLAUDE_CODE_OAUTH_TOKEN
+#   publish 後のリリースノート生成（旧 release-notes.yml）に使う。未設定ならその step はスキップ。
 #
-# サードパーティ Action は供給網最小化のため公式 actions/checkout, actions/cache のみ。残りは gh / rustup / sed。
+# サードパーティ Action は供給網最小化のため公式 actions/checkout, actions/cache と
+# リリースノート生成の anthropics/claude-code-action のみ。残りは gh / rustup / sed。
 
 on:
   push:
@@ -132,9 +135,19 @@ jobs:
 
   publish:
     # 全ビルドが資産を上げ終えてから公開（ここで immutable にロックされる）。
+    # リリースノートの書き換えも同じジョブで続けてやる（旧 release-notes.yml）。
+    # 公開より前に生成できないのは、draft の間はタグがまだ作られず
+    # `git log <prev>..v$VER` が引けないため（immutable 化されるのは資産だけで body は編集できる）。
     needs: [guard, build]
     if: needs.guard.outputs.release == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write       # gh release edit
+      pull-requests: read   # gh pr list / view
+    env:
+      # secrets は step の if から読めないので env 経由で有無を見る
+      CLAUDE_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - name: Publish the release
         env:
@@ -142,6 +155,55 @@ jobs:
           REPO: ${{ github.repository }}
           VER: ${{ needs.guard.outputs.version }}
         run: gh release edit "v$VER" --repo "$REPO" --draft=false
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0   # need full history and tags to diff against the previous release
+
+      # ノート生成に失敗しても公開済みのリリース（--generate-notes の既定 body）は残す。
+      # 後段の update-tap もここで止めない。
+      - name: Generate release notes
+        if: ${{ env.CLAUDE_TOKEN != '' }}
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: |
+            --allowed-tools "Bash(git log:*),Bash(git tag:*),Bash(git describe:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh release edit:*),Write,Read"
+          prompt: |
+            A GitHub release was just published in the `${{ github.repository }}` repository.
+            The release tag is `v${{ needs.guard.outputs.version }}`.
+
+            Rewrite the body of this release as user-facing release notes.
+
+            Step 1: Identify the previous release tag.
+            - Run `gh release list --exclude-drafts --exclude-pre-releases` and take the most recent published release older than `v${{ needs.guard.outputs.version }}`.
+            - If there is no previous release, treat all history up to this tag as the range.
+
+            Step 2: Collect the changes.
+            - Use the pull requests merged between the previous release tag and `v${{ needs.guard.outputs.version }}`. Find them with `git log <previous_tag>..v${{ needs.guard.outputs.version }} --merges` and `gh pr view` for details.
+            - Fall back to commit messages if there are no PRs.
+
+            Step 3: Write the notes.
+            - Write from the user's perspective: describe what changed, not how it was implemented.
+            - Merge closely related changes into a single bullet.
+            - Omit changes with no user-visible impact (CI, refactoring, dependency bumps, version-bump chores, internal logging, bot-generated PRs) unless they fix a bug users could notice.
+            - Keep each bullet to one concise line.
+            - If no user-visible changes remain, use a single bullet: `- Minor internal improvements`.
+
+            Output format (follow exactly, nothing before or after):
+
+            ■ v${{ needs.guard.outputs.version }}
+            - xxxx
+            - xxx
+
+            Step 4: Publish.
+            - Save the notes to `release-notes.md`.
+            - Run `gh release edit v${{ needs.guard.outputs.version }} --notes-file release-notes.md` to overwrite the existing body.
+            - Confirm with `gh release view v${{ needs.guard.outputs.version }}` that the body was updated. If the edit fails, exit with an error instead of reporting success.
 
   update-tap:
     needs: [guard, publish]
