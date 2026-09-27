@@ -1,0 +1,38 @@
+name: Release notes
+
+# 公開済みリリースの body を利用者向けのノートに書き換える（.github/actions/release-notes）。
+# release.yml の publish から `gh workflow run` で起動される。release.yml の中で直接呼ばないのは、
+# anthropics/claude-code-action@v1 が push イベントを扱えず "Unsupported event type: push"
+# で落ちるため（workflow_dispatch は automation イベントとして受け付けられる）。
+# 手動で書き直したいときも Actions の "Run workflow" からタグを指定して回せる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 対象のリリースタグ（例 v1.2.3）
+        required: true
+        type: string
+
+permissions:
+  contents: write       # gh release edit
+  pull-requests: read   # gh pr list / view
+
+jobs:
+  notes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      # ローカル action は checkout 済みでないと解決できない。
+      # ノート生成が前リリースとの差分を引くため全履歴が要る
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Rewrite the release notes
+        uses: ./.github/actions/release-notes
+        with:
+          tag: ${{ inputs.tag }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          claude-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
