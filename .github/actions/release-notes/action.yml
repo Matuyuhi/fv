@@ -1,0 +1,69 @@
+name: Release notes
+description: 公開済みリリースの body を、利用者向けのリリースノートに書き換える。
+
+# 呼び出し側の前提:
+#   - 対象タグを含む **全履歴** で checkout 済み（fetch-depth: 0）。
+#     ローカル action は checkout 後でないと解決できないので、checkout はここには置けない。
+#   - 対象リリースが **公開済み**（draft の間はタグが無く git log で範囲を引けない）。
+#   - permissions: contents: write（gh release edit）/ pull-requests: read（gh pr list|view）。
+# claude-token が空なら何もせずに終わる（token 未設定の環境でリリースを落とさないため）。
+
+inputs:
+  tag:
+    description: 対象のリリースタグ（例 v1.2.3）
+    required: true
+  repository:
+    description: 対象リポジトリ（owner/name）
+    required: true
+  github-token:
+    description: gh CLI 用のトークン
+    required: true
+  claude-token:
+    description: Claude Code の OAuth トークン。空ならノート生成をスキップする
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Generate release notes
+      if: inputs.claude-token != ''
+      uses: anthropics/claude-code-action@v1
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      with:
+        claude_code_oauth_token: ${{ inputs.claude-token }}
+        github_token: ${{ inputs.github-token }}
+        claude_args: |
+          --allowed-tools "Bash(git log:*),Bash(git tag:*),Bash(git describe:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh release edit:*),Write,Read"
+        prompt: |
+          A GitHub release was just published in the `${{ inputs.repository }}` repository.
+          The release tag is `${{ inputs.tag }}`.
+
+          Rewrite the body of this release as user-facing release notes.
+
+          Step 1: Identify the previous release tag.
+          - Run `gh release list --exclude-drafts --exclude-pre-releases` and take the most recent published release older than `${{ inputs.tag }}`.
+          - If there is no previous release, treat all history up to this tag as the range.
+
+          Step 2: Collect the changes.
+          - Use the pull requests merged between the previous release tag and `${{ inputs.tag }}`. Find them with `git log <previous_tag>..${{ inputs.tag }} --merges` and `gh pr view` for details.
+          - Fall back to commit messages if there are no PRs.
+
+          Step 3: Write the notes.
+          - Write from the user's perspective: describe what changed, not how it was implemented.
+          - Merge closely related changes into a single bullet.
+          - Omit changes with no user-visible impact (CI, refactoring, dependency bumps, version-bump chores, internal logging, bot-generated PRs) unless they fix a bug users could notice.
+          - Keep each bullet to one concise line.
+          - If no user-visible changes remain, use a single bullet: `- Minor internal improvements`.
+
+          Output format (follow exactly, nothing before or after):
+
+          ■ ${{ inputs.tag }}
+          - xxxx
+          - xxx
+
+          Step 4: Publish.
+          - Save the notes to `release-notes.md`.
+          - Run `gh release edit ${{ inputs.tag }} --notes-file release-notes.md` to overwrite the existing body.
+          - Confirm with `gh release view ${{ inputs.tag }}` that the body was updated. If the edit fails, exit with an error instead of reporting success.
