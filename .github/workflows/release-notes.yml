@@ -1,0 +1,64 @@
+name: Release Notes
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write       # gh release edit
+  pull-requests: read   # gh pr list / view
+
+concurrency:
+  group: release-notes-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # need full history and tags to diff against the previous release
+
+      - name: Generate release notes
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: |
+            --allowed-tools "Bash(git log:*),Bash(git tag:*),Bash(git describe:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh release edit:*),Write,Read"
+          prompt: |
+            A GitHub release was just published in the `${{ github.repository }}` repository.
+            The release tag is `${{ github.event.release.tag_name }}`.
+
+            Rewrite the body of this release as user-facing release notes.
+
+            Step 1: Identify the previous release tag.
+            - Run `gh release list --exclude-drafts --exclude-pre-releases` and take the most recent published release older than `${{ github.event.release.tag_name }}`.
+            - If there is no previous release, treat all history up to this tag as the range.
+
+            Step 2: Collect the changes.
+            - Use the pull requests merged between the previous release tag and `${{ github.event.release.tag_name }}`. Find them with `git log <previous_tag>..${{ github.event.release.tag_name }} --merges` and `gh pr view` for details.
+            - Fall back to commit messages if there are no PRs.
+
+            Step 3: Write the notes.
+            - Write from the user's perspective: describe what changed, not how it was implemented.
+            - Merge closely related changes into a single bullet.
+            - Omit changes with no user-visible impact (CI, refactoring, dependency bumps, version-bump chores, internal logging, bot-generated PRs) unless they fix a bug users could notice.
+            - Keep each bullet to one concise line.
+            - If no user-visible changes remain, use a single bullet: `- Minor internal improvements`.
+
+            Output format (follow exactly, nothing before or after):
+
+            ■ ${{ github.event.release.tag_name }}
+            - xxxx
+            - xxx
+
+            Step 4: Publish.
+            - Save the notes to `release-notes.md`.
+            - Run `gh release edit ${{ github.event.release.tag_name }} --notes-file release-notes.md` to overwrite the existing body.
+            - Confirm with `gh release view ${{ github.event.release.tag_name }}` that the body was updated. If the edit fails, exit with an error instead of reporting success.
