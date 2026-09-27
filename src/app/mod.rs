@@ -880,7 +880,9 @@ impl App {
     /// 全レーン共通の一時通知をセットする。書き込み系操作 (run_git_write) の結果表示など、
     /// GIT レーンを離れても見せたいメッセージから呼ぶ
     pub(super) fn set_notice(&mut self, message: impl Into<String>, is_error: bool) {
-        self.notice = Some((message.into(), Instant::now(), is_error));
+        let prefix = if is_error { "⚠ " } else { "✓ " };
+        let formatted = format!("{}{}", prefix, message.into());
+        self.notice = Some((formatted, Instant::now(), is_error));
     }
 
     /// ステータスバー表示用。実行中のリモート操作が無ければ None

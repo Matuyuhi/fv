@@ -15,3 +15,7 @@
 ## 2024-11-20 - Ratatui Empty States for TUI Lists
 **Learning:** Rendering an empty list in a TUI can lead to a confusing blank area (often making the user wonder if the app is frozen or if the search returned no results). The standard ratatui `List` doesn't provide a built-in fallback UI for zero items.
 **Action:** When implementing TUI components with search or filter functionality that render lists, always short-circuit the list drawing logic to explicitly render a visual empty state (e.g. `Paragraph::new("no matches").style(Style::default().fg(Color::DarkGray))`) when the items array is empty.
+
+## 2026-09-27 - Add Unicode Prefix to TUI Notifications
+**Learning:** Relying purely on color alone (like foreground color differences) to signify success vs error states in TUI status bars is a poor UX/accessibility pattern. Some terminal color themes might make the colors indistinct, or users may have color blindness.
+**Action:** Always include universally recognized textual indicators or Unicode symbols (like `✓` and `⚠`) alongside color changes for all transient or status notifications to improve scannability and accessibility.
