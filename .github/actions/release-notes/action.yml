@@ -4,7 +4,8 @@ description: 公開済みリリースの body を、利用者向けのリリー�
 # 呼び出し側の前提:
 #   - push 以外のイベントで動いていること。claude-code-action@v1 は push を
 #     "Unsupported event type" で拒否するので、release.yml からは release-notes.yml を
-#     workflow_dispatch で起動して、その中で呼ぶ。
+#     workflow_dispatch で起動して、その中で呼ぶ（その run の actor は github-actions[bot]
+#     になるので allowed_bots で許可している）。
 #   - 対象タグを含む **全履歴** で checkout 済み（fetch-depth: 0）。
 #     ローカル action は checkout 後でないと解決できないので、checkout はここには置けない。
 #   - 対象リリースが **公開済み**（draft の間はタグが無く git log で範囲を引けない）。
@@ -37,6 +38,11 @@ runs:
       with:
         claude_code_oauth_token: ${{ inputs.claude-token }}
         github_token: ${{ inputs.github-token }}
+        # release.yml の publish が GITHUB_TOKEN で workflow_dispatch するため、actor は
+        # github-actions[bot] になり、既定の人間 actor チェックで "non-human actor" として落ちる。
+        # workflow_dispatch は write 権限者（か GITHUB_TOKEN）しか起動できず、プロンプトも固定なので
+        # '*' ではなくこの bot だけを許可する
+        allowed_bots: github-actions[bot]
         claude_args: |
           --allowed-tools "Bash(git log:*),Bash(git tag:*),Bash(git describe:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh release edit:*),Write,Read"
         prompt: |
