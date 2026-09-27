@@ -2,6 +2,9 @@ name: Release notes
 description: 公開済みリリースの body を、利用者向けのリリースノートに書き換える。
 
 # 呼び出し側の前提:
+#   - push 以外のイベントで動いていること。claude-code-action@v1 は push を
+#     "Unsupported event type" で拒否するので、release.yml からは release-notes.yml を
+#     workflow_dispatch で起動して、その中で呼ぶ。
 #   - 対象タグを含む **全履歴** で checkout 済み（fetch-depth: 0）。
 #     ローカル action は checkout 後でないと解決できないので、checkout はここには置けない。
 #   - 対象リリースが **公開済み**（draft の間はタグが無く git log で範囲を引けない）。
