@@ -44,6 +44,7 @@ runs:
         # '*' ではなくこの bot だけを許可する
         allowed_bots: github-actions[bot]
         claude_args: |
+          --model claude-opus-5-5 --effort low
           --allowed-tools "Bash(git log:*),Bash(git tag:*),Bash(git describe:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh release edit:*),Write,Read"
         prompt: |
           A GitHub release was just published in the `${{ inputs.repository }}` repository.
