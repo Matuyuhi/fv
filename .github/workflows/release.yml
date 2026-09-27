@@ -136,7 +136,7 @@ jobs:
 
   publish:
     # 全ビルドが資産を上げ終えてから公開（ここで immutable にロックされる）。
-    # 公開後にリリースノートの書き換え（release-notes.yml）を起動する。
+    # 公開後にリリースノートの書き足し（release-notes.yml）を起動する。
     # 公開より前に生成できないのは、draft の間はタグがまだ作られず
     # `git log <prev>..v$VER` が引けないため（immutable になるのは資産だけで body は編集できる）。
     needs: [guard, build]
