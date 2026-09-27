@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "fv"
-version = "2.1.16"
+version = "2.1.17"
 dependencies = [
  "crossterm 0.28.1",
  "ignore",
