@@ -55,8 +55,9 @@ pub(crate) fn draw_remote_list<R>(
         } else {
             "no matches"
         };
-        let paragraph = Paragraph::new(message)
+        let paragraph = Paragraph::new(center_text(message, area.height.saturating_sub(2)))
             .block(pane_block(title, focused))
+            .alignment(ratatui::layout::Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;

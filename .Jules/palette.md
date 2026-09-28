@@ -15,3 +15,7 @@
 ## 2024-11-20 - Ratatui Empty States for TUI Lists
 **Learning:** Rendering an empty list in a TUI can lead to a confusing blank area (often making the user wonder if the app is frozen or if the search returned no results). The standard ratatui `List` doesn't provide a built-in fallback UI for zero items.
 **Action:** When implementing TUI components with search or filter functionality that render lists, always short-circuit the list drawing logic to explicitly render a visual empty state (e.g. `Paragraph::new("no matches").style(Style::default().fg(Color::DarkGray))`) when the items array is empty.
+
+## 2024-11-21 - Centering Empty States for TUI Lists
+**Learning:** Rendering an empty list message (like "no matches") in the top-left corner of the list area can look unbalanced, especially when rendering lists in large UI components or side panes.
+**Action:** Always center the text for empty state indicators in lists visually (using `.alignment(ratatui::layout::Alignment::Center)`) and vertically (using `center_text(msg, area.height)`) when using `Paragraph` to render empty states in a list widget.

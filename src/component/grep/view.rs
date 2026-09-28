@@ -7,7 +7,7 @@ use ratatui::widgets::{
 };
 
 use super::{GrepState, search};
-use crate::widget::{centered_rect, visible_window};
+use crate::widget::{center_text, centered_rect, visible_window};
 
 pub(crate) fn draw_grep(frame: &mut Frame, grep: &mut GrepState, area: Rect) {
     let popup = centered_rect(80, 80, area);
@@ -72,7 +72,11 @@ fn draw_list(frame: &mut Frame, grep: &mut GrepState, area: Rect) {
             "no matches"
         };
         frame.render_widget(
-            Paragraph::new(Span::styled(message, Style::default().fg(Color::DarkGray))),
+            Paragraph::new(Span::styled(
+                center_text(message, area.height),
+                Style::default().fg(Color::DarkGray),
+            ))
+            .alignment(ratatui::layout::Alignment::Center),
             area,
         );
         return;
