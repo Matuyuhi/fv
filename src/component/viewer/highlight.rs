@@ -6,14 +6,31 @@ use syntect::highlighting::{
     Color as SyntectColor, FontStyle, HighlightIterator, HighlightState,
     Highlighter as ThemeHighlighter, Style as SyntectStyle, Theme, ThemeSet,
 };
-use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
+use syntect::parsing::{
+    ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder,
+};
 
 use crate::text;
+
+// syntect の同梱定義 (Sublime Text 標準パッケージ由来) に無い言語。外部の完全な定義を
+// 取り込まず、キーワード・文字列・コメント程度を塗る最小定義を自前で持つ
+const EXTRA_SYNTAXES: [(&str, &str); 4] = [
+    ("kotlin", include_str!("syntaxes/kotlin.sublime-syntax")),
+    ("swift", include_str!("syntaxes/swift.sublime-syntax")),
+    (
+        "typescript",
+        include_str!("syntaxes/typescript.sublime-syntax"),
+    ),
+    ("toml", include_str!("syntaxes/toml.sublime-syntax")),
+];
 
 /// syntect のシンタックス定義とテーマの置き場。ハイライト結果も行の状態も持たない —
 /// 何をどこまで計算するかは呼び出し側 (render.rs の HighlightCache) の責務
 pub struct Highlighter {
     syntax_set: SyntaxSet,
+    // 同梱セットへ足し込まず別のセットにするのは、into_builder → build が同梱の全文法を
+    // 起動のたびにリンクし直すため。追加分だけなら数個の定義のリンクで済む
+    extra_syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     theme: Theme,
     theme_name: String,
@@ -22,6 +39,7 @@ pub struct Highlighter {
 impl Highlighter {
     pub fn new() -> Self {
         let syntax_set = SyntaxSet::load_defaults_newlines();
+        let extra_syntax_set = load_extra_syntaxes();
         let theme_set = ThemeSet::load_defaults();
         let theme_name = "base16-ocean.dark".to_string();
         let mut theme = theme_set
@@ -32,6 +50,7 @@ impl Highlighter {
         tweak_comment_color(&mut theme);
         Self {
             syntax_set,
+            extra_syntax_set,
             theme_set,
             theme,
             theme_name,
@@ -64,24 +83,55 @@ impl Highlighter {
     /// 行単位で再開できるハイライトの実行単位を作る。テーマ側の Highlighter (セレクタの
     /// 展開) はここで 1 回だけ組み立て、行ごとの状態は LineState として呼び出し側が持ち回る
     pub(super) fn session<'a>(&'a self, path: &Path, first_line: &str) -> Session<'a> {
+        let (syntax_set, syntax) =
+            find_syntax(&self.syntax_set, &self.extra_syntax_set, path, first_line);
         Session {
-            syntax_set: &self.syntax_set,
+            syntax_set,
             theme: ThemeHighlighter::new(&self.theme),
-            syntax: find_syntax(&self.syntax_set, path, first_line),
+            syntax,
         }
     }
 }
 
+// 定義は include_str! で埋め込んだ固定文字列なので、読めないのはビルドした側の誤り
+// (テスト `extra_syntaxes_load` で検出する)
+fn load_extra_syntaxes() -> SyntaxSet {
+    let mut builder = SyntaxSetBuilder::new();
+    for (name, source) in EXTRA_SYNTAXES {
+        // 同梱セットと同じ newlines 版に揃える。行末の `\n` で pop する規則はこれが前提
+        let definition = SyntaxDefinition::load_from_str(source, true, None)
+            .unwrap_or_else(|e| panic!("bundled {name}.sublime-syntax is invalid: {e}"));
+        builder.add(definition);
+    }
+    builder.build()
+}
+
+// parse_line には syntax を持っているセットを渡す必要があるので、組で返す
 fn find_syntax<'a>(
+    syntax_set: &'a SyntaxSet,
+    extra_syntax_set: &'a SyntaxSet,
+    path: &Path,
+    first_line: &str,
+) -> (&'a SyntaxSet, &'a SyntaxReference) {
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if let Some(syntax) = extra_syntax_set.find_syntax_by_extension(ext) {
+            return (extra_syntax_set, syntax);
+        }
+        if let Some(syntax) = syntax_set.find_syntax_by_extension(ext) {
+            return (syntax_set, syntax);
+        }
+    }
+    (
+        syntax_set,
+        find_default_syntax(syntax_set, path, first_line),
+    )
+}
+
+fn find_default_syntax<'a>(
     syntax_set: &'a SyntaxSet,
     path: &Path,
     first_line: &str,
 ) -> &'a SyntaxReference {
-    if let Some(ext) = path.extension().and_then(|e| e.to_str())
-        && let Some(syntax) = syntax_set.find_syntax_by_extension(ext)
-    {
-        return syntax;
-    }
     // Makefile 等、拡張子なしのファイル名そのものが文法定義に登録されている
     if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
         && let Some(syntax) = syntax_set.find_syntax_by_extension(file_name)
@@ -225,4 +275,124 @@ fn adjust(c: u8, darken: bool) -> u8 {
 // 255 * 299 (最大項) が u16 に収まらないため u32 で計算する
 fn luminance(c: SyntectColor) -> u16 {
     ((c.r as u32 * 299 + c.g as u32 * 587 + c.b as u32 * 114) / 1000) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EXTRA_SYNTAXES, Highlighter, load_extra_syntaxes};
+    use ratatui::style::Style;
+    use ratatui::text::Span;
+    use std::path::Path;
+
+    // syntect の読み込みは重いので、テストの中で 1 度だけ作って共有する
+    fn highlighter() -> &'static Highlighter {
+        use std::sync::OnceLock;
+        static ONCE: OnceLock<Highlighter> = OnceLock::new();
+        ONCE.get_or_init(Highlighter::new)
+    }
+
+    // 各行を先頭から順にハイライトし、行ごとの (文字列, style) を返す
+    fn highlight(file: &str, lines: &[&str]) -> Vec<Vec<(String, Style)>> {
+        let session = highlighter().session(Path::new(file), lines[0]);
+        let mut state = session.start();
+        lines
+            .iter()
+            .map(|line| {
+                let mut spans: Vec<Span<'static>> = Vec::new();
+                session.line(&format!("{line}\n"), &mut state, &mut spans);
+                spans
+                    .into_iter()
+                    .map(|s| (s.content.trim().to_string(), s.style))
+                    .filter(|(text, _)| !text.is_empty())
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn style_of(row: &[(String, Style)], token: &str) -> Style {
+        row.iter()
+            .find(|(text, _)| text == token)
+            .unwrap_or_else(|| panic!("{token:?} is not a separate span in {row:?}"))
+            .1
+    }
+
+    #[test]
+    fn extra_syntaxes_load() {
+        let set = load_extra_syntaxes();
+        assert_eq!(set.syntaxes().len(), EXTRA_SYNTAXES.len());
+    }
+
+    // 同梱定義に無い言語でも、宣言のキーワードが識別子と別の色で塗られる
+    #[test]
+    fn keywords_are_colored_apart_from_identifiers() {
+        let cases: [(&str, &str, &[&str], &str); 4] = [
+            (
+                "a.kt",
+                "import foo.bar\nval x = 1\nvar y = 2",
+                &["import", "val", "var"],
+                "x",
+            ),
+            (
+                "a.swift",
+                "import Foundation\nlet x = 1\nvar y = 2",
+                &["import", "let", "var"],
+                "x",
+            ),
+            (
+                "a.ts",
+                "import { a } from \"b\"\nconst x = 1\nlet y = 2",
+                &["import", "const", "let"],
+                "x",
+            ),
+            (
+                "a.toml",
+                "[package]\nname = \"fv\"\nx = true",
+                &["name"],
+                "=",
+            ),
+        ];
+        for (file, text, keywords, plain) in cases {
+            let lines: Vec<&str> = text.lines().collect();
+            let rows = highlight(file, &lines);
+            let all: Vec<(String, Style)> = rows.concat();
+            // スコープの付かない区間は `x = ` のように 1 つの span にまとまって出てくる
+            let plain_style = all
+                .iter()
+                .find(|(text, _)| text.starts_with(plain))
+                .unwrap_or_else(|| panic!("{file}: no span starts with {plain:?}"))
+                .1;
+            for keyword in keywords {
+                assert_ne!(style_of(&all, keyword), plain_style, "{file}: {keyword}");
+            }
+        }
+    }
+
+    // 閉じ忘れた文字列 (や tsx 本文のアポストロフィ) が次の行を文字列色に染めない
+    #[test]
+    fn unterminated_string_stops_at_line_end() {
+        for (file, open) in [
+            ("a.kt", "val s = \"oops"),
+            ("a.swift", "let s = \"oops"),
+            ("a.ts", "<p>don't</p>"),
+            ("a.toml", "s = \"oops"),
+        ] {
+            let keyword = if file.ends_with(".toml") {
+                "k"
+            } else {
+                "import"
+            };
+            let next = if file.ends_with(".toml") {
+                "k = 1"
+            } else {
+                "import x"
+            };
+            let rows = highlight(file, &[open, next]);
+            let fresh = highlight(file, &[next]);
+            assert_eq!(
+                style_of(&rows[1], keyword),
+                style_of(&fresh[0], keyword),
+                "{file}"
+            );
+        }
+    }
 }

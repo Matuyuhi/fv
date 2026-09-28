@@ -1,0 +1,114 @@
+%YAML 1.2
+---
+# syntect の同梱定義に Kotlin が無いため自前で持つ最小定義 (highlight.rs の EXTRA_SYNTAXES)。
+# キーワード・宣言名・文字列・コメント・数値・アノテーションだけを塗り分け、式の構造は追わない
+name: Kotlin
+file_extensions: [kt, kts]
+scope: source.kotlin
+
+variables:
+  ident: '[A-Za-z_][A-Za-z0-9_]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - match: '\b(package|import)\b'
+      scope: keyword.control.import.kotlin
+    - match: '\b(fun)\s+(?:(`[^`]+`|{{ident}})\s*\.\s*)?(`[^`]+`|{{ident}})'
+      captures:
+        1: storage.type.function.kotlin
+        3: entity.name.function.kotlin
+    - match: '\b(class|interface|object|typealias)\s+({{ident}})'
+      captures:
+        1: storage.type.class.kotlin
+        2: entity.name.type.class.kotlin
+    - match: '\b(val|var|fun|class|interface|object|typealias|constructor|init|companion)\b'
+      scope: storage.type.kotlin
+    - match: '\b(public|private|protected|internal|open|abstract|final|override|sealed|data|enum|annotation|inner|inline|value|lateinit|const|suspend|operator|infix|tailrec|external|vararg|noinline|crossinline|reified|expect|actual)\b'
+      scope: storage.modifier.kotlin
+    - match: '\b(if|else|when|for|while|do|return|break|continue|throw|try|catch|finally)\b'
+      scope: keyword.control.kotlin
+    # get/set はソフトキーワードで `map.get(k)` のような呼び出しにも現れるため入れない
+    - match: '\b(as\??|is|in|out|by|where|this|super|it)\b'
+      scope: keyword.other.kotlin
+    - match: '\b(true|false|null)\b'
+      scope: constant.language.kotlin
+    - match: '@(?:{{ident}}:)?{{ident}}'
+      scope: variable.annotation.kotlin
+    - include: numbers
+    - match: '\b[A-Z][A-Za-z0-9_]*[a-z][A-Za-z0-9_]*\b'
+      scope: support.class.kotlin
+    - match: '({{ident}})\s*(?=\()'
+      captures:
+        1: variable.function.kotlin
+
+  comments:
+    - match: '//'
+      scope: punctuation.definition.comment.kotlin
+      push:
+        - meta_scope: comment.line.double-slash.kotlin
+        - match: '\n'
+          pop: true
+    - match: '/\*'
+      scope: punctuation.definition.comment.kotlin
+      push: block-comment
+
+  # Kotlin のブロックコメントは入れ子になる
+  block-comment:
+    - meta_scope: comment.block.kotlin
+    - match: '/\*'
+      push: block-comment
+    - match: '\*/'
+      pop: true
+
+  numbers:
+    - match: '\b(0[xX][0-9A-Fa-f_]+|0[bB][01_]+|[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9]+)?)[uU]?[lLfF]?\b'
+      scope: constant.numeric.kotlin
+
+  strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.kotlin
+      push:
+        - meta_scope: string.quoted.triple.kotlin
+        - match: '"""'
+          scope: punctuation.definition.string.end.kotlin
+          pop: true
+        - include: interpolation
+    - match: '"'
+      scope: punctuation.definition.string.begin.kotlin
+      push:
+        - meta_scope: string.quoted.double.kotlin
+        - match: '"'
+          scope: punctuation.definition.string.end.kotlin
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.kotlin
+        - include: interpolation
+        # 閉じ忘れの文字列が次の行以降を丸ごと文字列色に染めないよう、行末で打ち切る
+        - match: '\n'
+          pop: true
+    - match: "'(\\\\.|[^'\\\\])*'"
+      scope: string.quoted.single.kotlin
+
+  interpolation:
+    - match: '\$\{'
+      scope: punctuation.section.embedded.begin.kotlin
+      push:
+        - clear_scopes: 1
+        - meta_scope: meta.interpolation.kotlin
+        - match: '\}'
+          scope: punctuation.section.embedded.end.kotlin
+          pop: true
+        - include: braces
+        - include: main
+    - match: '\${{ident}}'
+      scope: variable.other.interpolation.kotlin
+
+  braces:
+    - match: '\{'
+      push:
+        - match: '\}'
+          pop: true
+        - include: braces
+        - include: main

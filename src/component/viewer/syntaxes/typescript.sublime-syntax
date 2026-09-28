@@ -1,0 +1,115 @@
+%YAML 1.2
+---
+# syntect の同梱定義に TypeScript が無いため自前で持つ最小定義 (highlight.rs の EXTRA_SYNTAXES)。
+# キーワード・宣言名・文字列・コメント・数値・デコレータだけを塗り分け、式の構造は追わない。
+# 正規表現リテラルは割り算の / とトークンだけでは区別できないので扱わない。tsx の JSX タグも解釈しない
+name: TypeScript
+file_extensions: [ts, tsx, mts, cts]
+scope: source.ts
+
+variables:
+  ident: '[A-Za-z_$][A-Za-z0-9_$]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - match: '\b(import|export|from)\b'
+      scope: keyword.control.import.ts
+    - match: '\b(function)\s*\*?\s*({{ident}})'
+      captures:
+        1: storage.type.function.ts
+        2: entity.name.function.ts
+    - match: '\b(class|interface|type|enum|namespace)\s+({{ident}})'
+      captures:
+        1: storage.type.class.ts
+        2: entity.name.type.class.ts
+    - match: '\b(const|let|var|function|class|interface|type|enum|namespace|module|declare)\b'
+      scope: storage.type.ts
+    - match: '\b(public|private|protected|readonly|static|abstract|async|override|accessor)\b'
+      scope: storage.modifier.ts
+    - match: '\b(if|else|switch|case|default|for|while|do|return|break|continue|throw|try|catch|finally|await|yield|of|in)\b'
+      scope: keyword.control.ts
+    - match: '\b(new|delete|typeof|instanceof|keyof|infer|extends|implements|satisfies|as|is|void|this|super)\b'
+      scope: keyword.other.ts
+    - match: '\b(true|false|null|undefined)\b'
+      scope: constant.language.ts
+    - match: '@{{ident}}'
+      scope: variable.annotation.ts
+    - include: numbers
+    - match: '\b[A-Z][A-Za-z0-9_]*[a-z][A-Za-z0-9_]*\b'
+      scope: support.class.ts
+    - match: '({{ident}})\s*(?=\()'
+      captures:
+        1: variable.function.ts
+
+  comments:
+    - match: '//'
+      scope: punctuation.definition.comment.ts
+      push:
+        - meta_scope: comment.line.double-slash.ts
+        - match: '\n'
+          pop: true
+    - match: '/\*'
+      scope: punctuation.definition.comment.ts
+      push:
+        - meta_scope: comment.block.ts
+        - match: '\*/'
+          pop: true
+
+  numbers:
+    - match: '\b(0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9]+)?n?)\b'
+      scope: constant.numeric.ts
+
+  strings:
+    - match: '`'
+      scope: punctuation.definition.string.begin.ts
+      push:
+        - meta_scope: string.template.ts
+        - match: '`'
+          scope: punctuation.definition.string.end.ts
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.ts
+        - match: '\$\{'
+          scope: punctuation.section.embedded.begin.ts
+          push:
+            - clear_scopes: 1
+            - meta_scope: meta.interpolation.ts
+            - match: '\}'
+              scope: punctuation.section.embedded.end.ts
+              pop: true
+            - include: braces
+            - include: main
+    - match: '"'
+      scope: punctuation.definition.string.begin.ts
+      push:
+        - meta_scope: string.quoted.double.ts
+        - match: '"'
+          scope: punctuation.definition.string.end.ts
+          pop: true
+        - include: line-string
+    - match: "'"
+      scope: punctuation.definition.string.begin.ts
+      push:
+        - meta_scope: string.quoted.single.ts
+        - match: "'"
+          scope: punctuation.definition.string.end.ts
+          pop: true
+        - include: line-string
+
+  line-string:
+    - match: '\\.'
+      scope: constant.character.escape.ts
+    # 閉じ忘れや JSX 本文中のアポストロフィ (`don't`) が次の行以降を丸ごと文字列色に
+    # 染めないよう、行末で打ち切る
+    - match: '\n'
+      pop: true
+
+  braces:
+    - match: '\{'
+      push:
+        - match: '\}'
+          pop: true
+        - include: braces
+        - include: main

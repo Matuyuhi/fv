@@ -1,0 +1,111 @@
+%YAML 1.2
+---
+# syntect の同梱定義に Swift が無いため自前で持つ最小定義 (highlight.rs の EXTRA_SYNTAXES)。
+# キーワード・宣言名・文字列・コメント・数値・属性だけを塗り分け、式の構造は追わない
+name: Swift
+file_extensions: [swift]
+scope: source.swift
+
+variables:
+  ident: '[A-Za-z_][A-Za-z0-9_]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - match: '\bimport\b'
+      scope: keyword.control.import.swift
+    - match: '\b(func)\s+(`[^`]+`|{{ident}})'
+      captures:
+        1: storage.type.function.swift
+        2: entity.name.function.swift
+    - match: '\b(class|struct|enum|protocol|extension|actor|typealias)\s+({{ident}})'
+      captures:
+        1: storage.type.class.swift
+        2: entity.name.type.class.swift
+    - match: '\b(let|var|func|class|struct|enum|protocol|extension|actor|typealias|init|deinit|subscript|associatedtype|operator|precedencegroup)\b'
+      scope: storage.type.swift
+    - match: '\b(public|private|fileprivate|internal|open|package|static|final|override|mutating|nonmutating|lazy|weak|unowned|dynamic|required|convenience|optional|indirect|inout|async|throws|rethrows|some|any|nonisolated|isolated|consuming|borrowing|sending)\b'
+      scope: storage.modifier.swift
+    - match: '\b(if|else|guard|switch|case|default|for|while|repeat|return|break|continue|fallthrough|throw|try|catch|do|defer|where|in|await)\b'
+      scope: keyword.control.swift
+    - match: '\b(as|is|self|Self|super)\b'
+      scope: keyword.other.swift
+    - match: '\b(true|false|nil)\b'
+      scope: constant.language.swift
+    - match: '@{{ident}}'
+      scope: variable.annotation.swift
+    - match: '#{{ident}}'
+      scope: keyword.other.preprocessor.swift
+    - include: numbers
+    - match: '\b[A-Z][A-Za-z0-9_]*[a-z][A-Za-z0-9_]*\b'
+      scope: support.class.swift
+    - match: '({{ident}})\s*(?=\()'
+      captures:
+        1: variable.function.swift
+
+  comments:
+    - match: '//'
+      scope: punctuation.definition.comment.swift
+      push:
+        - meta_scope: comment.line.double-slash.swift
+        - match: '\n'
+          pop: true
+    - match: '/\*'
+      scope: punctuation.definition.comment.swift
+      push: block-comment
+
+  # Swift のブロックコメントは入れ子になる
+  block-comment:
+    - meta_scope: comment.block.swift
+    - match: '/\*'
+      push: block-comment
+    - match: '\*/'
+      pop: true
+
+  numbers:
+    - match: '\b(0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9]+)?)\b'
+      scope: constant.numeric.swift
+
+  strings:
+    - match: '"""'
+      scope: punctuation.definition.string.begin.swift
+      push:
+        - meta_scope: string.quoted.triple.swift
+        - match: '"""'
+          scope: punctuation.definition.string.end.swift
+          pop: true
+        - include: escapes
+    - match: '"'
+      scope: punctuation.definition.string.begin.swift
+      push:
+        - meta_scope: string.quoted.double.swift
+        - match: '"'
+          scope: punctuation.definition.string.end.swift
+          pop: true
+        - include: escapes
+        # 閉じ忘れの文字列が次の行以降を丸ごと文字列色に染めないよう、行末で打ち切る
+        - match: '\n'
+          pop: true
+
+  escapes:
+    - match: '\\\('
+      scope: punctuation.section.embedded.begin.swift
+      push:
+        - clear_scopes: 1
+        - meta_scope: meta.interpolation.swift
+        - match: '\)'
+          scope: punctuation.section.embedded.end.swift
+          pop: true
+        - include: parens
+        - include: main
+    - match: '\\.'
+      scope: constant.character.escape.swift
+
+  parens:
+    - match: '\('
+      push:
+        - match: '\)'
+          pop: true
+        - include: parens
+        - include: main

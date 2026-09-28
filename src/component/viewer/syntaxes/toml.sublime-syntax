@@ -1,0 +1,62 @@
+%YAML 1.2
+---
+# syntect の同梱定義に TOML が無いため自前で持つ最小定義 (highlight.rs の EXTRA_SYNTAXES)
+name: TOML
+file_extensions: [toml]
+scope: source.toml
+
+contexts:
+  main:
+    - match: '#'
+      scope: punctuation.definition.comment.toml
+      push:
+        - meta_scope: comment.line.number-sign.toml
+        - match: '\n'
+          pop: true
+    - match: '^\s*(\[\[?)([^\]\n]*)(\]\]?)'
+      captures:
+        1: punctuation.definition.table.toml
+        2: entity.name.type.class.toml
+        3: punctuation.definition.table.toml
+    # 行頭のキーと、インラインテーブル内 (`{ a = 1 }`) のキー
+    - match: '(?:^|(?<=[{,]))\s*([A-Za-z0-9_.\-]+|"[^"\n]*"|''[^''\n]*'')\s*(?==)'
+      captures:
+        1: entity.name.tag.toml
+    - include: values
+
+  values:
+    - match: '"""'
+      push:
+        - meta_scope: string.quoted.triple.toml
+        - match: '"""'
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.toml
+    - match: "'''"
+      push:
+        - meta_scope: string.quoted.triple.literal.toml
+        - match: "'''"
+          pop: true
+    - match: '"'
+      push:
+        - meta_scope: string.quoted.double.toml
+        - match: '"'
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.toml
+        - match: '\n'
+          pop: true
+    - match: "'"
+      push:
+        - meta_scope: string.quoted.single.toml
+        - match: "'"
+          pop: true
+        - match: '\n'
+          pop: true
+    - match: '\b(true|false)\b'
+      scope: constant.language.toml
+    # 日付・時刻は数値より先に拾う (1979-05-27 を 1979 と -05 に割らない)
+    - match: '\b[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?([Zz]|[+-][0-9]{2}:[0-9]{2})?)?\b'
+      scope: constant.other.datetime.toml
+    - match: '[+-]?\b(0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+|[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9]+)?)\b|[+-]?\b(inf|nan)\b'
+      scope: constant.numeric.toml
