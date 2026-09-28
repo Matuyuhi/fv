@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, 
 
 use crate::component::finder::Finder;
 
-use crate::widget::centered_rect;
+use crate::widget::{center_text, centered_rect};
 
 // scanning は FileIndex の背景走査中フラグ (候補が読み込み済み分だけの暫定値であることを示す)。
 // Finder 自身は走査の進行を知らないので、呼び出し側から渡してもらう
@@ -52,7 +52,9 @@ fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
 
 fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
     if finder.matches.is_empty() {
-        let p = Paragraph::new("no matches").style(Style::default().fg(Color::DarkGray));
+        let p = Paragraph::new(center_text("no matches", area.height))
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(p, area);
         return;
     }

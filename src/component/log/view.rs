@@ -7,7 +7,7 @@ use crate::component::log::LogState;
 
 use crate::widget::diff_boundary::{sticky_line, widen_boundary_bands};
 use crate::widget::text_pane::{LineWindow, TextPane, widen_row_bands};
-use crate::widget::{pane_block, visible_window};
+use crate::widget::{center_text, pane_block, visible_window};
 
 // 件名を最優先で残し、狭い幅では右側の列から落とす閾値 (issues/PR の一覧と同じ考え方)。
 // ツリーと同じ左ペインに同居するようになり、単独レーンだった頃の幅は前提にできない
@@ -18,8 +18,9 @@ const TIME_MIN_WIDTH: usize = 40;
 pub(crate) fn draw_log_list(frame: &mut Frame, log: &mut LogState, focused: bool, area: Rect) {
     let title = format!("log ({})", log.commits().len());
     if log.commits().is_empty() {
-        let paragraph = Paragraph::new("no commits")
+        let paragraph = Paragraph::new(center_text("no commits", area.height.saturating_sub(2)))
             .block(pane_block(title, focused))
+            .alignment(ratatui::layout::Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
@@ -117,8 +118,9 @@ pub(crate) fn draw_log_diff(
     let block = pane_block(title, focused);
 
     if log.line_count() == 0 {
-        let paragraph = Paragraph::new("no changes")
+        let paragraph = Paragraph::new(center_text("no changes", area.height.saturating_sub(2)))
             .block(block)
+            .alignment(ratatui::layout::Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;

@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, 
 
 use crate::component::branch::{BranchRow, BranchState};
 
-use crate::widget::centered_rect;
+use crate::widget::{center_text, centered_rect};
 
 pub(crate) fn draw_branch(frame: &mut Frame, state: &mut BranchState, area: Rect) {
     let popup = centered_rect(70, 60, area);
@@ -41,7 +41,9 @@ fn draw_input(frame: &mut Frame, state: &BranchState, area: Rect) {
 
 fn draw_list(frame: &mut Frame, state: &mut BranchState, area: Rect) {
     if state.matches.is_empty() {
-        let p = Paragraph::new("no matches").style(Style::default().fg(Color::DarkGray));
+        let p = Paragraph::new(center_text("no matches", area.height))
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(p, area);
         return;
     }
