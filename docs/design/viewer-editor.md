@@ -20,6 +20,14 @@
   - **クエリを後ろへ伸ばしただけなら前回マッチした行だけを見直す**（`candidate_lines`）。smart-case で大小を区別するように切り替わっても「区別して一致 ⇒ 区別せずに一致」なので成り立つ。縮めた（Backspace）・書き換えた時は全体に戻る。GIT レーンの diff 内検索も同じ絞り込みを使い、絞った行の本文だけを組み立てる
 - 描画側（`text_pane::highlight_matches`）は `matches` が (行, 桁) 順に並んでいることを使って**二分探索でその行の区間だけ**を切り出す。以前は可視行ごとに全マッチを filter していて、ハイライトが出ている間のスクロールが「可視行数 × 文書全体のマッチ数」になっていた（`search-scroll`）。`matches` を組み立てる側は行番号の昇順を守ること
 
+## 同梱に無い言語の文法定義（component/viewer/syntaxes/）
+syntect の同梱定義は Sublime Text 標準パッケージ由来で、Kotlin・Swift・TypeScript・TOML を含まない（該当ファイルは Plain Text に落ち、`import` も `val` も無色だった）。この 4 言語は自前の最小 `.sublime-syntax` を `include_str!` で埋め込んで補う。
+- **塗るのはトークンだけ**: キーワード（import 系・宣言・修飾子・制御）・宣言名（`fun foo` / `class Foo`）・文字列と補間・コメント・数値・アノテーション/デコレータ、大文字始まりの型名、呼び出し位置の関数名。式や型の構造は追わない。外部の完全な定義（bat 等）を取り込まないのは、依存を足さない方針と同じ理由で、取り込み元のライセンスと更新追従を抱えないため
+- **スコープ名は標準的な TextMate 名に寄せる**（`keyword.control.import` / `storage.type` / `storage.modifier` / `entity.name.function` / `comment.line` 等）。テーマは設定から切り替えられるので、特定のテーマに合わせた名前にはしない。コメントを `comment.*` にしておくと `tweak_comment_color` の補正もそのまま効く
+- **同梱セットとは別の `SyntaxSet` に持つ**（`Highlighter::extra_syntax_set`）。同梱セットを `into_builder` して足すと、`build` が同梱の全文法を起動のたびにリンクし直すため。代わりに `parse_line` へ渡すセットは「その syntax を持つ側」でなければならないので、`find_syntax` がセットと syntax を組で返し、`Session` がそのセットを握る。拡張子の解決は追加分を先に見る
+- **1 行で閉じる文字列は行末で打ち切る**（`"` と TS の `'`）。閉じ忘れの 1 か所が次の行以降を丸ごと文字列色に染めないため。`"""` とテンプレートリテラルは複数行が正規の形なので打ち切らない
+- 既知の制約: TS の正規表現リテラルは割り算の / とトークンだけでは区別できないので扱わない。tsx は TS と同じ定義で読むので、JSX のタグは `<` と識別子のまま出る（アポストロフィを含む本文も行末で打ち切られるので、崩れはその行で止まる）
+
 ## インライン編集（component/editor/）
 - `Lane::Edit(EditState)` が編集状態（バッファ・カーソル・undo）を所有し、「編集中なのに状態が無い」を型で排除する（Finder と同じパターン）
 - `EditBuffer` は disk から**生テキストを独立ロード**する。viewer の `plain` はタブ展開済みで保存に使えない。CRLF・末尾改行を記憶し `to_text()` で復元（保存でファイルを壊さないための核）。undo/redo は Insert/Delete 2 種の op の逆適用で、連続タイピングは coalesce（カーソル移動・改行・保存・ペーストで区切る）

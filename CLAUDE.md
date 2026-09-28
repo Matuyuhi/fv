@@ -65,7 +65,7 @@ LC_ALL=C grep -ao '<marker>' out.raw
   - 書き込み系操作の後の即時再取得は `App::rescan_now`（rescan + デバウンスのタイマー/保留フラグのリセット）に集約する。呼び出し側で 4 行を複製しない
 - `component/` — 状態 + その状態だけを受け取る View。各フォルダは `mod.rs`（状態）と `view.rs`（描画）を持つ
   - `tree/` — mod.rs(選択・展開操作), node.rs, scan.rs(1 階層走査・遅延ロード・rescan ヘルパー), view.rs
-  - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect 一式とテーマ + 行単位で再開できる Session/LineState), render.rs(HighlightCache: 可視範囲の前後に余白を持つ帯として組み立てる遅延ハイライト), content.rs(読込・Content/TextDoc/Open), search.rs, selection.rs(Selection: 範囲選択とコピー用のテキスト取り出し), rowcursor.rs(行カーソルの追従計算。VIEW/GIT/コミット diff/PR が共有), view.rs
+  - `viewer/` — mod.rs(open/reload/履歴・cache), viewport.rs(Viewport: スクロール・折返し状態), highlight.rs(Highlighter: syntect 一式とテーマ + 行単位で再開できる Session/LineState), syntaxes/(同梱に無い言語の最小 .sublime-syntax。docs/design/viewer-editor.md), render.rs(HighlightCache: 可視範囲の前後に余白を持つ帯として組み立てる遅延ハイライト), content.rs(読込・Content/TextDoc/Open), search.rs, selection.rs(Selection: 範囲選択とコピー用のテキスト取り出し), rowcursor.rs(行カーソルの追従計算。VIEW/GIT/コミット diff/PR が共有), view.rs
   - `editor/` — mod.rs(EditState: カーソル・キー処理・追従), buffer.rs(EditBuffer: 生テキスト・undo/redo), diff.rs(prefix/suffix トリム + LCS と、その共通範囲を打鍵を跨いで持ち越す CommonTrim。行単位のライブ diff と gitlane の word-level diff が LCS を共有する `pub(crate)`), view.rs
   - `gitlane/` — GIT レーンの diff 表示状態。mod.rs が GitState (今どの diff をどう見ているか・行カーソル・行単位選択) と定数/Kind/各 *Diff 構造体、render.rs が inline の行組み立て (render_inline / コミット一覧パネル・PR タブと共有する render_commit)、side.rs が side-by-side (#30)、word.rs が word-level 差分の範囲計算 (#29)、patch.rs が行単位 stage のパッチ組み立て、view.rs が描画
   - `log/` — コミット一覧パネル (`L`) の一覧・ページング・選択 diff の状態 + view.rs(コミット一覧 + diff)
@@ -152,7 +152,7 @@ GIT レーン右ペインの `Space`（hunk 単位ステージ）と `Enter`（�
 | [git.md](docs/design/git.md) | git CLI ラッパー・GIT レーン（diff 表示・hunk/行単位 stage・word-level・side-by-side・diff 内検索・まとめ diff）・コミット・discard/stash・ブランチ一覧・コミット一覧パネル・非同期ジョブと fetch/pull/push |
 | [github.md](docs/design/github.md) | GitHub モードのタブバー・issues タブ・pull requests タブ・両者が共有する一覧/キャッシュ基盤 (remotelist) |
 | [grep.md](docs/design/grep.md) | ワークスペース横断検索 (`Ctrl+f`) の恒久的な要約（作業メモは [workspace-grep.md](docs/design/workspace-grep.md)） |
-| [viewer-editor.md](docs/design/viewer-editor.md) | ビューアの範囲選択とコピー・インライン編集（EditBuffer・undo・ライブ diff・単語移動） |
+| [viewer-editor.md](docs/design/viewer-editor.md) | ビューアの範囲選択とコピー・同梱に無い言語の文法定義・インライン編集（EditBuffer・undo・ライブ diff・単語移動） |
 | [ui-text.md](docs/design/ui-text.md) | UI 言語（`lang/`、文言の足し方）・一時通知 |
 | [logging.md](docs/design/logging.md) | 診断ログ（出力先・レベル・初期化・機密情報の扱い・書けない時のフォールバック・eprintln! 禁止） |
 | [preview.md](docs/design/preview.md) | UI プレビュー・スクリーンショットテスト（SVG スナップショット・CI コメント）・速度チェック (`cargo perf`) |
