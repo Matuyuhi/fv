@@ -208,9 +208,13 @@ fn draw_pr_diff(
         return;
     }
     if prs.line_count() == 0 {
-        let paragraph = Paragraph::new("no changes")
-            .block(pane_block(title, focused))
-            .style(Style::default().fg(Color::DarkGray));
+        let paragraph = Paragraph::new(crate::widget::center_text(
+            "no changes",
+            area.height.saturating_sub(2),
+        ))
+        .block(pane_block(title, focused))
+        .alignment(ratatui::layout::Alignment::Center)
+        .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
     }

@@ -64,8 +64,9 @@ pub(crate) fn draw_git(
     };
 
     if git.line_count() == 0 {
-        let paragraph = Paragraph::new("no changes")
+        let paragraph = Paragraph::new(center_text("no changes", area.height.saturating_sub(2)))
             .block(pane_block(title, focused))
+            .alignment(ratatui::layout::Alignment::Center)
             .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(paragraph, area);
         return;
