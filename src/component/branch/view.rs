@@ -26,17 +26,37 @@ pub(crate) fn draw_branch(frame: &mut Frame, state: &mut BranchState, area: Rect
 }
 
 fn draw_input(frame: &mut Frame, state: &BranchState, area: Rect) {
-    let query_text = format!("> {}", state.query);
+    let mut spans = vec![Span::raw("> ")];
+    let mut used = 2 + 1; // "> " + cursor
+
+    if state.query.is_empty() {
+        spans.push(Span::styled(
+            " ",
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+        let placeholder = "Filter branches...";
+        spans.push(Span::styled(
+            placeholder,
+            Style::default().fg(Color::DarkGray),
+        ));
+        used += placeholder.chars().count();
+    } else {
+        spans.push(Span::raw(&state.query));
+        spans.push(Span::styled(
+            " ",
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+        used += state.query.chars().count();
+    }
+
     let count = format!("{}/{}", state.matches.len(), state.total());
-    let used = query_text.chars().count() + 1 + count.chars().count();
+    used += count.chars().count();
+
     let pad = (area.width as usize).saturating_sub(used);
-    let line = Line::from(vec![
-        Span::raw(query_text),
-        Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
-        Span::raw(" ".repeat(pad)),
-        Span::styled(count, Style::default().fg(Color::DarkGray)),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(count, Style::default().fg(Color::DarkGray)));
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn draw_list(frame: &mut Frame, state: &mut BranchState, area: Rect) {
