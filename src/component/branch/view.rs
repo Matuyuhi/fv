@@ -28,14 +28,26 @@ pub(crate) fn draw_branch(frame: &mut Frame, state: &mut BranchState, area: Rect
 fn draw_input(frame: &mut Frame, state: &BranchState, area: Rect) {
     let query_text = format!("> {}", state.query);
     let count = format!("{}/{}", state.matches.len(), state.total());
-    let used = query_text.chars().count() + 1 + count.chars().count();
+
+    let mut spans = vec![Span::raw(query_text)];
+    if state.query.is_empty() {
+        spans.push(Span::styled(
+            "Search branches...",
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    spans.push(Span::styled(
+        " ",
+        Style::default().add_modifier(Modifier::REVERSED),
+    ));
+
+    let used = spans.iter().map(|s| s.width()).sum::<usize>() + count.chars().count();
     let pad = (area.width as usize).saturating_sub(used);
-    let line = Line::from(vec![
-        Span::raw(query_text),
-        Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
-        Span::raw(" ".repeat(pad)),
-        Span::styled(count, Style::default().fg(Color::DarkGray)),
-    ]);
+
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(count, Style::default().fg(Color::DarkGray)));
+
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), area);
 }
 
