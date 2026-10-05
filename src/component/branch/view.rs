@@ -28,11 +28,17 @@ pub(crate) fn draw_branch(frame: &mut Frame, state: &mut BranchState, area: Rect
 fn draw_input(frame: &mut Frame, state: &BranchState, area: Rect) {
     let query_text = format!("> {}", state.query);
     let count = format!("{}/{}", state.matches.len(), state.total());
-    let used = query_text.chars().count() + 1 + count.chars().count();
+    let placeholder = if state.query.is_empty() {
+        " type to filter branches..."
+    } else {
+        ""
+    };
+    let used = query_text.chars().count() + 1 + placeholder.chars().count() + count.chars().count();
     let pad = (area.width as usize).saturating_sub(used);
     let line = Line::from(vec![
         Span::raw(query_text),
         Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
+        Span::styled(placeholder, Style::default().fg(Color::DarkGray)),
         Span::raw(" ".repeat(pad)),
         Span::styled(count, Style::default().fg(Color::DarkGray)),
     ]);

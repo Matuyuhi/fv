@@ -19,3 +19,7 @@
 ## 2024-11-21 - Centering Empty States for TUI Lists
 **Learning:** Rendering an empty list message (like "no matches") in the top-left corner of the list area can look unbalanced, especially when rendering lists in large UI components or side panes.
 **Action:** Always center the text for empty state indicators in lists visually (using `.alignment(ratatui::layout::Alignment::Center)`) and vertically (using `center_text(msg, area.height)`) when using `Paragraph` to render empty states in a list widget.
+## 2026-10-05 - TUI Input Placeholder Text\n**Learning:** In TUI interfaces, search/filter input fields without text should display descriptive placeholders styled distinctively (e.g., using `Color::DarkGray`) instead of appearing completely blank to guide user input better.\n**Action:** When creating or updating a custom text input widget for search, always add a descriptive placeholder text when the query string is empty.
+## $(date +%Y-%m-%d) - TUI Input Placeholder Text
+**Learning:** In TUI interfaces, search/filter input fields without text should display descriptive placeholders styled distinctively (e.g., using `Color::DarkGray`) instead of appearing completely blank to guide user input better.
+**Action:** When creating or updating a custom text input widget for search, always add a descriptive placeholder text when the query string is empty.
