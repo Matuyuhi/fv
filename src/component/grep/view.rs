@@ -53,11 +53,22 @@ fn title(grep: &GrepState) -> String {
 }
 
 fn draw_input(frame: &mut Frame, grep: &GrepState, area: Rect) {
-    let line = Line::from(vec![
-        Span::raw(format!("> {}", grep.query)),
-        // 常に末尾に立つ簡易カーソル (Finder と同じ表現)
-        Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
-    ]);
+    let mut spans = vec![Span::raw(format!("> {}", grep.query))];
+    // 常に末尾に立つ簡易カーソル (Finder と同じ表現)
+    spans.push(Span::styled(
+        " ",
+        Style::default().add_modifier(Modifier::REVERSED),
+    ));
+
+    if grep.query.is_empty() {
+        let placeholder = " Search workspace...";
+        spans.push(Span::styled(
+            placeholder,
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), area);
 }
 
