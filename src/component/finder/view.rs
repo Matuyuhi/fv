@@ -34,14 +34,24 @@ pub(crate) fn draw_finder(frame: &mut Frame, finder: &mut Finder, scanning: bool
 }
 
 fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
-    let query_text = format!("> {}", finder.query);
+    let query_text = if finder.query.is_empty() {
+        "> ".to_string()
+    } else {
+        format!("> {}", finder.query)
+    };
     let count = format!("{}/{}", finder.matches.len(), finder.total());
     // 入力とカーソルの右側を件数表示までスペースで埋める。入力欄がそれより
     // 狭ければ埋めず単純に連結するだけにする (折り返しは Paragraph に任せる)
-    let used = query_text.chars().count() + 1 + count.chars().count();
+    let placeholder_len = if finder.query.is_empty() { 17 } else { 0 };
+    let used = query_text.chars().count() + 1 + count.chars().count() + placeholder_len;
     let pad = (area.width as usize).saturating_sub(used);
     let line = Line::from(vec![
         Span::raw(query_text),
+        if finder.query.is_empty() {
+            Span::styled("Type to search...", Style::default().fg(Color::DarkGray))
+        } else {
+            Span::styled("", Style::default())
+        },
         // 常に末尾に立つ簡易カーソル (他の入力行と同じ表現)
         Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
         Span::raw(" ".repeat(pad)),

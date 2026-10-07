@@ -54,7 +54,16 @@ fn title(grep: &GrepState) -> String {
 
 fn draw_input(frame: &mut Frame, grep: &GrepState, area: Rect) {
     let line = Line::from(vec![
-        Span::raw(format!("> {}", grep.query)),
+        if grep.query.is_empty() {
+            Span::raw("> ")
+        } else {
+            Span::raw(format!("> {}", grep.query))
+        },
+        if grep.query.is_empty() {
+            Span::styled("Type to grep...", Style::default().fg(Color::DarkGray))
+        } else {
+            Span::styled("", Style::default())
+        },
         // 常に末尾に立つ簡易カーソル (Finder と同じ表現)
         Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
     ]);

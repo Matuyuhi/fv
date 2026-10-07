@@ -4,7 +4,7 @@
 
 **Action:** Update `notice_line` in `src/shell/status_bar.rs` to include a visual indicator (e.g., prefix with an info/warning symbol like `i` or `!`, or Nerd Font icon if supported, but simpler is safer if we want it to work without Nerd Fonts. Actually, let's use standard unicode characters like `✓` for success/info and `⚠` for error).
 
-## $(date +%Y-%m-%d) - Edit Mode Notice Consistency
+## 2026-10-07 - Edit Mode Notice Consistency
 **Learning:** Edit mode specific notices (`EditState.notice`) previously bypassed the standard `notice_line` styling, resulting in warnings (unsaved changes) and errors (save failed) lacking visual distinction (color and icon) from normal hints.
 **Action:** Always ensure nested or state-specific notice mechanisms reuse the top-level standard styling to provide a consistent visual language across all modes.
 
@@ -19,3 +19,7 @@
 ## 2024-11-21 - Centering Empty States for TUI Lists
 **Learning:** Rendering an empty list message (like "no matches") in the top-left corner of the list area can look unbalanced, especially when rendering lists in large UI components or side panes.
 **Action:** Always center the text for empty state indicators in lists visually (using `.alignment(ratatui::layout::Alignment::Center)`) and vertically (using `center_text(msg, area.height)`) when using `Paragraph` to render empty states in a list widget.
+
+## 2026-10-07 - Placeholder text for TUI input fields
+**Learning:** Empty search or filter input fields in the TUI (like in finder, branch, and grep panels) were displaying completely blank space after the prompt (e.g., `> `), providing poor discoverability and guidance for users.
+**Action:** Always add descriptive placeholder text styled distinctively (e.g., using `Color::DarkGray`) when an input field's query is empty to improve usability and accessibility without cluttering the active input state.
