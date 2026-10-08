@@ -34,19 +34,38 @@ pub(crate) fn draw_finder(frame: &mut Frame, finder: &mut Finder, scanning: bool
 }
 
 fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
-    let query_text = format!("> {}", finder.query);
     let count = format!("{}/{}", finder.matches.len(), finder.total());
     // 入力とカーソルの右側を件数表示までスペースで埋める。入力欄がそれより
     // 狭ければ埋めず単純に連結するだけにする (折り返しは Paragraph に任せる)
-    let used = query_text.chars().count() + 1 + count.chars().count();
-    let pad = (area.width as usize).saturating_sub(used);
-    let line = Line::from(vec![
-        Span::raw(query_text),
+    let mut spans = vec![Span::raw("> ")];
+    let mut used = 2;
+
+    if finder.query.is_empty() {
+        spans.push(Span::styled(
+            " ",
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+        let placeholder = "search files...";
+        spans.push(Span::styled(
+            placeholder,
+            Style::default().fg(Color::DarkGray),
+        ));
+        used += 1 + placeholder.chars().count();
+    } else {
+        spans.push(Span::raw(finder.query.clone()));
         // 常に末尾に立つ簡易カーソル (他の入力行と同じ表現)
-        Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
-        Span::raw(" ".repeat(pad)),
-        Span::styled(count, Style::default().fg(Color::DarkGray)),
-    ]);
+        spans.push(Span::styled(
+            " ",
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+        used += finder.query.chars().count() + 1;
+    }
+
+    used += count.chars().count();
+    let pad = (area.width as usize).saturating_sub(used);
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(count, Style::default().fg(Color::DarkGray)));
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), area);
 }
 
