@@ -38,12 +38,18 @@ fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
     let count = format!("{}/{}", finder.matches.len(), finder.total());
     // 入力とカーソルの右側を件数表示までスペースで埋める。入力欄がそれより
     // 狭ければ埋めず単純に連結するだけにする (折り返しは Paragraph に任せる)
-    let used = query_text.chars().count() + 1 + count.chars().count();
+    let placeholder = if finder.query.is_empty() {
+        "type to filter files..."
+    } else {
+        ""
+    };
+    let used = query_text.chars().count() + 1 + count.chars().count() + placeholder.chars().count();
     let pad = (area.width as usize).saturating_sub(used);
     let line = Line::from(vec![
         Span::raw(query_text),
         // 常に末尾に立つ簡易カーソル (他の入力行と同じ表現)
         Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
+        Span::styled(placeholder, Style::default().fg(Color::DarkGray)),
         Span::raw(" ".repeat(pad)),
         Span::styled(count, Style::default().fg(Color::DarkGray)),
     ]);
