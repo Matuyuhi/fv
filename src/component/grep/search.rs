@@ -168,6 +168,7 @@ impl Cache {
     /// 予約を戻す。古い世代の走査が差し替え後に戻すと (差し替えで正確な値に置き直した後なので)
     /// 引きすぎになるため、0 で止める。ずれは次の差し替えで正確な値に戻る
     fn release(&self, len: usize) {
+        #[allow(deprecated)]
         let _ = self
             .bytes
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {

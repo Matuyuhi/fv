@@ -1,0 +1,10 @@
+--- src/component/grep/search.rs
++++ src/component/grep/search.rs
+@@ -171,7 +171,8 @@
+         let current_id = self.generation;
++        #[allow(deprecated)]
+         let _ = self
+             .scanned
+             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+                 let (gen, count) = unpack(b);
+                 if gen != current_id {

@@ -1,0 +1,10 @@
+--- src/component/grep/search.rs
++++ src/component/grep/search.rs
+@@ -169,6 +169,7 @@
+     /// 引きすぎになるため、0 で止める。ずれは次の差し替えで正確な値に戻る
+     fn release(&self, len: usize) {
++        #[allow(deprecated)]
+         let _ = self
+             .bytes
+             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+                 Some(b.saturating_sub(len))
