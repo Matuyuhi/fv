@@ -36,7 +36,10 @@ fn draw_input(frame: &mut Frame, state: &BranchState, area: Rect) {
     let mut used = state.query.chars().count() + 3 + count.chars().count();
     if state.query.is_empty() {
         let placeholder = "filter branches...";
-        spans.push(Span::styled(placeholder, Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            placeholder,
+            Style::default().fg(Color::DarkGray),
+        ));
         used += placeholder.chars().count();
     }
 

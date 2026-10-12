@@ -45,7 +45,10 @@ fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
     let mut used = finder.query.chars().count() + 3 + count.chars().count();
     if finder.query.is_empty() {
         let placeholder = "search files...";
-        spans.push(Span::styled(placeholder, Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            placeholder,
+            Style::default().fg(Color::DarkGray),
+        ));
         used += placeholder.chars().count();
     }
     let pad = (area.width as usize).saturating_sub(used);

@@ -60,7 +60,10 @@ fn draw_input(frame: &mut Frame, grep: &GrepState, area: Rect) {
     ];
     if grep.query.is_empty() {
         let placeholder = "search text...";
-        spans.push(Span::styled(placeholder, Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            placeholder,
+            Style::default().fg(Color::DarkGray),
+        ));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
