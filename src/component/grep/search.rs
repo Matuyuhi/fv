@@ -169,9 +169,11 @@ impl Cache {
     /// 引きすぎになるため、0 で止める。ずれは次の差し替えで正確な値に戻る
     fn release(&self, len: usize) {
         #[allow(deprecated)]
-        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
-            Some(b.saturating_sub(len))
-        });
+        let _ = self
+            .bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+                Some(b.saturating_sub(len))
+            });
     }
 
     /// 走査の終わりに map を差し替える。完走していれば seen だけ (消えた・無視対象になった
