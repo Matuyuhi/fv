@@ -1,0 +1,14 @@
+--- src/component/grep/search.rs
++++ src/component/grep/search.rs
+@@ -171,9 +171,8 @@
+     fn release(&self, len: usize) {
+-        let _ = self
+-            .bytes
+-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+-                Some(b.saturating_sub(len))
+-            });
++        #[allow(deprecated)]
++        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
++            Some(b.saturating_sub(len))
++        });
+     }
