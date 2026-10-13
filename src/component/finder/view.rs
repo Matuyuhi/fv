@@ -40,14 +40,26 @@ fn draw_finder_input(frame: &mut Frame, finder: &Finder, area: Rect) {
     // 狭ければ埋めず単純に連結するだけにする (折り返しは Paragraph に任せる)
     let used = query_text.chars().count() + 1 + count.chars().count();
     let pad = (area.width as usize).saturating_sub(used);
-    let line = Line::from(vec![
-        Span::raw(query_text),
-        // 常に末尾に立つ簡易カーソル (他の入力行と同じ表現)
+
+    let mut spans = vec![
+        Span::raw(query_text.clone()),
         Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
-        Span::raw(" ".repeat(pad)),
-        Span::styled(count, Style::default().fg(Color::DarkGray)),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    ];
+
+    let mut pad = pad;
+    if finder.query.is_empty() {
+        let placeholder = crate::lang::t(crate::lang::Msg::HelpFilterByQuery);
+        spans.push(Span::styled(
+            placeholder.to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+        pad = pad.saturating_sub(placeholder.chars().count());
+    }
+
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled(count, Style::default().fg(Color::DarkGray)));
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn draw_finder_list(frame: &mut Frame, finder: &mut Finder, area: Rect) {
