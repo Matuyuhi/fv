@@ -194,6 +194,15 @@ pub const SCENES: &[Scene] = &[
         },
     },
     Scene {
+        name: "finder_empty",
+        description: "Ctrl+p ファジーファインダー (空クエリ)",
+        size: None,
+        setup: |app| {
+            open(app, "src/main.rs");
+            send(app, "<C-p>");
+        },
+    },
+    Scene {
         name: "grep",
         description: "Ctrl+f ワークスペース横断検索 (走査完了後)",
         size: None,
@@ -201,6 +210,15 @@ pub const SCENES: &[Scene] = &[
             open(app, "src/main.rs");
             // 走査はデバウンス後に背景で走る。完了までは preview/mod.rs の settle が待つ
             send(app, "<C-f>items");
+        },
+    },
+    Scene {
+        name: "grep_empty",
+        description: "Ctrl+f ワークスペース横断検索 (空クエリ)",
+        size: None,
+        setup: |app| {
+            open(app, "src/main.rs");
+            send(app, "<C-f>");
         },
     },
     Scene {
