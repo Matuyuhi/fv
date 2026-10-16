@@ -23,3 +23,7 @@
 ## 2024-11-22 - TUI Input Placeholders
 **Learning:** In TUI interfaces, search/filter input fields without text appear as completely blank spaces, leaving users without clear guidance on what action to take (e.g. filtering vs. searching).
 **Action:** When creating text input fields in TUI components, always provide descriptive placeholder text (like "type to filter..." or "type to search...") styled distinctively (e.g., using `Color::DarkGray`) when the query is empty. Ensure alignment padding takes the placeholder width into account to maintain balanced layouts.
+
+## 2024-11-23 - App Status Bar TUI Input Placeholders
+**Learning:** The app's main status bar `Mode::Input` interfaces for search, goto, and file operations previously appeared as empty prompts when no text was typed, lacking visual hints on their purpose beyond the short prefix (`/`, `:`, etc). This matches the finding from 2024-11-22 for other inputs but applying it specifically to the globally accessible input modes.
+**Action:** Updated `input_line` in `src/shell/status_bar.rs` to render a descriptive `Color::DarkGray` placeholder (e.g., "type to search...", "type line number...") when the input buffer is empty, making the UI more approachable and explicitly instructing the user.
