@@ -23,3 +23,6 @@
 ## 2024-11-22 - TUI Input Placeholders
 **Learning:** In TUI interfaces, search/filter input fields without text appear as completely blank spaces, leaving users without clear guidance on what action to take (e.g. filtering vs. searching).
 **Action:** When creating text input fields in TUI components, always provide descriptive placeholder text (like "type to filter..." or "type to search...") styled distinctively (e.g., using `Color::DarkGray`) when the query is empty. Ensure alignment padding takes the placeholder width into account to maintain balanced layouts.
+## 2024-11-22 - Status Bar Input Placeholders
+**Learning:** Empty status bar inputs (for Search, Goto, Filter) lacked descriptive placeholders, leading to confusion when the input is empty as they just show an isolated prefix character (`/`, `:`) with no clear instructions on what type of input is expected.
+**Action:** Always provide contextual placeholders (e.g., "type to search...", "type line number...", "type to filter...") using a muted color like `Color::DarkGray` to guide the user when the input buffer is empty.

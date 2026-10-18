@@ -69,19 +69,23 @@ fn lane_segments(app: &App) -> Vec<Span<'static>> {
 
 fn hint_line(app: &App) -> Line<'static> {
     match &app.mode {
+        Mode::Input {
+            kind: InputKind::Search,
+            buffer,
+        } => input_line("/", buffer, "type to search..."),
         // Filter (issues/PR 一覧の絞り込み) も Search と同じ `/` プレフィックスで見せる
         Mode::Input {
-            kind: InputKind::Search | InputKind::Filter,
+            kind: InputKind::Filter,
             buffer,
-        } => input_line("/", buffer),
+        } => input_line("/", buffer, "type to filter..."),
         Mode::Input {
             kind: InputKind::Goto,
             buffer,
-        } => input_line(":", buffer),
+        } => input_line(":", buffer, "type line number..."),
         Mode::Input {
             kind: kind @ (InputKind::NewFile | InputKind::NewDir | InputKind::Rename),
             buffer,
-        } => input_line(&app.file_op_label(*kind), buffer),
+        } => input_line(&app.file_op_label(*kind), buffer, ""),
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Grep => Line::from("Enter: open  ↑/↓: select  Ctrl+u: clear  Esc: close"),
         Mode::Branch(_) => Line::from("Enter: switch  Ctrl+n: new branch  Esc: close"),
@@ -227,12 +231,31 @@ fn notice_line(message: &str, is_error: bool) -> Line<'static> {
     ))
 }
 
-fn input_line(prefix: &str, buffer: &str) -> Line<'static> {
-    Line::from(vec![
-        Span::raw(format!("{prefix}{buffer}")),
+fn input_line(prefix: &str, buffer: &str, placeholder: &str) -> Line<'static> {
+    let mut spans = vec![Span::raw(prefix.to_string())];
+
+    if buffer.is_empty() && !placeholder.is_empty() {
+        // When there is a placeholder, the cursor should be rendered BEFORE the placeholder,
+        // or on the first character of the placeholder so it doesn't jump.
+        // We'll append the cursor space first, then append the placeholder text.
+        spans.push(Span::styled(
+            " ",
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+        spans.push(Span::styled(
+            placeholder.to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    } else {
+        spans.push(Span::raw(buffer.to_string()));
         // 常に末尾に立つ簡易カーソル (このアプリの入力は末尾への追記のみ)
-        Span::styled(" ", Style::default().add_modifier(Modifier::REVERSED)),
-    ])
+        spans.push(Span::styled(
+            " ",
+            Style::default().add_modifier(Modifier::REVERSED),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 fn edit_status_line(state: &EditState) -> Line<'static> {
