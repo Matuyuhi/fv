@@ -23,3 +23,7 @@
 ## 2024-11-22 - TUI Input Placeholders
 **Learning:** In TUI interfaces, search/filter input fields without text appear as completely blank spaces, leaving users without clear guidance on what action to take (e.g. filtering vs. searching).
 **Action:** When creating text input fields in TUI components, always provide descriptive placeholder text (like "type to filter..." or "type to search...") styled distinctively (e.g., using `Color::DarkGray`) when the query is empty. Ensure alignment padding takes the placeholder width into account to maintain balanced layouts.
+
+## $(date +%Y-%m-%d) - Input placeholders on Global Inputs
+**Learning:** Certain global input components like `Mode::Input` (Search, Filter, Goto, NewFile, NewDir, Rename) in `src/shell/status_bar.rs` were missing context-aware placeholder text when empty. This forces users to infer context entirely from the prompt symbol, leading to poor UX.
+**Action:** When adding TUI input modes, always unpack their types specifically (instead of collapsing match arms) to inject clear, distinct placeholder text (e.g. "type file name...", "type to search...") styled dynamically for each specific input scenario.
