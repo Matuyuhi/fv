@@ -85,15 +85,27 @@ fn hint_line(app: &App) -> Line<'static> {
         Mode::Input {
             kind: InputKind::NewFile,
             buffer,
-        } => input_line(&app.file_op_label(InputKind::NewFile), buffer, "type file name..."),
+        } => input_line(
+            &app.file_op_label(InputKind::NewFile),
+            buffer,
+            "type file name...",
+        ),
         Mode::Input {
             kind: InputKind::NewDir,
             buffer,
-        } => input_line(&app.file_op_label(InputKind::NewDir), buffer, "type directory name..."),
+        } => input_line(
+            &app.file_op_label(InputKind::NewDir),
+            buffer,
+            "type directory name...",
+        ),
         Mode::Input {
             kind: InputKind::Rename,
             buffer,
-        } => input_line(&app.file_op_label(InputKind::Rename), buffer, "type new name..."),
+        } => input_line(
+            &app.file_op_label(InputKind::Rename),
+            buffer,
+            "type new name...",
+        ),
         Mode::Finder(_) => Line::from("Enter: open  Esc: close"),
         Mode::Grep => Line::from("Enter: open  ↑/↓: select  Ctrl+u: clear  Esc: close"),
         Mode::Branch(_) => Line::from("Enter: switch  Ctrl+n: new branch  Esc: close"),
