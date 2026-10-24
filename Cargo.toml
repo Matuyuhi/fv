@@ -13,7 +13,7 @@ preview = []
 
 [dependencies]
 ratatui = "0.30.2"
-crossterm = "0.28"
+crossterm = "0.29"
 syntect = "5.3"
 ignore = "0.4"
 notify = "8"
