@@ -1,0 +1,48 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    # 公開直後の版はまだ yank / 乗っ取りの検出が間に合っていないことがあるので数日寝かせる
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # ratatui は特定の crossterm の版に依存していて、片方だけ上げると
+      # crossterm の型が 2 系統に割れてコンパイルが通らないので必ず一緒に上げる
+      tui:
+        patterns:
+          - ratatui
+          - crossterm
+      # 0.x の minor は破壊的変更を含みうるので個別の PR に残し、
+      # patch だけを 1 本にまとめてレビューの手間を減らす
+      cargo-patch:
+        update-types:
+          - patch
+
+  - package-ecosystem: github-actions
+    # ワークフローに加えて composite action (.github/actions/*) の uses も追う
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"
