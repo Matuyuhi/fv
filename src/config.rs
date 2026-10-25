@@ -109,7 +109,16 @@ impl Config {
             self.github,
             self.lang.as_str()
         );
-        fs::write(path, body)
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
+        use std::io::Write;
+        file.write_all(body.as_bytes())
     }
 }
 
