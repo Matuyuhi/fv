@@ -32,7 +32,7 @@ runs:
   steps:
     - name: Generate release notes
       if: inputs.claude-token != ''
-      uses: anthropics/claude-code-action@v1
+      uses: anthropics/claude-code-action@v1.0.266
       env:
         GH_TOKEN: ${{ inputs.github-token }}
       with:
