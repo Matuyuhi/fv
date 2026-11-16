@@ -432,10 +432,10 @@ impl HighlightCache {
         }
         self.band.rows.clear();
         self.band.start = start;
-        for i in start..start + count {
+        for (i, line) in src.lines[start..start + count].iter().enumerate() {
             self.band.rows.push(Line::from(vec![
-                gutter_span(i + 1, self.gutter_width),
-                Span::raw(text::normalize(&src.lines[i])),
+                gutter_span(start + i + 1, self.gutter_width),
+                Span::raw(text::normalize(line)),
             ]));
         }
     }
